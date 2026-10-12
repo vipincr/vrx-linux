@@ -28,7 +28,11 @@ file names the reality.
 | vrxinit (PID 1) | `rust/init` | decisions landed + tested; exec half is bench-verified |
 | The compositor (DRM/KMS + Flutter engine) | `rust/compositor` | not started — part E, bench |
 | flutter-bridge (bindgen for flutter_embedder.h) | `rust/flutter-bridge` | not started — part D, bench |
-| The Yocto layer | `layer/` | vrxhost recipe + packagegroup; container-verified rung below |
+| The Yocto layer | `layer/` | vrxhost + vrxinit recipes, packagegroup; image-built (below) |
+| The design system (metrics, type, palettes, springs) | `flutter/vrx_kit` | landed with evrx-rt's exact numbers |
+| The component library (rows, header, segmented, chip, banner, press) | `flutter/vrx_kit` | landed; contracts pinned by tests |
+| The shell chrome (status strip) + boot screens (drawer, setup walk) + modals | `flutter/vrx_kit` | landed |
+| Display scaling + input modality | `flutter/vrx_kit` | landed; reference 480 short side, touch floor by modality |
 
 ## The four IPC shapes (there is no fifth way)
 
@@ -67,6 +71,10 @@ Everything above claims only rungs it has actually reached:
 - `cargo xtask gate` — green (fmt, clippy -D warnings, 60+ tests,
   cargo-deny bans/licenses/sources)
 - `flutter test` — green in vrx_kit and every applet
-- the Yocto recipe (vrxhost) — fetch verified in the container;
-  the compile rung is tracked in the vrx repo's plan 0007 notes
-- boots on hardware — pending the bench trip (parts E, M)
+- the Yocto recipes (vrxhost, vrxinit) — image-built: the cm4/disp28a
+  wic (0.1.0071) carries packagegroup-vrx-linux, vrxhost, vrxinit
+- vrxboard-qemu — the software test target (same image, QEMU virt,
+  runqemu in the container): boot and vrxhost-live verification run
+  there before any bench trip
+- boots on hardware — the bench keeps what only hardware can say:
+  real panels and touch controllers, GPU acceleration, power
