@@ -47,7 +47,7 @@ do_install() {
 inherit useradd
 USERADD_PACKAGES = "${PN}"
 GROUPADD_PARAM:${PN} = "-r vrx"
-USERADD_PARAM:${PN} = "-r -g vrx -d /nonexistent -s /sbin/nologin -c 'vrx applet runtime (amendment B: the UI runs unprivileged)' vrx"
+USERADD_PARAM:${PN} = "-r -g vrx -d /nonexistent -s /sbin/nologin -c 'vrx applet runtime (amendment B, the UI runs unprivileged)' vrx"
 
 FILES:${PN} = "${bindir}/vrxhost ${systemd_unitdir}/system/vrxhost.service"
 
