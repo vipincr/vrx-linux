@@ -37,7 +37,9 @@ opt-level = 3
 
 [profile.release]
 lto = "thin"
-strip = true
+# NOT stripped here: bitbake strips and splits debug symbols itself,
+# and its QA fails a pre-stripped binary (already-stripped)
+strip = false
 
 [workspace.lints.rust]
 unsafe_code = "warn"
