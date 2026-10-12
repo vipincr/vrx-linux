@@ -5,6 +5,33 @@ library;
 
 import 'package:flutter/material.dart';
 
+/// The motion tokens: six springs, androidx Material 3 values, ported
+/// to Flutter's spring physics (mass 1). Spatial tokens may overshoot
+/// (position/size/rotation); effects tokens are critically damped
+/// (colour/opacity) — a colour refuses a spatial spring.
+abstract final class MotionTokens {
+  // c = ratio * 2 * sqrt(k * m), m = 1 (Flutter takes the damping
+  // coefficient; androidx takes the ratio — same physics, exact port)
+  static const SpringDescription spatialFast =
+      SpringDescription(mass: 1, stiffness: 1400, damping: 67.34983);
+  // ^ ratio 0.9 (may overshoot: position/size/rotation)
+  static const SpringDescription spatial =
+      SpringDescription(mass: 1, stiffness: 700, damping: 47.62352);
+  // ^ ratio 0.9 (may overshoot: position/size/rotation)
+  static const SpringDescription spatialSlow =
+      SpringDescription(mass: 1, stiffness: 300, damping: 31.17691);
+  // ^ ratio 0.9 (may overshoot: position/size/rotation)
+  static const SpringDescription effectsFast =
+      SpringDescription(mass: 1, stiffness: 3800, damping: 123.28828);
+  // ^ ratio 1.0 (critically damped: colour/opacity)
+  static const SpringDescription effects =
+      SpringDescription(mass: 1, stiffness: 1600, damping: 80.00000);
+  // ^ ratio 1.0 (critically damped: colour/opacity)
+  static const SpringDescription effectsSlow =
+      SpringDescription(mass: 1, stiffness: 800, damping: 56.56854);
+  // ^ ratio 1.0 (critically damped: colour/opacity)
+}
+
 /// The vrx motion presets.
 abstract final class Motion {
   /// Slide the screen in from the right (a push).

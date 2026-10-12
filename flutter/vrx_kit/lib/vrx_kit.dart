@@ -10,6 +10,7 @@ library;
 export 'src/applet.dart';
 export 'src/file.dart';
 export 'src/intent.dart';
+export 'src/metrics.dart';
 export 'src/motion.dart';
 export 'src/nav.dart';
 export 'src/pipe.dart';
