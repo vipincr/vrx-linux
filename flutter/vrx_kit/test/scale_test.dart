@@ -6,7 +6,7 @@ import 'package:vrx_kit/vrx_kit.dart';
 /// shows the design's exact numbers; a 1080p HDMI short side (1080)
 /// scales them 2.25×; a pathological display clamps instead of
 /// vanishing or exploding.
-void main() {
+void main() { _modalityTests();
   Future<double> rowHeightAtShortSide(WidgetTester tester, double shortSide,
       {double longestSide = 1600}) async {
     tester.view.physicalSize = Size(shortSide, longestSide);
@@ -69,5 +69,44 @@ void main() {
     tester.view.physicalSize = const Size(1080, 1920);
     await tester.pump();
     expect(fontSizeAt(1080), closeTo(2.25, 0.01));
+  });
+}
+
+/// Non-touch displays are free of the touch floor: the same row
+/// shrinks to content height, which is what makes dense dashboards
+/// (gauges, tables, charts) legal there.
+Future<double> rowHeightAtModality(
+  WidgetTester tester,
+  VrxInputModality modality,
+) async {
+  tester.view.physicalSize = const Size(480, 800);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.reset);
+  await tester.pumpWidget(
+    VrxInput.install(
+      modality: modality,
+      child: VrxScale.install(
+        child: const MaterialApp(
+          home: Scaffold(body: VrxRow(label: 'row', value: '1')),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return tester.getSize(find.byType(VrxRow)).height;
+}
+
+void _modalityTests() {
+  testWidgets('a touch display floors the row at the touch minimum',
+      (tester) async {
+    final h = await rowHeightAtModality(tester, VrxInputModality.touch);
+    expect(h, closeTo(56.69, 0.5));
+  });
+
+  testWidgets('a non-touch display sizes the row to its content',
+      (tester) async {
+    final touch = await rowHeightAtModality(tester, VrxInputModality.touch);
+    final view = await rowHeightAtModality(tester, VrxInputModality.view);
+    expect(view, lessThan(touch * 0.75), reason: 'dense is the point');
   });
 }

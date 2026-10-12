@@ -153,7 +153,9 @@ class VrxRow extends StatelessWidget {
     return VrxPress(
       onTap: onTap,
       child: Container(
-        constraints: BoxConstraints(minHeight: ScaledSpacing.of(context).touch),
+        constraints: BoxConstraints(
+          minHeight: ScaledSpacing.minInteractive(context),
+        ),
         padding: EdgeInsets.symmetric(horizontal: ScaledSpacing.of(context).inset),
         decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: palette.line, width: Strokes.hairline)),
@@ -207,7 +209,9 @@ class VrxSettingRow extends StatelessWidget {
     return VrxPress(
       onTap: onTap,
       child: Container(
-        constraints: BoxConstraints(minHeight: ScaledSpacing.of(context).touch),
+        constraints: BoxConstraints(
+          minHeight: ScaledSpacing.minInteractive(context),
+        ),
         padding: EdgeInsets.symmetric(
           horizontal: ScaledSpacing.of(context).inset,
           vertical: ScaledSpacing.of(context).sm,
@@ -298,7 +302,9 @@ class VrxBanner extends StatelessWidget {
     if (text == null) return const SizedBox.shrink();
     return Container(
       width: double.infinity,
-      constraints: BoxConstraints(minHeight: ScaledSpacing.of(context).touch),
+      constraints: BoxConstraints(
+        minHeight: ScaledSpacing.minInteractive(context),
+      ),
       padding: EdgeInsets.symmetric(
         horizontal: ScaledSpacing.of(context).inset,
         vertical: ScaledSpacing.of(context).sm,

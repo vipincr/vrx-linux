@@ -80,4 +80,57 @@ class ScaledSpacing {
   double get touch => Spacing.touch * _s;
   double get inset => Spacing.inset * _s;
   double get gutter => Spacing.gutter * _s;
+
+  /// The minimum height of an interactive element, by modality: the
+  /// 9mm touch minimum on a touch display; content height on a
+  /// non-touch one (dense dashboards are sanctioned there).
+  static double minInteractive(BuildContext context) =>
+      VrxInput.of(context) == VrxInputModality.touch
+          ? Spacing.touch * VrxScale.of(context)
+          : 0;
+}
+
+/// The input modality: whether the display is touched. A touch
+/// display floors every interactive element at the 9mm minimum; a
+/// non-touch display (a dashboard panel, a monitor viewed at
+/// distance, a headless output) is free of that floor — rows size to
+/// content, gauges/tables/charts pack densely. The runtime installs
+/// the modality from the hardware (the compositor knows whether the
+/// panel has a touch input — part E); the default is touch, because
+/// assuming density on a touch screen puts a finger on nothing.
+enum VrxInputModality {
+  /// Fingers drive it: the 9mm minimum floors interactive sizes.
+  touch,
+
+  /// Eyes drive it: no touch floor; dense layouts (dashboards,
+  /// gauges, tables, charts) are sanctioned. Navigation, when needed,
+  /// arrives by keys/focus, never by hit targets.
+  view,
+}
+
+/// [InheritedWidget] installing the modality (the runtime's host).
+class VrxInput extends InheritedWidget {
+  const VrxInput({
+    super.key,
+    required this.modality,
+    required super.child,
+  });
+
+  final VrxInputModality modality;
+
+  static VrxInputModality of(BuildContext context) {
+    final input = context.dependOnInheritedWidgetOfExactType<VrxInput>();
+    return input?.modality ?? VrxInputModality.touch;
+  }
+
+  /// Install at the app root.
+  static Widget install({
+    VrxInputModality modality = VrxInputModality.touch,
+    required Widget child,
+  }) =>
+      VrxInput(modality: modality, child: child);
+
+  @override
+  bool updateShouldNotify(VrxInput oldWidget) =>
+      oldWidget.modality != modality;
 }
