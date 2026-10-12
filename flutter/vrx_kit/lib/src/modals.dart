@@ -1,0 +1,167 @@
+/// The modal family, ported from evrx-rt: a modal before an
+/// irreversible act. The contracts:
+///
+/// - Cancel sits LEFT — the safe answer is read first and is first
+/// - the destructive act is LAST and FILLED (inversion carries the
+///   weight)
+/// - name the act, never "OK" — and say what will go ("The 07:00
+///   alarm will be deleted."), not "Are you sure?"
+/// - a modal owns the screen until answered; nothing behind it
+///   answers while it is open
+library;
+
+import 'package:flutter/material.dart';
+
+import 'components.dart';
+import 'metrics.dart';
+import 'scale.dart';
+import 'theme.dart';
+
+/// One named act in a modal.
+class VrxModalAction {
+  const VrxModalAction({required this.label, this.onTap});
+
+  /// The act's own name ("Delete", "Forget"), never "OK".
+  final String label;
+  final VoidCallback? onTap;
+}
+
+/// The confirm: one destructive act or none.
+class VrxConfirm extends StatelessWidget {
+  // not const: the action-count assert is runtime-only
+  // ignore: prefer_const_constructors_in_immutables
+  VrxConfirm({
+    super.key,
+    required this.title,
+    required this.message,
+    required this.cancelLabel,
+    this.act,
+    this.onCancel,
+  });
+
+  /// The screen's own name for the question ("Delete alarm?").
+  final String title;
+
+  /// Says what will go, not whether you are sure.
+  final String message;
+
+  final String cancelLabel;
+  final VoidCallback? onCancel;
+
+  /// The act; its own name, shown filled.
+  final VrxModalAction? act;
+
+  @override
+  Widget build(BuildContext context) {
+    return VrxAsk(
+      title: title,
+      message: message,
+      cancelLabel: cancelLabel,
+      onCancel: onCancel,
+      actions: act == null ? const [] : [act!],
+    );
+  }
+}
+
+/// The ask: Cancel plus up to two acts. One act sits beside Cancel in
+/// a row; two stack in a column under it; the last act is filled.
+/// Three acts is a menu, and a menu is a screen — the constructor
+/// refuses it.
+class VrxAsk extends StatelessWidget {
+  // not const: .length is not const-evaluable; the contract check
+  // runs at construction
+  // ignore: prefer_const_constructors_in_immutables
+  VrxAsk({
+    super.key,
+    required this.title,
+    required this.message,
+    required this.cancelLabel,
+    this.onCancel,
+    this.actions = const [],
+  }) : assert(
+            actions.length <= 2, 'three acts is a menu, and a menu is a screen');
+
+  final String title;
+  final String message;
+  final String cancelLabel;
+  final VoidCallback? onCancel;
+  final List<VrxModalAction> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = VrxTheme.of(context);
+    final s = ScaledSpacing.of(context);
+    final cancel = VrxChip(
+      label: cancelLabel,
+      onTap: onCancel,
+    );
+    Widget acts;
+    switch (actions.length) {
+      case 0:
+        acts = cancel;
+      case 1:
+        acts = Row(
+          children: [
+            Expanded(child: cancel),
+            SizedBox(width: s.sm),
+            Expanded(
+              child: VrxChip(
+                label: actions.single.label,
+                filled: true,
+                onTap: actions.single.onTap,
+              ),
+            ),
+          ],
+        );
+      default:
+        acts = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              width: double.infinity,
+              child: cancel,
+            ),
+            SizedBox(height: s.sm),
+            for (var i = 0; i < actions.length; i++) ...[
+              SizedBox(
+                width: double.infinity,
+                child: VrxChip(
+                  label: actions[i].label,
+                  filled: i == actions.length - 1,
+                  onTap: actions[i].onTap,
+                ),
+              ),
+              if (i + 1 < actions.length) SizedBox(height: s.sm),
+            ],
+          ],
+        );
+    }
+    return Center(
+      child: Container(
+        margin: EdgeInsets.all(s.xl),
+        padding: EdgeInsets.all(s.md),
+        decoration: BoxDecoration(
+          color: palette.page,
+          border: Border.all(color: palette.line, width: Strokes.border),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              title,
+              style: TypeRole.of(context, VrxTypeRole.title),
+            ),
+            SizedBox(height: s.sm),
+            Text(
+              message,
+              style: TypeRole.of(context, VrxTypeRole.subtext),
+            ),
+            SizedBox(height: s.lg),
+            acts,
+          ],
+        ),
+      ),
+    );
+  }
+}
