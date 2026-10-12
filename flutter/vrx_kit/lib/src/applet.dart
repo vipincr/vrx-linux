@@ -13,7 +13,7 @@ import 'store.dart';
 /// The store loop is the only writer of the state; `build` is a pure
 /// function of the view model; navigation is vrxhost's (Nav), never
 /// the applet's.
-abstract class Applet<S, A, V> implements StoreModel<S, A, V> {
+abstract class Applet<S, A, V> extends StoreModel<S, A, V> {
   /// Render the view model. Standard Flutter widgets, themed and
   /// constrained by vrx_kit: type roles by meaning from the theme,
   /// Spacing from the scale, colour from the scheme — never literals.
