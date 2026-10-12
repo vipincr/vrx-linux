@@ -3,7 +3,6 @@
 # (/apps + /system/defaults), applet supervision, the intent socket at
 # /tmp/vrx/vrx.sock, the back trail.
 #
-#
 # SPDX-License-Identifier: MIT
 #
 
@@ -22,9 +21,10 @@ require vrxhost-crates.inc
 SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master \
            file://vrxhost.service \
            "
-SRCREV = "1edffa2d9ded4772e8f8ed90806e4a4dc78d2443"
+SRCREV = "3f008684aaa2eea040177eaae234ec5a45d829c8"
 
-S = "${WORKDIR}/git"
+# S is NOT restated: wrynose's bitbake.conf sets it correctly for git
+# sources, and a recipe-side S = "${WORKDIR}/git" is a hard error.
 
 do_install() {
     install -d ${D}${bindir}
