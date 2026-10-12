@@ -5,6 +5,10 @@ edition = "2021"
 description = "vrxhost: the vrx applet OS daemon (registry, supervisor, intents, trail)"
 license = "MIT"
 
+[[bin]]
+name = "vrxhost"
+path = "src/main.rs"
+
 [dependencies]
 vrx-protocol = { path = "../protocol" }
 serde_json = { workspace = true }
