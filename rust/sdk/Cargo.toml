@@ -1,0 +1,15 @@
+[package]
+name = "vrx"
+version = "0.1.0"
+edition = "2021"
+description = "The vrx Rust SDK: the applet trait, intent/pipe/file IPC, and the console kit"
+license = "MIT"
+
+[dependencies]
+vrx-protocol = { path = "../protocol" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

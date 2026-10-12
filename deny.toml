@@ -1,0 +1,49 @@
+# cargo-deny configuration for the vrx-linux workspace.
+# Checked by the gate: `cargo deny check bans licenses sources`.
+# (Advisories are not a gate step: the advisory DB fetch makes the gate
+# nondeterministic; run `cargo deny check advisories` separately.)
+
+[bans]
+# One version of everything: the OS image is lean and reproducible.
+# "warn" until the dep tree stabilizes (octiva precedent: thiserror-impl
+# and serde_derive resolve different syn minors today).
+multiple-versions = "warn"
+
+# Applets render through the vrx console kit or Flutter; Rust GUI
+# toolkits would build a second UI stack inside an applet process.
+deny = [
+    { name = "sdl2" },
+    { name = "minifb" },
+    { name = "winit" },
+    { name = "gtk" },
+    { name = "fltk" },
+    { name = "gtk-sys" },
+    { name = "fltk-sys" },
+    # Applets are clients, not servers.
+    { name = "actix-web" },
+    { name = "rocket" },
+    { name = "warp" },
+    # Persistence goes through vrx::File, not an embedded database.
+    { name = "rusqlite" },
+    { name = "diesel" },
+]
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "ISC",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+    "Unicode-3.0",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0",
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

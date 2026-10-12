@@ -1,0 +1,15 @@
+[package]
+name = "vrx-cli"
+version = "0.1.0"
+edition = "2021"
+description = "The vrx command-line tool: new/dev/build/install/test"
+license = "MIT"
+
+[[bin]]
+name = "vrx"
+path = "src/main.rs"
+
+[dependencies]
+
+[lints]
+workspace = true

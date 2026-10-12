@@ -1,0 +1,16 @@
+[package]
+name = "vrx-protocol"
+version = "0.1.0"
+edition = "2021"
+description = "Shared types for the vrx applet OS (manifest, intent, pipe)"
+license = "MIT"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+indexmap = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

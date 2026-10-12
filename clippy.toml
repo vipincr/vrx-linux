@@ -1,0 +1,3 @@
+# Clippy configuration for the vrx-linux workspace.
+# The lint levels live in the workspace Cargo.toml [workspace.lints];
+# this file tunes lint thresholds only.

@@ -1,0 +1,15 @@
+[package]
+name = "vrx-xtask"
+version = "0.1.0"
+edition = "2021"
+description = "The gate: cargo xtask gate = fmt + clippy -D warnings + tests + cargo-deny"
+license = "MIT"
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+
+[dependencies]
+
+[lints]
+workspace = true
