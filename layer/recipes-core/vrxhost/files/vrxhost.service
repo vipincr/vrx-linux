@@ -13,6 +13,18 @@ Restart=on-failure
 RestartSec=2
 # the runtime directory the intent socket lives in
 RuntimeDirectory=vrx
+# Amendment B: vrxhost supervises, so it keeps exactly the capabilities
+# supervision needs (UID drop for applet spawns, kill, chown of socket
+# dirs) and drops everything else. The bounding set tightens further as
+# the spawn path lands (per-applet cgroups will want CAP_SYS_RESOURCE
+# or cgroup delegation instead).
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_KILL CAP_CHOWN
+# The filesystem is read-only to the daemon except the runtime dir
+# (the intent socket and pipes); applets share /tmp/vrx, so no
+# PrivateTmp here — that would hide the socket from the applets.
+ProtectSystem=strict
+ReadWritePaths=/tmp/vrx
+ProtectHome=yes
 # applets render nothing; vrxhost is headless until the compositor
 # handshake (part E) lands
 

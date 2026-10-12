@@ -41,6 +41,14 @@ do_install() {
     install -m 0644 ${UNPACKDIR}/vrxhost.service ${D}${systemd_unitdir}/system/
 }
 
+# Amendment B: the UI's nobody/guest class. vrx-compositor and every
+# applet run as this user, never root; created here because the
+# applet OS is what needs it, with a system account (no login shell).
+inherit useradd
+USERADD_PACKAGES = "${PN}"
+GROUPADD_PARAM:${PN} = "-r vrx"
+USERADD_PARAM:${PN} = "-r -g vrx -d /nonexistent -s /sbin/nologin -c 'vrx applet runtime (amendment B: the UI runs unprivileged)' vrx"
+
 FILES:${PN} = "${bindir}/vrxhost ${systemd_unitdir}/system/vrxhost.service"
 
 SYSTEMD_SERVICE:${PN} = "vrxhost.service"
