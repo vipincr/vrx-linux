@@ -17,7 +17,7 @@ inherit cargo systemd
 SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master \
            file://vrxhost.service \
            "
-SRCREV = "842ece66af41953315d7fb736a2b055490e06382"
+SRCREV = "ba3c021d87350fed30687dd36ddb76710db6be16"
 
 # the workspace member this recipe builds (the root manifest is the
 # workspace, not a package); the lock is the workspace's, not the
