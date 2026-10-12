@@ -18,4 +18,5 @@ COMPATIBLE_MACHINE = "^vrxboard-"
 
 RDEPENDS:${PN} = "\
     vrxhost \
+    vrxinit \
 "
