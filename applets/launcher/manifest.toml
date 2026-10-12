@@ -1,0 +1,31 @@
+# The launcher: the home applet. Holds the `home` role (built-ins
+# only); its screen is what the system lights at boot and where Home
+# goes. Every tiled applet in the registry renders as a tile; a tap
+# pushes it onto the back trail via vrxhost.
+[applet]
+id = "launcher"
+name = "Launcher"
+version = "1.0.0"
+runtime = "flutter"
+
+[applet.resources]
+heap_mb = 128
+
+[applet.roles]
+home = true
+
+[applet.permissions]
+storage = false
+
+[applet.intents]
+handles = [
+    # the deepest vrx.open: the launcher fronts when nobody else claims it
+    { name = "vrx.open", priority = 100 },
+]
+emits = ["app.finished"]
+
+[applet.routes]
+grid = {}
+
+[applet.command]
+enabled = false
