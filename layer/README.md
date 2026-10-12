@@ -26,10 +26,9 @@ tree.
    The image payload turns on with `VRX_APPS = "packagegroup-vrx-linux"`
    in that build's local.conf. Nothing installs until a build says so.
 
-Until both steps land, the recipes here are skeletons: parse check and
-build claim happen in the same change that registers the layer (a
-recipe that has never been through bitbake is a guess, and this tree
-does not ship guesses).
+Step 1 is done (the remote is public; SRCREV pins the recipe to the
+commit it builds). Step 2 happens in the vrx repo: the submodule, the
+layerset, and the container build that proves the recipe.
 
 ## What ships
 

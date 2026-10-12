@@ -11,14 +11,19 @@
 
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
+mod crates_inc;
+
 use std::process::{Command, ExitCode, Stdio};
 
 fn main() -> ExitCode {
-    let task = std::env::args().nth(1).unwrap_or_default();
+    let mut args = std::env::args().skip(1);
+    let task = args.next().unwrap_or_default();
+    let args: Vec<String> = args.collect();
     match task.as_str() {
         "gate" => gate(),
+        "crates-inc" => crates_inc::run(&args),
         _ => {
-            eprintln!("usage: cargo xtask gate");
+            eprintln!("usage: cargo xtask gate | crates-inc <crate> [out.inc]");
             ExitCode::from(64)
         }
     }
