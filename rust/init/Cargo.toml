@@ -5,6 +5,10 @@ edition = "2021"
 description = "vrxinit: PID 1 — mount the basics, hand the system to systemd, VRX_DEBUG enables a console"
 license = "MIT"
 
+[[bin]]
+name = "vrxinit"
+path = "src/main.rs"
+
 [dependencies]
 libc = "0.2"
 tracing = { workspace = true }
