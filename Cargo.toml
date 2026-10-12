@@ -64,4 +64,4 @@ indexmap = { version = "2", features = ["serde"] }
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "unix", "process", "signal", "sync", "time", "macros"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "io-util", "process", "signal", "sync", "time", "macros"] }
