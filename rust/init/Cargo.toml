@@ -1,0 +1,13 @@
+[package]
+name = "vrx-init"
+version = "0.1.0"
+edition = "2021"
+description = "vrxinit: PID 1 — mount the basics, hand the system to systemd, VRX_DEBUG enables a console"
+license = "MIT"
+
+[dependencies]
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true
