@@ -1,0 +1,54 @@
+[applet]
+id = "clock"                   # [a-z][a-z0-9_]*, max 32, "vrx" refused
+name = "Clock"                 # what a person reads, max 32
+version = "1.0.0"
+runtime = "flutter"            # "flutter" | "rust" | "native"
+
+[applet.display]
+icon = "clock.png"
+tile = true
+position = 3
+orientation = "landscape"
+repaints_per_min = 30
+
+[applet.resources]
+heap_mb = 128
+
+[applet.roles]
+home = false
+shell = false
+installs = false
+resident = false
+
+[applet.permissions]
+network = false
+bluetooth = false
+storage = false
+camera = false
+audio = false
+
+[applet.intents]
+handles = [
+    { name = "sys.alarm.ring", priority = 900, at = "ring" },
+    { name = "vrx.open", priority = 500 },
+]
+emits = ["alarm.fire", "app.finished"]
+
+[applet.routes]
+# Route 0 is the root (never declared); declaration order is the numbering
+clock = {}                     # route 1
+alarms = {}                    # route 2
+timer = {}                     # route 3
+ring = {}                      # route 4 (the sys.alarm.ring deep link)
+
+[applet.command]
+enabled = true
+usage = "clock [--set HH:MM]"
+
+[[applet.settings]]
+key = "clock_format"
+label = "Time format"
+category = "Clock"
+type = "enum"
+default = "24h"
+options = ["12h", "24h"]

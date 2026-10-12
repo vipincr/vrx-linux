@@ -1,0 +1,20 @@
+[Unit]
+Description=vrx applet OS daemon (registry, supervisor, intents, trail)
+After=systemd-journald.service
+# vrxinit (plan 0007 part M) replaces this ordering when it lands;
+# until then vrxhost starts after the hardware services, before the
+# UI would if it were enabled
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/vrxhost
+Restart=on-failure
+RestartSec=2
+# the runtime directory the intent socket lives in
+RuntimeDirectory=vrx
+# applets render nothing; vrxhost is headless until the compositor
+# handshake (part E) lands
+
+[Install]
+WantedBy=multi-user.target

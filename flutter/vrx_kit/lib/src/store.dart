@@ -147,7 +147,7 @@ class StoreHarness<S, A, V> {
   V get view => store.view;
 
   /// Assert on the current view; throws with both sides named.
-  void assertView(bool Function(V view) predicate, [String? because]) {
+  void assertView(bool Function(V view) predicate, {String? because}) {
     if (!predicate(store.view)) {
       throw StateError(
         'assertView failed${because == null ? '' : ': $because'} '
