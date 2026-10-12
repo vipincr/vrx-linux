@@ -16,6 +16,7 @@ inherit cargo systemd
 
 SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master \
            file://vrxhost.service \
+           file://vrxhost-tmpfiles.conf \
            "
 SRCREV = "2f802d9dbd96851c61dfde82f7305d9c4b25e893"
 
@@ -39,6 +40,8 @@ do_install() {
     install -m 0755 ${B}/target/${RUST_TARGET_SYS}/release/vrxhost ${D}${bindir}/
     install -d ${D}${systemd_unitdir}/system
     install -m 0644 ${UNPACKDIR}/vrxhost.service ${D}${systemd_unitdir}/system/
+    install -d ${D}${nonarch_libdir}/tmpfiles.d
+    install -m 0644 ${UNPACKDIR}/vrxhost-tmpfiles.conf ${D}${nonarch_libdir}/tmpfiles.d/vrxhost.conf
 }
 
 # Amendment B: the UI's nobody/guest class. vrx-compositor and every
@@ -49,6 +52,6 @@ USERADD_PACKAGES = "${PN}"
 GROUPADD_PARAM:${PN} = "-r vrx"
 USERADD_PARAM:${PN} = "-r -g vrx -d /nonexistent -s /sbin/nologin -c 'vrx applet runtime (amendment B, the UI runs unprivileged)' vrx"
 
-FILES:${PN} = "${bindir}/vrxhost ${systemd_unitdir}/system/vrxhost.service"
+FILES:${PN} = "${bindir}/vrxhost ${systemd_unitdir}/system/vrxhost.service ${nonarch_libdir}/tmpfiles.d/vrxhost.conf"
 
 SYSTEMD_SERVICE:${PN} = "vrxhost.service"
