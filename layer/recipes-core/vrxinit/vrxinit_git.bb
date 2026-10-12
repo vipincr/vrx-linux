@@ -18,7 +18,7 @@ inherit cargo
 
 SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master \
            "
-SRCREV = "52938873f8c7056532d95d3c5cf0dcdf5b6d15b3"
+SRCREV = "fc4574b90046662261dbc0ca7339693f461319f7"
 
 # the workspace member this recipe builds; the lock is the workspace's
 CARGO_SRC_DIR = "rust/init"
