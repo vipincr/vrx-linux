@@ -20,6 +20,10 @@ members = [
 
 # Compositor, flutter-bridge, init, and walk are added as they land
 # (they need target-specific dependencies).
+#
+# applets/ are standalone: each is built and tested on its own (the
+# way a developer's applet would be), never as a workspace member.
+exclude = ["applets"]
 
 # NEVER REMOVE (octiva lesson: cargo test at opt-level 0 is 31x slower;
 # tests that touch DRM or the Flutter engine will time out):

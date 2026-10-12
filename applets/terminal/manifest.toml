@@ -1,0 +1,35 @@
+# The terminal: a native Rust applet — both a console applet (the
+# console kit) and a shell pipeline stage (command.enabled). This is
+# the "applets run as normal ELFs from the shell" promise: the same
+# binary vrxhost supervises is the binary a user pipes through.
+#
+# The interactive on-screen terminal (the UI half of part N's bench
+# verification) rides the compositor's input path (part E); the store,
+# the ring buffer, and the pipeline behavior land now, host-proven.
+[applet]
+id = "terminal"
+name = "Terminal"
+version = "0.1.0"
+runtime = "rust"
+
+[applet.display]
+icon = "terminal.png"
+tile = true
+position = 9
+
+[applet.resources]
+heap_mb = 64
+
+[applet.permissions]
+fs = ["/bin", "/usr/bin"]
+
+[applet.intents]
+handles = [{ name = "vrx.open", priority = 200 }]
+emits = ["app.finished"]
+
+[applet.routes]
+scroll = {}
+
+[applet.command]
+enabled = true
+usage = "terminal [lines...]   # lines on stdin append to the screen ring"
