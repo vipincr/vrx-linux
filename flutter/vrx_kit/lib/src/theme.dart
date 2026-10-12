@@ -13,6 +13,8 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'scale.dart';
+
 /// The type scale. CLOCK renders digits only (`0-9:-`, no fallback
 /// face); CODE is monospace; MICRO is subscripts only.
 enum VrxTypeRole {
@@ -60,7 +62,10 @@ abstract final class TypeRole {
         Theme.of(context).textTheme.bodySmall,
       VrxTypeRole.micro => Theme.of(context).textTheme.labelSmall,
     };
-    return (base ?? const TextStyle()).copyWith(fontSize: role.size);
+    // scaled with the display: exact pt at the reference UI space,
+    // proportional on any other
+    return (base ?? const TextStyle())
+        .copyWith(fontSize: role.size * VrxScale.of(context));
   }
 
   /// Convenience: the one large thing on a screen.

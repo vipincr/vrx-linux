@@ -4,6 +4,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 
 /// The motion tokens: six springs, androidx Material 3 values, ported
 /// to Flutter's spring physics (mass 1). Spatial tokens may overshoot
@@ -30,6 +31,14 @@ abstract final class MotionTokens {
   static const SpringDescription effectsSlow =
       SpringDescription(mass: 1, stiffness: 800, damping: 56.56854);
   // ^ ratio 1.0 (critically damped: colour/opacity)
+
+  /// A spring simulation for a token, from `from` to `to`.
+  static SpringSimulation simulate(
+    SpringDescription spring,
+    double from,
+    double to,
+  ) =>
+      SpringSimulation(spring, from, to, 0);
 }
 
 /// The vrx motion presets.
