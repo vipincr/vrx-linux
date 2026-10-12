@@ -40,14 +40,16 @@ class _ClockFace extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(view.time, style: TypeRole.display(context)),
-          SizedBox(height: Spacing.sm),
-          Text(view.is24h ? '24-hour' : '12-hour', style: TypeRole.caption(context)),
-          SizedBox(height: Spacing.md),
-          OutlinedButton(
-            // the settings store owns the format; the clock watches it
-            onPressed: () => Intent.send('clock.format.cycle'),
-            child: const Text('Toggle format'),
+          Text(view.time, style: TypeRole.clock(context)),
+          SizedBox(height: ScaledSpacing.of(context).sm),
+          Text(
+            view.is24h ? '24-hour' : '12-hour',
+            style: TypeRole.caption(context),
+          ),
+          SizedBox(height: ScaledSpacing.of(context).md),
+          VrxChip(
+            label: view.is24h ? '12-hour' : '24-hour',
+            onTap: () => Intent.send('clock.format.cycle'),
           ),
         ],
       ),

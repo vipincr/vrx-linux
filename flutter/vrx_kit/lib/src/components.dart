@@ -289,6 +289,39 @@ class VrxSegmented extends StatelessWidget {
   }
 }
 
+/// A bordered word, optionally filled (the monochrome ON idiom: a
+/// filled chip carries a knocked-out label; an outlined one is OFF).
+class VrxChip extends StatelessWidget {
+  const VrxChip({super.key, required this.label, this.filled = false, this.onTap});
+
+  final String label;
+  final bool filled;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = VrxTheme.of(context);
+    final s = ScaledSpacing.of(context);
+    return VrxPress(
+      onTap: onTap,
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: s.sm, vertical: s.xs),
+        decoration: BoxDecoration(
+          color: filled ? palette.fill : null,
+          border: Border.all(color: palette.line, width: Strokes.hairline),
+          borderRadius: BorderRadius.circular(Radii.sm),
+        ),
+        child: Text(
+          label,
+          style: TypeRole.of(context, VrxTypeRole.list).copyWith(
+            color: filled ? palette.onFill : palette.text,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// A persistent message band across the bottom — deliberately NOT a
 /// toast: nothing transient. NULL text slides it away.
 class VrxBanner extends StatelessWidget {

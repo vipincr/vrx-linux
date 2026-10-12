@@ -41,20 +41,18 @@ class _CategoryList extends StatelessWidget {
   Widget build(BuildContext context) {
     final categories = view.rows.map((r) => r.category).toSet().toList();
     return Scaffold(
-      body: ListView(
-        padding: EdgeInsets.all(Spacing.md),
-        children: [
-          Text('Settings', style: TypeRole.title(context)),
-          SizedBox(height: Spacing.md),
-          for (final category in categories)
-            ListTile(
-              title: Text(category, style: TypeRole.list(context)),
-              trailing: Icon(Icons.chevron_right),
-              onTap: () => Intent.send('settings.category.open',
-                  {'category': category}),
+      body: VrxList(children: [
+        VrxHeader(title: 'Settings'),
+        for (final category in categories)
+          VrxRow(
+            label: category,
+            value: '›',
+            onTap: () => Intent.send(
+              'settings.category.open',
+              {'category': category},
             ),
-        ],
-      ),
+          ),
+      ]),
     );
   }
 }
@@ -67,22 +65,21 @@ class _SettingList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: ListView(
-        padding: EdgeInsets.all(Spacing.md),
-        children: [
-          Text(view.openCategory ?? '', style: TypeRole.title(context)),
-          SizedBox(height: Spacing.md),
-          for (final row in view.rows)
-            ListTile(
-              title: Text(row.label, style: TypeRole.list(context)),
-              trailing: Text(row.value, style: TypeRole.value(context)),
-              onTap: () => Intent.send(
-                'settings.value.cycle',
-                {'key': row.key},
-              ),
+      body: VrxList(children: [
+        VrxHeader(
+          title: view.openCategory ?? '',
+          onBack: () => Nav.pop(),
+        ),
+        for (final row in view.rows)
+          VrxSettingRow(
+            label: row.label,
+            value: row.value,
+            onTap: () => Intent.send(
+              'settings.value.cycle',
+              {'key': row.key},
             ),
-        ],
-      ),
+          ),
+      ]),
     );
   }
 }

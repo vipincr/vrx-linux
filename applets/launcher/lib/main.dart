@@ -29,19 +29,16 @@ class LauncherApplet
       body: SafeArea(
         child: Column(
           children: [
-            Padding(
-              padding: EdgeInsets.all(Spacing.md),
-              child: Text('vrx', style: TypeRole.title(context)),
-            ),
+            VrxHeader(title: 'vrx'),
             Expanded(
               child: view.tiles.isEmpty
                   ? _NoApps()
                   : GridView.count(
                       crossAxisCount: 3,
                       childAspectRatio: 1.0,
-                      padding: EdgeInsets.all(Spacing.md),
-                      mainAxisSpacing: Spacing.sm,
-                      crossAxisSpacing: Spacing.sm,
+                      padding: EdgeInsets.all(ScaledSpacing.of(context).md),
+                      mainAxisSpacing: ScaledSpacing.of(context).sm,
+                      crossAxisSpacing: ScaledSpacing.of(context).sm,
                       children: [
                         for (final tile in view.tiles)
                           _Tile(tile: tile),
@@ -64,12 +61,12 @@ class _Tile extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: () => Nav.push(tile.id),
-      borderRadius: BorderRadius.circular(Spacing.sm),
+      borderRadius: BorderRadius.circular(ScaledSpacing.of(context).sm),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(tile.icon, style: TypeRole.display(context)),
-          SizedBox(height: Spacing.xs),
+          SizedBox(height: ScaledSpacing.of(context).xs),
           Text(tile.name, style: TypeRole.list(context)),
         ],
       ),
