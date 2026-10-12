@@ -29,9 +29,9 @@ pub struct BootPlan {
 /// Derive the plan from a kernel command line (the contents of
 /// /proc/cmdline).
 pub fn plan(cmdline: &str) -> BootPlan {
-    let debug = cmdline.split_whitespace().any(|token| {
-        token == "vrx.debug" || token.starts_with("vrx.debug=")
-    });
+    let debug = cmdline
+        .split_whitespace()
+        .any(|token| token == "vrx.debug" || token.starts_with("vrx.debug="));
     let mut steps = vec![
         Step::MountProc,
         Step::MountSys,
@@ -74,6 +74,9 @@ mod tests {
     fn vrx_debug_with_a_value_still_counts() {
         assert!(plan("vrx.debug=1").debug);
         assert!(plan("vrx.debug").debug);
-        assert!(!plan("root=vrx.debuggy").debug, "prefix alone is not the flag");
+        assert!(
+            !plan("root=vrx.debuggy").debug,
+            "prefix alone is not the flag"
+        );
     }
 }

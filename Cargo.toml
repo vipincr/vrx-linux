@@ -15,11 +15,12 @@ members = [
     "rust/host",
     "rust/sdk",
     "rust/cli",
+    "rust/init",
     "rust/xtask",
 ]
 
-# Compositor, flutter-bridge, init, and walk are added as they land
-# (they need target-specific dependencies).
+# Compositor, flutter-bridge, and walk are added as they land (they
+# need target-specific dependencies).
 #
 # applets/ are standalone: each is built and tested on its own (the
 # way a developer's applet would be), never as a workspace member.

@@ -6,6 +6,7 @@ description = "vrxinit: PID 1 — mount the basics, hand the system to systemd, 
 license = "MIT"
 
 [dependencies]
+libc = "0.2"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
