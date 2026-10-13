@@ -38,10 +38,10 @@ void main() {
   testWidgets('wifi fills when up; ble stays outlined when down',
       (tester) async {
     await tester.pumpWidget(
-      MaterialApp(
+      const MaterialApp(
         home: Stack(
           children: [
-            const Scaffold(),
+            Scaffold(),
             VrxQuickDrawer(
               version: 'v',
               lightOn: false,

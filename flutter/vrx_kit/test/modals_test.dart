@@ -15,7 +15,7 @@ void main() {
             title: 'Delete alarm?',
             message: 'The 07:00 alarm will be deleted.',
             cancelLabel: 'Cancel',
-            act: VrxModalAction(label: 'Delete'),
+            act: const VrxModalAction(label: 'Delete'),
           ),
         ),
       ),
@@ -61,7 +61,7 @@ void main() {
             title: 'Update?',
             message: 'The device restarts to apply it.',
             cancelLabel: 'Cancel',
-            actions: [
+            actions: const [
               VrxModalAction(label: 'Later'),
               VrxModalAction(label: 'Update'),
             ],

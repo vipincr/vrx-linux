@@ -32,7 +32,7 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
         child: Column(
           children: [
             // Back is a trail pop: vrxhost decides what comes next
-            VrxHeader(title: 'Clock', onBack: Nav.pop),
+            const VrxHeader(title: 'Clock', onBack: Nav.pop),
             Expanded(child: screen),
           ],
         ),
@@ -95,7 +95,7 @@ class _RingScreen extends StatelessWidget {
         children: [
           Text('Alarm', style: TypeRole.title(context)),
           Text(view.time, style: TypeRole.display(context)),
-          SizedBox(height: Spacing.lg),
+          const SizedBox(height: Spacing.lg),
           ElevatedButton(
             onPressed: () =>
                 AppletScope.dispatch(context, ClockAction.snoozeTapped),

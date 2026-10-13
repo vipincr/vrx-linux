@@ -1,26 +1,31 @@
 // The IPC clients: intent send, pipes, file watch — the three shapes
 // an applet uses from the SDK side. Synchronous std Unix sockets: an
 // applet is simple, small, and single-purpose; async belongs to the
-// runtime, not the applet developer.
+// runtime, not the applet developer. Intents go to vrxhost's Varlink
+// interface io.vrx.Host (plan 0008 D8): JSON objects, NUL-terminated.
 //
 // Degraded standalone: when vrxhost is not running (a shell run, a
 // host test), every client returns a clearly-named error instead of
 // silently doing nothing.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use vrx_protocol::{Intent, PipeMessage};
 
-/// The runtime directory (the socket lives at <runtime>/vrx.sock, the
-/// pipes at <runtime>/pipes). VRX_RUNTIME overrides the default for
+/// The runtime directory (vrxhost's socket lives at <runtime>/io.vrx.Host,
+/// the pipes at <runtime>/pipes). VRX_RUNTIME overrides the default for
 /// tests and chroots.
 pub fn runtime_dir() -> PathBuf {
     std::env::var_os("VRX_RUNTIME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp/vrx"))
+        .unwrap_or_else(|| PathBuf::from("/run/vrx"))
+}
+
+/// vrxhost's Varlink socket.
+pub fn host_socket() -> PathBuf {
+    runtime_dir().join("io.vrx.Host")
 }
 
 /// An IPC failure, each cause named.
@@ -28,8 +33,11 @@ pub fn runtime_dir() -> PathBuf {
 pub enum IpcError {
     #[error("vrxhost is not running (no socket at {path}): the applet runs degraded standalone")]
     NoHost { path: PathBuf },
-    #[error("vrxhost answered an error: {errno} {error}")]
-    HostErrno { errno: i32, error: String },
+    #[error("vrxhost refused: {error} {parameters}")]
+    Refused {
+        error: String,
+        parameters: serde_json::Value,
+    },
     #[error("malformed vrxhost answer: {0}")]
     BadAnswer(String),
     #[error("pipe {pipe:?}: {source}")]
@@ -49,56 +57,75 @@ pub enum SendResult {
     Pass,
 }
 
-/// Send an intent over the vrxhost socket, settle with its verdict.
+/// Send an intent through io.vrx.Host, settle with its verdict.
 pub fn intent_send(
     name: impl Into<String>,
     payload: vrx_protocol::IntentPayload,
 ) -> Result<SendResult, IpcError> {
     let intent =
         Intent::new(name, payload).map_err(|e| IpcError::BadAnswer(e.to_string()))?;
-    let socket = runtime_dir().join("vrx.sock");
-    let mut stream =
-        UnixStream::connect(&socket).map_err(|_| IpcError::NoHost { path: socket })?;
-
-    let mut request =
-        serde_json::to_string(&intent).map_err(|e| IpcError::BadAnswer(e.to_string()))?;
-    request.push('\n');
-    stream
-        .write_all(request.as_bytes())
-        .map_err(|e| IpcError::BadAnswer(e.to_string()))?;
-
-    let mut answer = String::new();
-    BufReader::new(stream)
-        .read_line(&mut answer)
-        .map_err(|e| IpcError::BadAnswer(e.to_string()))?;
-    parse_answer(answer.trim())
+    let reply = varlink_call(
+        "io.vrx.Host.Intent",
+        serde_json::json!({ "name": intent.name, "payload": intent.payload }),
+    )?;
+    parse_answer(&reply)
 }
 
-fn parse_answer(answer: &str) -> Result<SendResult, IpcError> {
-    let value: serde_json::Value =
-        serde_json::from_str(answer).map_err(|e| IpcError::BadAnswer(e.to_string()))?;
-    if value.get("ok").and_then(|v| v.as_bool()) == Some(true) {
-        match value.get("verdict").and_then(|v| v.as_str()) {
-            Some("opened") => Ok(SendResult::Opened {
-                applet: value
-                    .get("handled_by")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_owned(),
-                route: value.get("route").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            }),
-            Some("pass") => Ok(SendResult::Pass),
-            other => Err(IpcError::BadAnswer(format!("unknown verdict {other:?}"))),
+/// One Varlink call on vrxhost's socket: the reply object.
+fn varlink_call(
+    method: &str,
+    parameters: serde_json::Value,
+) -> Result<serde_json::Value, IpcError> {
+    let socket = host_socket();
+    let mut stream =
+        UnixStream::connect(&socket).map_err(|_| IpcError::NoHost { path: socket })?;
+    let mut call = serde_json::to_vec(&serde_json::json!({
+        "method": method,
+        "parameters": parameters,
+    }))
+    .map_err(|e| IpcError::BadAnswer(e.to_string()))?;
+    call.push(0);
+    stream
+        .write_all(&call)
+        .map_err(|e| IpcError::BadAnswer(e.to_string()))?;
+    let mut reply = Vec::new();
+    let mut byte = [0u8; 1];
+    loop {
+        match stream.read(&mut byte) {
+            Ok(0) => return Err(IpcError::BadAnswer("vrxhost closed mid-reply".into())),
+            Ok(_) if byte[0] == 0 => break,
+            Ok(_) => reply.push(byte[0]),
+            Err(e) => return Err(IpcError::BadAnswer(e.to_string())),
         }
-    } else {
-        Err(IpcError::HostErrno {
-            errno: value.get("errno").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-            error: value
-                .get("error")
+    }
+    serde_json::from_slice(&reply).map_err(|e| IpcError::BadAnswer(e.to_string()))
+}
+
+fn parse_answer(reply: &serde_json::Value) -> Result<SendResult, IpcError> {
+    let params = reply
+        .get("parameters")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    if let Some(error) = reply.get("error").and_then(|v| v.as_str()) {
+        return Err(IpcError::Refused {
+            error: error.to_owned(),
+            parameters: params,
+        });
+    }
+    match params.get("verdict").and_then(|v| v.as_str()) {
+        Some("opened") => Ok(SendResult::Opened {
+            applet: params
+                .get("handled_by")
                 .and_then(|v| v.as_str())
-                .unwrap_or("unnamed error")
+                .unwrap_or_default()
                 .to_owned(),
-        })
+            route: u32::try_from(
+                params.get("route").and_then(|v| v.as_u64()).unwrap_or(0),
+            )
+            .unwrap_or(0),
+        }),
+        Some("pass") => Ok(SendResult::Pass),
+        other => Err(IpcError::BadAnswer(format!("unknown verdict {other:?}"))),
     }
 }
 
@@ -172,8 +199,7 @@ impl PipeReader {
 }
 
 /// A watchable shared-state file: a value that stays true until it
-/// changes. Polls (mtime + content); inotify is the target-platform
-/// optimization, polling keeps the SDK honest on any host.
+/// changes. `poll` reads it now; `watch_forever` waits on inotify.
 pub struct File {
     path: PathBuf,
     seen: Option<String>,
@@ -206,14 +232,49 @@ impl File {
         }
     }
 
-    /// Poll forever with this period. The closure sees each change.
-    pub fn watch_forever<F: FnMut(&str)>(mut self, period: Duration, mut on_change: F) {
+    /// Wait for changes forever, on inotify (no polling, no period: the
+    /// closure runs as soon as the file is written or replaced). The
+    /// parent directory is watched, because state files are replaced by
+    /// rename. Returns only on an error.
+    #[cfg(target_os = "linux")]
+    pub fn watch_forever<F: FnMut(&str)>(
+        mut self,
+        mut on_change: F,
+    ) -> std::io::Result<()> {
+        use rustix::fs::inotify;
+        let dir = self
+            .path
+            .parent()
+            .unwrap_or_else(|| Path::new("/"))
+            .to_owned();
+        let fd = inotify::init(inotify::CreateFlags::CLOEXEC)?;
+        inotify::add_watch(
+            &fd,
+            &dir,
+            inotify::WatchFlags::CLOSE_WRITE
+                | inotify::WatchFlags::MOVED_TO
+                | inotify::WatchFlags::CREATE
+                | inotify::WatchFlags::DELETE,
+        )?;
+        let mut buf = [std::mem::MaybeUninit::<u8>::uninit(); 4096];
+        let mut events = inotify::Reader::new(&fd, &mut buf);
         loop {
+            // blocks in the kernel until something in the directory changes
+            events.next()?;
             if let Some(Some(value)) = self.poll() {
                 on_change(&value);
             }
-            std::thread::sleep(period);
         }
+    }
+
+    /// inotify is Linux's; elsewhere (a developer's host) there is no
+    /// change notification to wait on.
+    #[cfg(not(target_os = "linux"))]
+    pub fn watch_forever<F: FnMut(&str)>(self, _on_change: F) -> std::io::Result<()> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "File::watch_forever needs inotify (Linux)",
+        ))
     }
 }
 
@@ -253,23 +314,20 @@ mod tests {
 
     #[test]
     fn answer_parsing_covers_the_wire_protocol() {
+        let opened = serde_json::json!({"parameters": {"verdict": "opened", "handled_by": "clock", "route": 4}});
         assert_eq!(
-            parse_answer(
-                r#"{"ok":true,"verdict":"opened","handled_by":"clock","route":4}"#
-            )
-            .expect("parses"),
+            parse_answer(&opened).expect("parses"),
             SendResult::Opened {
                 applet: "clock".into(),
                 route: 4
             }
         );
-        assert_eq!(
-            parse_answer(r#"{"ok":true,"verdict":"pass"}"#).expect("parses"),
-            SendResult::Pass
-        );
+        let pass = serde_json::json!({"parameters": {"verdict": "pass"}});
+        assert_eq!(parse_answer(&pass).expect("parses"), SendResult::Pass);
+        let refused = serde_json::json!({"error": "io.vrx.Host.NoHandler", "parameters": {"name": "x.y"}});
         assert!(matches!(
-            parse_answer(r#"{"ok":false,"errno":-2,"error":"no handler"}"#),
-            Err(IpcError::HostErrno { errno: -2, .. })
+            parse_answer(&refused),
+            Err(IpcError::Refused { error, .. }) if error == "io.vrx.Host.NoHandler"
         ));
     }
 }

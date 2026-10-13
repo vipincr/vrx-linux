@@ -185,17 +185,25 @@ class _NoApps extends StatelessWidget {
   }
 }
 
-void main() {
+/// Actions from outside the view (registry changes) for the applet's
+/// whole life, so never closed.
+final _registryActions = StreamController<LauncherAction>();
+
+Future<void> main() async {
   final applet = LauncherApplet();
-  final actions = StreamController<LauncherAction>();
-  runApplet(applet, actions: actions.stream);
+  runApplet(applet, actions: _registryActions.stream);
   // the tiles are vrxhost's registry; off-device the model's defaults
   // stay (a desktop `flutter run`)
-  AppletsService.installed?.applets().then((applets) {
+  final service = AppletsService.installed;
+  if (service == null) return;
+  try {
+    final applets = await service.applets();
     applet.replaceRegistry({
       for (final a in applets)
         a.id: Tile(id: a.id, name: a.name, position: a.position, icon: a.icon ?? ''),
     });
-    actions.add(LauncherAction.registryChanged);
-  }, onError: (Object err) => debugPrint('launcher: registry: $err'));
+    _registryActions.add(LauncherAction.registryChanged);
+  } catch (err) {
+    debugPrint('launcher: registry: $err');
+  }
 }

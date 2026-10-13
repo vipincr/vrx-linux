@@ -32,8 +32,13 @@ opt-level = 2
 [profile.dev.package."*"]
 opt-level = 3
 
+# Plan 0008 D18: release is the only shipping build, optimized for the
+# applet's event loop: whole-program LTO and one codegen unit (slower
+# builds, faster and smaller binaries), opt-level 3.
 [profile.release]
-lto = "thin"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
 # NOT stripped here: bitbake strips and splits debug symbols itself,
 # and its QA fails a pre-stripped binary (already-stripped)
 strip = false

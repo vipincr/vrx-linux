@@ -116,19 +116,41 @@ impl<A: Applet> Store<A> {
 pub struct StoreHarness<A: Applet> {
     store: Store<A>,
     recorder: RecordingSink,
+    reduce_budget: std::time::Duration,
 }
+
+/// Plan 0008 D18: one action through reduce and effects stays under
+/// this in a host test. A reducer is a pure function on the event loop;
+/// anything slower is I/O or work that belongs in an effect.
+pub const REDUCE_BUDGET: std::time::Duration = std::time::Duration::from_millis(2);
 
 impl<A: Applet> StoreHarness<A> {
     pub fn new(applet: A) -> Self {
         Self {
             store: Store::new(applet),
             recorder: RecordingSink::default(),
+            reduce_budget: REDUCE_BUDGET,
         }
     }
 
-    /// Dispatch an action through the recording sink.
+    /// A different budget, for a test that measures something heavier
+    /// on purpose (and says why).
+    pub fn with_budget(mut self, budget: std::time::Duration) -> Self {
+        self.reduce_budget = budget;
+        self
+    }
+
+    /// Dispatch an action through the recording sink. Fails the test
+    /// when the action overruns the reduce budget.
     pub fn dispatch(&mut self, action: A::Action) {
+        let started = std::time::Instant::now();
         self.store.dispatch(action, &mut self.recorder);
+        let took = started.elapsed();
+        assert!(
+            took <= self.reduce_budget,
+            "reduce budget: an action took {took:?}, over {:?} (plan 0008 D18)",
+            self.reduce_budget
+        );
     }
 
     /// The current view model.

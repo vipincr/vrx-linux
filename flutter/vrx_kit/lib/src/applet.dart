@@ -84,8 +84,9 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
 
   @override
   void dispose() {
-    _actions?.cancel();
-    _views?.cancel();
+    // dispose cannot wait; the cancels finish on their own
+    unawaited(_actions?.cancel());
+    unawaited(_views?.cancel());
     _store.dispose();
     super.dispose();
   }

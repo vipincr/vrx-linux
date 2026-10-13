@@ -128,20 +128,38 @@ class Store<S, A, V> {
   }
 
   void dispose() {
-    _views.close();
+    // nobody waits on a disposed store's stream to drain
+    unawaited(_views.close());
   }
 }
 
 /// The host-runnable test harness: drive a store with actions, assert
 /// on views and effects — no board, no engine.
 class StoreHarness<S, A, V> {
-  StoreHarness(this.model) : store = Store<S, A, V>(model);
+  StoreHarness(this.model, {this.reduceBudget = defaultReduceBudget})
+      : store = Store<S, A, V>(model);
+
+  /// Plan 0008 D18: one action through reduce and effects stays under
+  /// this, or the host test fails. A reducer is a pure function on the
+  /// event loop; anything slower is I/O or work that belongs in an effect.
+  static const defaultReduceBudget = Duration(milliseconds: 2);
 
   final StoreModel<S, A, V> model;
   final Store<S, A, V> store;
+  final Duration reduceBudget;
 
-  /// Dispatch an action.
-  void dispatch(A action) => store.dispatch(action);
+  /// Dispatch an action; throws when it overruns [reduceBudget].
+  void dispatch(A action) {
+    final watch = Stopwatch()..start();
+    store.dispatch(action);
+    watch.stop();
+    if (watch.elapsed > reduceBudget) {
+      throw StateError(
+        'reduce budget: $action took ${watch.elapsedMicroseconds} µs, '
+        'over ${reduceBudget.inMicroseconds} µs (plan 0008 D18)',
+      );
+    }
+  }
 
   /// The current view model.
   V get view => store.view;

@@ -12,6 +12,7 @@
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
 mod crates_inc;
+mod scan;
 
 use std::process::{Command, ExitCode, Stdio};
 
@@ -27,6 +28,44 @@ fn main() -> ExitCode {
             ExitCode::from(64)
         }
     }
+}
+
+/// flutter analyze (the vrx lint set, errors fail) and flutter test, in
+/// vrx_kit and every applet with a pubspec. Refuses to pass silently
+/// without a flutter binary.
+fn flutter_gate(repo: &std::path::Path) -> bool {
+    let mut dirs = vec![repo.join("flutter/vrx_kit")];
+    if let Ok(entries) = std::fs::read_dir(repo.join("applets")) {
+        let mut applets: Vec<_> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.join("pubspec.yaml").is_file())
+            .collect();
+        applets.sort();
+        dirs.extend(applets);
+    }
+    for dir in dirs {
+        for args in [["analyze", "--no-pub"], ["test", "--no-pub"]] {
+            let shown = dir.strip_prefix(repo).unwrap_or(&dir).display().to_string();
+            println!("gate: flutter {} ({shown})", args[0]);
+            let status = Command::new("flutter")
+                .args(args)
+                .current_dir(&dir)
+                .status();
+            match status {
+                Ok(s) if s.success() => {}
+                Ok(_) => {
+                    eprintln!("gate: FAILED at flutter {} in {shown}", args[0]);
+                    return false;
+                }
+                Err(_) => {
+                    eprintln!("gate: FAILED: flutter is not installed (the Flutter half of the gate cannot be skipped)");
+                    return false;
+                }
+            }
+        }
+    }
+    true
 }
 
 fn gate() -> ExitCode {
@@ -71,6 +110,17 @@ fn gate() -> ExitCode {
             eprintln!("gate: FAILED reading the crates manifest: {err}");
             return ExitCode::FAILURE;
         }
+    }
+
+    // the responsiveness scan and the Flutter half (plan 0008 D19)
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    println!("gate: responsiveness scan (applet and SDK sources)");
+    if !scan::run(&repo) {
+        eprintln!("gate: FAILED at the responsiveness scan");
+        return ExitCode::FAILURE;
+    }
+    if !flutter_gate(&repo) {
+        return ExitCode::FAILURE;
     }
 
     // cargo-deny is a gate step when the binary is available; the gate

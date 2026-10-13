@@ -1,0 +1,45 @@
+# The vrx applet lint set (plan 0008 D19). Every applet includes it:
+#   include: package:vrx_kit/analysis_options.yaml
+# Errors, not warnings: `flutter analyze` (and so `cargo xtask gate`)
+# fails on them. Each one guards the event loop or a frame budget.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - build/**
+  language:
+    strict-casts: true
+    strict-raw-types: true
+  errors:
+    # a future nobody waits for hides a failure and a pending frame
+    unawaited_futures: error
+    discarded_futures: error
+    # an open stream or subscription keeps a dead screen alive and busy
+    cancel_subscriptions: error
+    close_sinks: error
+    # slow dart:io file calls block the isolate that builds frames
+    avoid_slow_async_io: error
+    # const widgets are built once, not every frame
+    prefer_const_constructors: error
+    prefer_const_constructors_in_immutables: error
+    prefer_const_declarations: error
+    prefer_const_literals_to_create_immutables: error
+    # stdout from an applet is not a log: debugPrint or tracing
+    avoid_print: error
+    use_build_context_synchronously: error
+
+linter:
+  rules:
+    - unawaited_futures
+    - discarded_futures
+    - cancel_subscriptions
+    - close_sinks
+    - avoid_slow_async_io
+    - prefer_const_constructors
+    - prefer_const_constructors_in_immutables
+    - prefer_const_declarations
+    - prefer_const_literals_to_create_immutables
+    - avoid_print
+    - use_build_context_synchronously
+    - avoid_unnecessary_containers
+    - sized_box_for_whitespace

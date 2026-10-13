@@ -1,8 +1,1 @@
-analyzer:
-  exclude:
-    - build/**
-include: package:flutter_lints/flutter.yaml
-
-# vrx-specific rules land with the vrx_lints package (banned raw
-# Navigator, raw Colors, raw font sizes, raw pixel spacing); until it
-# exists these base lints hold the line.
+include: package:vrx_kit/analysis_options.yaml

@@ -17,6 +17,9 @@
 VRX_APPLET ?= ""
 VRX_APPLET_DIR ?= "/system/defaults/${VRX_APPLET}"
 VRX_FLUTTER_BUNDLE ?= ""
+# Plan 0008 D18's hard budgets: start to usable, and event-loop liveness
+VRX_APPLET_START_BUDGET ?= "5s"
+VRX_APPLET_WATCHDOG ?= "5s"
 VRX_GRANTS_CONF = "${VRX_LINUX_LAYERDIR}/recipes-applets/vrx-applets/files/grants.conf"
 
 python vrx_applet_unit() {
@@ -42,6 +45,13 @@ python vrx_applet_unit() {
         bundle = d.getVar('VRX_FLUTTER_BUNDLE')
         if not bundle:
             bb.fatal("%s: a flutter applet needs VRX_FLUTTER_BUNDLE" % applet)
+        # D18: only an AOT release bundle ships. A debug or JIT bundle
+        # (no libapp.so, or a kernel_blob.bin) is slow by construction.
+        root = d.getVar('D') + bundle
+        if not os.path.isfile(os.path.join(root, 'lib', 'libapp.so')):
+            bb.fatal("%s: %s has no lib/libapp.so: not an AOT release bundle" % (applet, bundle))
+        if os.path.exists(os.path.join(root, 'data', 'flutter_assets', 'kernel_blob.bin')):
+            bb.fatal("%s: %s carries kernel_blob.bin: a JIT bundle, never shipped" % (applet, bundle))
         exec_start = "/usr/bin/flutter-vrx --release --app %s" % bundle
         # the KMS node its buffers come from and the GPU's render node
         groups.update(['video', 'render'])
@@ -55,6 +65,15 @@ python vrx_applet_unit() {
         "[Service]",
         "ExecStart=%s" % exec_start,
     ]
+    # D18: runtimes that speak the service protocol (flutter-vrx's app
+    # role, the Rust SDK) get the start budget and the watchdog
+    if runtime in ('flutter', 'rust'):
+        lines += [
+            "Type=notify",
+            "NotifyAccess=main",
+            "TimeoutStartSec=%s" % d.getVar('VRX_APPLET_START_BUDGET'),
+            "WatchdogSec=%s" % d.getVar('VRX_APPLET_WATCHDOG'),
+        ]
     if groups:
         lines.append("SupplementaryGroups=%s" % " ".join(sorted(groups)))
     for device in sorted(devices):

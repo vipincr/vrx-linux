@@ -143,6 +143,7 @@ class VarlinkAppletsService extends AppletsService {
 
   /// The service when vrxhost's socket exists, else null.
   static VarlinkAppletsService? ifPresent({String socketPath = defaultSocket}) {
+    // vrx-allow: once, at startup, before runApp and the first frame
     final type = FileSystemEntity.typeSync(socketPath);
     if (type != FileSystemEntityType.unixDomainSock) return null;
     return VarlinkAppletsService(socketPath: socketPath);

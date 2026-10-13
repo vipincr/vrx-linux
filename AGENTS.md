@@ -48,6 +48,24 @@ change is not "done" until the gate is green.
    authority is groups, bus policy and polkit, live system state is the
    services' own interfaces behind vrx_kit's domain services, persistent
    settings live in /etc (plan 0008). vrx code fills only the gaps.
+10. **Responsiveness is a contract, with hard gates** (plan 0008 D18,
+    D19). The budgets: start to usable 5 s (systemd `TimeoutStartSec`),
+    event loop alive 5 s (systemd `WatchdogSec`), input to screen p95
+    50 ms (the bench gate), a told intent 100 ms, one reduce 2 ms (the
+    store harnesses). In applet and SDK code:
+    - nothing blocks the UI isolate or the event loop: no synchronous
+      `dart:io` (`*Sync(`), no `sleep`, no `std::thread::sleep`; work
+      goes into effects, I/O is async;
+    - timers tick no faster than the manifest's `repaints_per_min`
+      allows, and stop when the applet is not focused;
+    - lists build lazily (`ListView.builder`, never a list of all rows);
+      `build` does no work beyond describing widgets; const where it can;
+    - every future is awaited or explicitly `unawaited`, every stream and
+      subscription is closed;
+    - only AOT release builds ship (the image build refuses anything else).
+    The vrx lint set (`package:vrx_kit/analysis_options.yaml`, errors not
+    warnings) and the gate's responsiveness scan enforce these; a line
+    that must break one says `vrx-allow: <reason>`.
 
 > ## Planning uses the plan skill
 

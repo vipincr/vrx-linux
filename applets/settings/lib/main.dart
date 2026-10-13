@@ -58,7 +58,7 @@ class _CategoryList extends StatelessWidget {
     return Scaffold(
       body: VrxList(children: [
         // Back leaves the applet: a trail pop, vrxhost's decision
-        VrxHeader(title: 'Settings', onBack: Nav.pop),
+        const VrxHeader(title: 'Settings', onBack: Nav.pop),
         for (final category in categories)
           VrxRow(
             label: category,
