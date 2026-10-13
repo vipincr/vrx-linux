@@ -53,10 +53,17 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
       wifiUp: view.wifiUp,
     );
     // the compositor routes input by the strip's height, and gives the
-    // shell all of it while the drawer is open
+    // shell all of it while the drawer is open. The drawer is a slide
+    // down from the strip and a slide up (or a tap outside it) away; a
+    // tap on the strip is only ever its Back (the owner: a tap meant for
+    // Back opened the drawer)
     final strip = VrxShellRegion(
       full: view.drawer || view.askingPower,
-      child: VrxPress(onTap: _toggle, child: VrxStatusStrip(facts: facts)),
+      child: VrxSwipe(
+        onDown: view.drawer || view.askingPower ? null : _toggle,
+        onUp: view.drawer ? _toggle : null,
+        child: VrxStatusStrip(facts: facts),
+      ),
     );
     // the drawer is an overlay of its own (a scrim and a panel) over the
     // strip and the screen below it. Below the strip the shell is clear:
@@ -70,21 +77,24 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
           // the rest of the screen
           if (view.drawer)
             Expanded(
-              child: Stack(children: [
-                VrxQuickDrawer(
-                  version: view.version,
-                  lightOn: view.lightOn,
-                  onLightToggle: () => unawaited(VrxSystem.power.setLight(!view.lightOn).catchError((Object _) {})),
-                  wifiUp: view.wifiUp,
-                  bleUp: false,
-                  onWifi: () {
-                    _toggle();
-                    Nav.push('wifi');
-                  },
-                  onPower: () => _events.add(ShellAction.powerAsked),
-                  onDismiss: _toggle,
-                ),
-              ]),
+              child: VrxSwipe(
+                onUp: _toggle,
+                child: Stack(children: [
+                  VrxQuickDrawer(
+                    version: view.version,
+                    lightOn: view.lightOn,
+                    onLightToggle: () => unawaited(VrxSystem.power.setLight(!view.lightOn).catchError((Object _) {})),
+                    wifiUp: view.wifiUp,
+                    bleUp: false,
+                    onWifi: () {
+                      _toggle();
+                      Nav.push('wifi');
+                    },
+                    onPower: () => _events.add(ShellAction.powerAsked),
+                    onDismiss: _toggle,
+                  ),
+                ]),
+              ),
             ),
           // the power menu, a screen in the client area below the strip
           // (a menu is a screen, not a dialog: two acts and Cancel do

@@ -14,6 +14,9 @@ import 'package:flutter/material.dart' show MaterialScrollBehavior;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import 'metrics.dart';
+import 'scale.dart';
+
 /// The last input used.
 enum VrxHands {
   /// A finger on the panel.
@@ -166,4 +169,43 @@ class VrxScrollBehavior extends MaterialScrollBehavior {
 
   @override
   Widget buildScrollbar(BuildContext context, Widget child, ScrollableDetails details) => child;
+}
+
+/// A vertical swipe on [child]: at least [Gestures.swipeMin] of travel
+/// (scaled with the display) at [Gestures.swipeMinPxPerS] or more, along
+/// the dominant axis. Taps go through to whatever is under it (the
+/// strip's Back), so a swipe and a tap never compete for the same touch.
+class VrxSwipe extends StatefulWidget {
+  const VrxSwipe({super.key, required this.child, this.onDown, this.onUp});
+
+  final Widget child;
+  final VoidCallback? onDown;
+  final VoidCallback? onUp;
+
+  @override
+  State<VrxSwipe> createState() => _VrxSwipeState();
+}
+
+class _VrxSwipeState extends State<VrxSwipe> {
+  double _dx = 0, _dy = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onPanStart: (_) => _dx = _dy = 0,
+      onPanUpdate: (d) {
+        _dx += d.delta.dx;
+        _dy += d.delta.dy;
+      },
+      onPanEnd: (d) {
+        final travel = Gestures.swipeMin * VrxScale.of(context);
+        final speed = d.velocity.pixelsPerSecond.dy;
+        // vertical only when it dominates; a sideways drag is not this
+        if (_dy.abs() < travel || _dy.abs() <= _dx.abs() || speed.abs() < Gestures.swipeMinPxPerS) return;
+        (_dy > 0 ? widget.onDown : widget.onUp)?.call();
+      },
+      child: widget.child,
+    );
+  }
 }
