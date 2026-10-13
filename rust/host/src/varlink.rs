@@ -5,7 +5,6 @@
 // peer's pid, mapped to its applet through its cgroup.
 
 use std::path::Path;
-use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -79,6 +78,26 @@ method Applets() -> (applets: []Applet)
 # Every applet that declares settings, and what it declares (D5).
 method Settings() -> (applets: []AppletSettings)
 
+# An applet offered for installing (plan 0011 D16): file in
+# /var/lib/vrx/offers, its build (the image's SHA-256, what consent is
+# given to), kind install, update, replace, older or same, the installed
+# version, and problem: why it cannot be installed (name, paths, release,
+# manifest, builtin, flutter, unreadable).
+type Offer (file: string, id: string, name: string, version: string, build: string, kind: string, installed: ?string, problem: ?string)
+
+# The offers waiting, the USB drive's apps/ folder read in first when
+# nothing shares it. For callers holding the apps grant.
+method Offers() -> (offers: []Offer)
+
+# Install an offer the person agreed to: refused if its build is no
+# longer the one they saw. It runs as its own dynamic user with no
+# system grants.
+method Install(file: string, build: string) -> (id: string)
+
+# Uninstall an installed applet: its unit stops; its image, drop-in,
+# saved state, cache and settings are deleted.
+method Uninstall(applet: string) -> ()
+
 # The front applet and the trail depth; with \"more\", again on every
 # change. stopped names an applet that crashed (systemd restarted it, or
 # gave up), until the next navigation (plan 0011 D2).
@@ -95,6 +114,11 @@ error NotOffered (applet: string, channel: string)
 error NotListening (applet: string)
 error NotShareable (channel: string)
 error NotAnApplet ()
+error NotPermitted ()
+error OfferChanged (file: string)
+error OfferRefused (file: string, reason: string)
+error NotInstalled (applet: string)
+error InstallFailed (applet: string, detail: string)
 error Unavailable ()
 ";
 
@@ -178,10 +202,23 @@ impl Failure {
 /// Everything a connection needs.
 #[derive(Clone)]
 pub struct Host {
-    pub registry: Arc<Registry>,
+    pub registry: crate::registry::Shared,
+    /// The install path (plan 0011 D16); None where there is no systemd
+    /// to install into (the tests).
+    pub installer: Option<Installer>,
     pub nav: mpsc::UnboundedSender<NavRequest>,
     pub front: watch::Receiver<Front>,
     pub bridge: Bridge,
+}
+
+/// What installing needs: where the applets live, systemd, and the way
+/// to tell vrxhost's session about applets that were not there before.
+#[derive(Clone)]
+pub struct Installer {
+    pub paths: crate::paths::VrxPaths,
+    pub applets: crate::applets::Applets,
+    /// The applet ids now on the system, after an install or uninstall.
+    pub added: mpsc::UnboundedSender<Vec<String>>,
 }
 
 /// Serve `io.vrx.Host` until the listener fails.
@@ -328,6 +365,7 @@ fn open(
     let wanted = format!("{to}.{channel}");
     let declared = host
         .registry
+        .get()
         .find(caller)
         .is_some_and(|e| e.manifest.applet.channels.opens.contains(&wanted));
     if !declared {
@@ -336,7 +374,7 @@ fn open(
             json!({ "channel": wanted, "intent": null }),
         ));
     }
-    let offered = host.registry.find(to).is_some_and(|e| {
+    let offered = host.registry.get().find(to).is_some_and(|e| {
         e.manifest
             .applet
             .channels
@@ -403,7 +441,8 @@ async fn dispatch(
     match method {
         "io.vrx.Host.Push" => {
             let applet = str_param("applet").ok_or_else(|| Failure::invalid("applet"))?;
-            let entry = host.registry.find(applet).ok_or_else(|| {
+            let registry = host.registry.get();
+            let entry = registry.find(applet).ok_or_else(|| {
                 Failure::host("NoSuchApplet", json!({ "applet": applet }))
             })?;
             // a deep link is a hint (plan 0011 D5): a route the applet does
@@ -439,7 +478,7 @@ async fn dispatch(
         "io.vrx.Host.Intent" => {
             let name = str_param("name").ok_or_else(|| Failure::invalid("name"))?;
             let payload = params.get("payload").cloned().unwrap_or(Value::Null);
-            let intent = admit_intent(&host.registry, caller, name, payload)?;
+            let intent = admit_intent(&host.registry.get(), caller, name, payload)?;
             deliver(host, &intent).await
         }
         "io.vrx.Host.Answer" => {
@@ -456,9 +495,24 @@ async fn dispatch(
             host.bridge.answer(id, handled);
             Ok(json!({}))
         }
-        "io.vrx.Host.Applets" => Ok(json!({ "applets": tiles(&host.registry) })),
+        "io.vrx.Host.Applets" => Ok(json!({ "applets": tiles(&host.registry.get()) })),
+        "io.vrx.Host.Offers" => {
+            let installer = may_install(host, caller)?;
+            Ok(json!({ "offers": offers(host, installer).await }))
+        }
+        "io.vrx.Host.Install" => {
+            let installer = may_install(host, caller)?;
+            let file = str_param("file").ok_or_else(|| Failure::invalid("file"))?;
+            let build = str_param("build").ok_or_else(|| Failure::invalid("build"))?;
+            install(host, installer, file, build).await
+        }
+        "io.vrx.Host.Uninstall" => {
+            let installer = may_install(host, caller)?;
+            let applet = str_param("applet").ok_or_else(|| Failure::invalid("applet"))?;
+            uninstall(host, installer, applet).await
+        }
         "io.vrx.Host.Settings" => {
-            Ok(json!({ "applets": declared_settings(&host.registry) }))
+            Ok(json!({ "applets": declared_settings(&host.registry.get()) }))
         }
         "io.vrx.Host.Watch" => {
             Ok(serde_json::to_value(host.front.borrow().clone()).unwrap_or(Value::Null))
@@ -530,7 +584,7 @@ fn admit_intent(
 /// asked and has the answer budget. The Varlink `Intent` call and
 /// vrxhost's own sources (the USB watcher) share it.
 async fn deliver(host: &Host, intent: &Intent) -> Result<Value, Failure> {
-    let order = handlers(&host.registry, intent);
+    let order = handlers(&host.registry.get(), intent);
     if order.is_empty() {
         return Err(Failure::host("NoHandler", json!({ "name": intent.name })));
     }
@@ -547,6 +601,7 @@ async fn deliver(host: &Host, intent: &Intent) -> Result<Value, Failure> {
                 .await?;
                 let name = host
                     .registry
+                    .get()
                     .find(&applet)
                     .and_then(|e| e.manifest.route_name(route))
                     .unwrap_or("")
@@ -593,6 +648,134 @@ async fn navigate(host: &Host, op: NavOp) -> Result<String, Failure> {
         Ok(Err(err)) => Err(Failure::from_nav(err)),
         Err(_) => Err(Failure::host("Unavailable", json!({}))),
     }
+}
+
+/// The install methods are for callers holding the `apps` grant (and the
+/// system); there must be a systemd to install into.
+fn may_install<'a>(
+    host: &'a Host,
+    caller: Option<&str>,
+) -> Result<&'a Installer, Failure> {
+    if let Some(applet) = caller {
+        let holds = host.registry.get().find(applet).is_some_and(|e| {
+            e.builtin
+                && e.manifest
+                    .applet
+                    .permissions
+                    .system
+                    .contains(&vrx_protocol::SystemGrant::Apps)
+        });
+        if !holds {
+            return Err(Failure::host("NotPermitted", json!({})));
+        }
+    }
+    host.installer
+        .as_ref()
+        .ok_or_else(|| Failure::host("Unavailable", json!({})))
+}
+
+async fn offers(host: &Host, installer: &Installer) -> Vec<crate::install::Offer> {
+    if !installer
+        .applets
+        .is_active(crate::install::DRIVE_UNIT)
+        .await
+    {
+        crate::install::import_drive().await;
+    }
+    crate::install::offers(&host.registry.get(), &installer.paths.system_defaults).await
+}
+
+/// Scan again after an install or uninstall, and tell the session which
+/// applets are now on the system.
+fn rescan(host: &Host, installer: &Installer) {
+    match crate::registry::scan(&installer.paths) {
+        Ok(registry) => {
+            let ids = registry
+                .iter()
+                .map(|e| e.manifest.applet.id.clone())
+                .collect();
+            host.registry.set(registry);
+            let _ = installer.added.send(ids);
+        }
+        Err(err) => {
+            tracing::error!(error = %err, "registry scan after an install failed")
+        }
+    }
+}
+
+async fn install(
+    host: &Host,
+    installer: &Installer,
+    file: &str,
+    build: &str,
+) -> Result<Value, Failure> {
+    use crate::install as inst;
+    if inst::id_of_file(file).is_none() {
+        return Err(Failure::host(
+            "OfferRefused",
+            json!({ "file": file, "reason": "name" }),
+        ));
+    }
+    let image = std::path::Path::new(inst::OFFERS).join(file);
+    let flutter = inst::system_flutter(&installer.paths.system_defaults);
+    let inspected = inst::check_offer(&host.registry.get(), &image, flutter.as_deref())
+        .await
+        .map_err(|r| {
+            tracing::warn!(%file, reason = %r, "install refused");
+            Failure::host("OfferRefused", json!({ "file": file, "reason": r.key() }))
+        })?;
+    if inspected.build != build {
+        return Err(Failure::host("OfferChanged", json!({ "file": file })));
+    }
+    let id = inspected.manifest.applet.id.clone();
+    let failed = |detail: String| {
+        tracing::error!(applet = %id, %detail, "install failed");
+        Failure::host("InstallFailed", json!({ "applet": id, "detail": detail }))
+    };
+    inst::write_unit(&inspected).map_err(failed)?;
+    inst::stage(&image, &id).await.map_err(failed)?;
+    inst::refresh().await.map_err(failed)?;
+    installer
+        .applets
+        .reload()
+        .await
+        .map_err(|e| failed(e.to_string()))?;
+    let _ = std::fs::remove_file(&image);
+    rescan(host, installer);
+    tracing::info!(applet = %id, version = %inspected.manifest.applet.version, %build, "installed");
+    Ok(json!({ "id": id }))
+}
+
+async fn uninstall(
+    host: &Host,
+    installer: &Installer,
+    applet: &str,
+) -> Result<Value, Failure> {
+    if host.registry.get().find(applet).is_none_or(|e| e.builtin) {
+        return Err(Failure::host("NotInstalled", json!({ "applet": applet })));
+    }
+    let failed = |detail: String| {
+        tracing::error!(%applet, %detail, "uninstall failed");
+        Failure::host(
+            "InstallFailed",
+            json!({ "applet": applet, "detail": detail }),
+        )
+    };
+    installer
+        .applets
+        .stop(applet)
+        .await
+        .map_err(|e| failed(e.to_string()))?;
+    crate::install::remove(applet).map_err(failed)?;
+    crate::install::refresh().await.map_err(failed)?;
+    installer
+        .applets
+        .reload()
+        .await
+        .map_err(|e| failed(e.to_string()))?;
+    rescan(host, installer);
+    tracing::info!(%applet, "uninstalled");
+    Ok(json!({}))
 }
 
 /// The launcher's tiles: applets with display.tile, in position order.
@@ -717,7 +900,8 @@ mod tests {
             stopped: None,
         });
         let host = Host {
-            registry: Arc::new(registry()),
+            registry: crate::registry::Shared::new(registry()),
+            installer: None,
             nav: nav_tx,
             front: front_rx,
             bridge: Bridge::default(),

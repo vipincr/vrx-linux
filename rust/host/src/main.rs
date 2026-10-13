@@ -3,10 +3,9 @@
 // until the system goes down. All policy lives in the library
 // (session.rs decides; this file carries the orders out).
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::sync::Arc;
 
 use tokio::sync::{mpsc, watch};
 use vrx_host::applets::{Applets, Event};
@@ -15,7 +14,6 @@ use vrx_host::session::{NavOp, Order, Session};
 use vrx_host::varlink::{self, Front, NavRequest};
 use vrx_host::{paths, power, registry, usb};
 use vrx_protocol::Intent;
-use vrx_protocol::Registry;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -28,7 +26,7 @@ async fn main() -> ExitCode {
 
     let paths = paths::VrxPaths::system();
     let registry = match registry::scan(&paths) {
-        Ok(registry) => Arc::new(registry),
+        Ok(registry) => registry,
         Err(err) => {
             tracing::error!(error = %err, "registry scan failed");
             return ExitCode::FAILURE;
@@ -39,8 +37,11 @@ async fn main() -> ExitCode {
     tracing::info!(builtins, installed, "registry ready");
 
     let (events_tx, events_rx) = mpsc::unbounded_channel();
-    let ids = registry.iter().map(|e| e.manifest.applet.id.clone());
-    let applets = match Applets::watch(ids, events_tx.clone()).await {
+    let ids: HashSet<String> = registry
+        .iter()
+        .map(|e| e.manifest.applet.id.clone())
+        .collect();
+    let applets = match Applets::watch(ids.clone(), events_tx.clone()).await {
         Ok(applets) => applets,
         Err(err) => {
             tracing::error!(error = %err, "cannot reach systemd");
@@ -58,6 +59,8 @@ async fn main() -> ExitCode {
     // run, intents still route, nothing is focused.
     let home = Session::home_of(&registry);
     let shell = home.as_ref().and_then(|_| Session::shell_of(&registry));
+    let registry = registry::Shared::new(registry);
+    let (added_tx, added_rx) = mpsc::unbounded_channel();
     if home.is_some() {
         tokio::spawn(compositor::run(
             PathBuf::from(compositor::SOCKET),
@@ -68,19 +71,32 @@ async fn main() -> ExitCode {
         tracing::info!("no home applet: headless, no compositor link");
         drop(link_tx);
     }
+    let installer = varlink::Installer {
+        paths: paths.clone(),
+        applets: applets.clone(),
+        added: added_tx,
+    };
     let host = Host {
         registry: registry.clone(),
         applets,
+        watched: ids,
         events: events_tx,
         focus: focus_tx,
         front: front_tx,
         stopped: None,
     };
-    tokio::spawn(host.run(Session::new(home, shell), events_rx, link_rx, nav_rx));
+    tokio::spawn(host.run(
+        Session::new(home, shell),
+        events_rx,
+        link_rx,
+        nav_rx,
+        added_rx,
+    ));
 
     let socket = paths.host_socket();
     let host = varlink::Host {
         registry,
+        installer: Some(installer),
         nav: nav_tx,
         front: front_rx,
         bridge: vrx_host::bridge::Bridge::default(),
@@ -137,8 +153,10 @@ const SETUP_DONE: &str = "/var/lib/vrx/setup/done";
 
 /// What carries the session's orders out.
 struct Host {
-    registry: Arc<Registry>,
+    registry: registry::Shared,
     applets: Applets,
+    /// The applets whose units are watched (an installed one joins).
+    watched: HashSet<String>,
     events: mpsc::UnboundedSender<Event>,
     focus: mpsc::UnboundedSender<Control>,
     front: watch::Sender<Front>,
@@ -154,12 +172,13 @@ impl Host {
         mut events: mpsc::UnboundedReceiver<Event>,
         mut link: mpsc::UnboundedReceiver<LinkEvent>,
         mut nav: mpsc::UnboundedReceiver<NavRequest>,
+        mut added: mpsc::UnboundedReceiver<Vec<String>>,
     ) {
-        let mut orders = session.boot(&self.registry);
+        let mut orders = session.boot(&self.registry.get());
         // first boot (plan 0008 D10): Setup over Home until it has written
         // its marker in its own state directory (a factory reset, which
         // wipes /data, brings it back)
-        if self.registry.find(SETUP).is_some()
+        if self.registry.get().find(SETUP).is_some()
             && !std::path::Path::new(SETUP_DONE).exists()
         {
             tracing::info!("first boot: opening setup");
@@ -167,7 +186,7 @@ impl Host {
                 applet: SETUP.to_owned(),
                 route: 0,
             };
-            if let Ok(more) = session.nav(&self.registry, push) {
+            if let Ok(more) = session.nav(&self.registry.get(), push) {
                 orders.extend(more);
             }
         }
@@ -179,6 +198,7 @@ impl Host {
                     if let Event::Restarting { applet, .. } | Event::Disabled { applet, .. } = &event {
                         self.stopped = Some(
                             self.registry
+                                .get()
                                 .find(applet)
                                 .map_or_else(|| applet.clone(), |e| e.manifest.applet.name.clone()),
                         );
@@ -192,7 +212,7 @@ impl Host {
                 Some((op, reply)) = nav.recv() => {
                     tracing::info!(?op, "nav");
                     self.stopped = None;
-                    match session.nav(&self.registry, op) {
+                    match session.nav(&self.registry.get(), op) {
                         Ok(orders) => {
                             let _ = reply.send(Ok(session.top().unwrap_or_default().to_owned()));
                             orders
@@ -202,6 +222,17 @@ impl Host {
                             Vec::new()
                         }
                     }
+                }
+                Some(ids) = added.recv() => {
+                    // an install (plan 0011 D16): its unit is watched from now
+                    for id in ids {
+                        if self.watched.insert(id.clone()) {
+                            if let Err(err) = self.applets.watch_one(id.clone(), self.events.clone()).await {
+                                tracing::error!(applet = %id, error = %err, "cannot watch the installed applet");
+                            }
+                        }
+                    }
+                    Vec::new()
                 }
                 else => return,
             };

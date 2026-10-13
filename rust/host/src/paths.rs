@@ -9,7 +9,8 @@ use std::path::PathBuf;
 pub struct VrxPaths {
     /// Built-in applets (shipped by the OS): /system/defaults.
     pub system_defaults: PathBuf,
-    /// Installed applets: /apps.
+    /// Installed applets: /usr/lib/vrx/apps, where systemd-sysext merges
+    /// each installed applet's image (plan 0011 D16).
     pub apps: PathBuf,
     /// Runtime state (the io.vrx.Host socket, pipes): /run/vrx.
     pub runtime: PathBuf,
@@ -20,7 +21,7 @@ impl VrxPaths {
     pub fn system() -> Self {
         Self {
             system_defaults: PathBuf::from("/system/defaults"),
-            apps: PathBuf::from("/apps"),
+            apps: PathBuf::from("/usr/lib/vrx/apps"),
             runtime: PathBuf::from("/run/vrx"),
         }
     }

@@ -122,7 +122,9 @@ trait Manager {
     fn subscribe(&self) -> zbus::Result<()>;
     fn load_unit(&self, name: &str) -> zbus::Result<OwnedObjectPath>;
     fn start_unit(&self, name: &str, mode: &str) -> zbus::Result<OwnedObjectPath>;
+    fn stop_unit(&self, name: &str, mode: &str) -> zbus::Result<OwnedObjectPath>;
     fn reset_failed_unit(&self, name: &str) -> zbus::Result<()>;
+    fn reload(&self) -> zbus::Result<()>;
 }
 
 #[proxy(
@@ -173,6 +175,45 @@ impl Applets {
             tokio::spawn(watch_unit(conn.clone(), applet, path, events.clone()));
         }
         Ok(Self { conn })
+    }
+
+    /// Watch one more applet's unit (one installed after the start).
+    pub async fn watch_one(
+        &self,
+        applet: String,
+        events: mpsc::UnboundedSender<Event>,
+    ) -> zbus::Result<()> {
+        let manager = ManagerProxy::new(&self.conn).await?;
+        let path = manager.load_unit(&unit_name(&applet)).await?;
+        tokio::spawn(watch_unit(self.conn.clone(), applet, path, events));
+        Ok(())
+    }
+
+    /// Stop an applet's unit (an uninstall).
+    pub async fn stop(&self, applet: &str) -> zbus::Result<()> {
+        let manager = ManagerProxy::new(&self.conn).await?;
+        manager.stop_unit(&unit_name(applet), "replace").await?;
+        Ok(())
+    }
+
+    /// systemd reads its units again (a drop-in written or removed).
+    pub async fn reload(&self) -> zbus::Result<()> {
+        ManagerProxy::new(&self.conn).await?.reload().await
+    }
+
+    /// The unit is active now.
+    pub async fn is_active(&self, unit: &str) -> bool {
+        let read = async {
+            let manager = ManagerProxy::new(&self.conn).await?;
+            let path = manager.load_unit(unit).await?;
+            let proxy = UnitProxy::builder(&self.conn)
+                .path(path)?
+                .cache_properties(CacheProperties::No)
+                .build()
+                .await?;
+            proxy.active_state().await
+        };
+        read.await.is_ok_and(|state| state == "active")
     }
 
     /// Start an applet's unit. A unit that failed past its start limit

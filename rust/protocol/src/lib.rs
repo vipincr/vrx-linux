@@ -16,6 +16,7 @@ pub mod manifest;
 pub mod pipe;
 pub mod registry;
 pub mod scan;
+pub mod sysext;
 pub mod unit;
 
 pub use intent::{Intent, IntentPayload, Verdict};

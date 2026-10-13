@@ -23,6 +23,37 @@ pub enum ScanError {
     },
 }
 
+/// The registry every part of vrxhost reads, replaced whole when an
+/// install or uninstall changes what is on the system (plan 0011 D16):
+/// a reader takes a snapshot (`get`) and keeps using it for its call.
+#[derive(Debug, Clone)]
+pub struct Shared(std::sync::Arc<std::sync::RwLock<std::sync::Arc<Registry>>>);
+
+impl Shared {
+    pub fn new(registry: Registry) -> Self {
+        Self(std::sync::Arc::new(std::sync::RwLock::new(
+            std::sync::Arc::new(registry),
+        )))
+    }
+
+    /// The registry now.
+    pub fn get(&self) -> std::sync::Arc<Registry> {
+        self.0
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Replace it.
+    pub fn set(&self, registry: Registry) {
+        *self
+            .0
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            std::sync::Arc::new(registry);
+    }
+}
+
 /// Scan both applet roots into one registry: built-ins first (so an
 /// installed applet cannot steal a built-in's id), then installed.
 pub fn scan(paths: &crate::paths::VrxPaths) -> Result<Registry, ScanError> {

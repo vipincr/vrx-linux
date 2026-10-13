@@ -50,7 +50,7 @@ const NO_COLOUR: &str =
     "colour is a slot (VrxTheme.of(context).<slot>, VrxHue, VrxSignal), never a literal";
 const NO_CLASS: &str =
     "an applet never knows what panel it is on (plan 0009 D4): the kit answers by class";
-const NO_SCREEN_POWER: &str = "G019: the screen's power is the compositor's (plan 0010 D1); the backlight is reached through the kit's ScreenSettings, a hold is VrxKeepScreenOn";
+const NO_SCREEN_POWER: &str = "G019: the screen's power is the compositor's (plan 0010 D1); the backlight is reached through the kit's ScreenSettings, a hold is StoreModel.keepsScreenOn";
 const NO_DIALOG: &str = "G020: a modal is a route the kit opens (vrxConfirm, vrxAsk), so Back, Escape and the strip close it first (plan 0011 D1)";
 const NO_TIMER: &str = "G021: a periodic source is VrxTicker, which rests while the applet is hidden (plan 0011 D3)";
 const NO_RAW_PRESS: &str = "a tappable control comes from the kit's press components (VrxPress and the rows, chips and buttons on it), so every press is acknowledged the same way";
@@ -798,7 +798,7 @@ mod tests {
         assert!(violations(
             applet,
             "dart",
-            "VrxKeepScreenOn(child: c);\nScreenSettings().setBrightness(0);\nVrxDimming.backlight;\n"
+            "bool get keepsScreenOn => ringing;\nScreenSettings().setBrightness(0);\nVrxDimming.backlight;\n"
         )
         .is_empty());
     }

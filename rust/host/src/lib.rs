@@ -13,6 +13,7 @@
 pub mod applets;
 pub mod bridge;
 pub mod compositor;
+pub mod install;
 pub mod intent;
 pub mod paths;
 pub mod power;
