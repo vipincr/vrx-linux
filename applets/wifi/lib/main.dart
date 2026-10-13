@@ -33,6 +33,8 @@ class WifiApplet extends Applet<WifiState, WifiAction, WifiView> {
     try {
       await call();
     } on SystemError catch (err) {
+      // backing out of the passphrase screen is a choice, not a failure
+      if (err.name.endsWith('Canceled') || err.name.endsWith('OperationAborted')) return;
       model.error = _phrase(err);
       _events.add(WifiAction.failed);
     } on Object catch (err) {
@@ -45,7 +47,6 @@ class WifiApplet extends Applet<WifiState, WifiAction, WifiView> {
   static String _phrase(SystemError err) {
     if (err.denied) return 'Not allowed to change the network';
     if (err.name.endsWith('InvalidKey') || err.message.contains('invalid-key')) return 'Wrong passphrase';
-    if (err.name.endsWith('Canceled') || err.name.endsWith('OperationAborted')) return 'Canceled';
     if (err.name.endsWith('AlreadyConnected')) return 'Already connected';
     return err.message.isEmpty ? err.name : err.message;
   }
@@ -184,21 +185,26 @@ class _PassphraseScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final space = ScaledSpacing.of(context);
+    // a 58mm-tall panel holds the header, one dense field and the four
+    // 9mm keyboard rows with nothing to spare: no floating label, no
+    // spacer (the bench cut the keyboard's last row off)
     return Column(children: [
       VrxHeader(title: network.name, onBack: onBack),
-      Padding(
-        padding: EdgeInsets.all(space.md),
-        child: TextField(
-          controller: controller,
-          readOnly: true, // typed on the keyboard below, not an IME
-          showCursor: true,
-          autofocus: true,
-          obscureText: false,
-          style: TypeRole.body(context),
-          decoration: const InputDecoration(labelText: 'Passphrase'),
+      Expanded(
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: space.md),
+          child: Center(
+            child: TextField(
+              controller: controller,
+              readOnly: true, // typed on the keyboard below, not an IME
+              showCursor: true,
+              autofocus: true,
+              style: TypeRole.body(context),
+              decoration: const InputDecoration(isDense: true, hintText: 'Passphrase'),
+            ),
+          ),
         ),
       ),
-      const Spacer(),
       VrxKeyboard(controller: controller, onDone: onDone),
     ]);
   }
