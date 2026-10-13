@@ -150,6 +150,8 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
         _go(context, () => model.renaming = true);
       case 'light':
         unawaited(_ask(context, () => VrxSystem.power.setLight(!row.on)));
+      case 'light_off':
+        unawaited(_setSetting('vrx', 'light_off', '${model.nextLightOff}'));
       case 'automatic':
         unawaited(_ask(context, () => VrxSystem.time.setAutomatic(!row.on)));
       case 'zone':
@@ -267,6 +269,8 @@ Future<void> main() async {
   VrxSystem.device.watch().listen((d) => fact(() => model.device = d), onError: failed);
   VrxSystem.power.watchLight().listen((on) => fact(() => model.light = on), onError: failed);
   VrxSystem.power.watchSupplyLow().listen((low) => fact(() => model.supplyLow = low), onError: failed);
+  // the system's own settings (the light-off timeout)
+  _settings.watch('vrx').listen((v) => fact(() => model.values['vrx'] = v), onError: failed);
   // applets' declared settings, each file watched so a change shows
   unawaited(() async {
     final service = AppletsService.installed;

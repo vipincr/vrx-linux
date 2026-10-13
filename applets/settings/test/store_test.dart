@@ -20,7 +20,29 @@ void main() {
         v.categories.any((c) => c.category == SettingsCategory.power));
   });
 
-  test('the time rows read the time service', () {
+  test('the light-off row reads the system settings file and steps through the choices', () {
+    final model = SettingsModel()
+      ..lightLevels = 2
+      ..light = true
+      ..open = SettingsCategory.display;
+    final harness = StoreHarness(model);
+    String row() => harness.view.rows.firstWhere((r) => r.key == 'light_off').value;
+    // no file yet: never, as the compositor reads it
+    expect(row(), 'Never');
+    expect(model.nextLightOff, 30);
+    model.values['vrx'] = {'light_off': '120'};
+    harness.dispatch(SettingsAction.factsChanged);
+    expect(row(), 'After 2 min');
+    expect(model.nextLightOff, 300);
+    model.values['vrx'] = {'light_off': '600'};
+    expect(model.nextLightOff, 0, reason: 'the last choice wraps to never');
+    // a value written by hand that is not a choice steps to the first
+    model.values['vrx'] = {'light_off': '45'};
+    expect(model.nextLightOff, 0);
+    expect(lightOffLabel(45), '45 s');
+  });
+
+    test('the time rows read the time service', () {
     final model = SettingsModel()..open = SettingsCategory.time;
     final harness = StoreHarness(model);
     harness.assertView((v) => v.rows.first.value == '…', because: 'nothing read yet');

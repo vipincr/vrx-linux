@@ -90,6 +90,17 @@ class SettingsView {
   final String? error;
 }
 
+/// The light-off choices, in seconds (0 = never), and how each reads. The
+/// compositor reads the system's settings file (`vrx.conf`, the OS's
+/// reserved id) for `light_off`; vrx-policy seeds it.
+const lightOffChoices = [0, 30, 60, 120, 300, 600];
+
+String lightOffLabel(int seconds) => switch (seconds) {
+      0 => 'Never',
+      < 60 => '$seconds s',
+      _ => '${seconds ~/ 60} min',
+    };
+
 /// The settings model: the system's facts as its state, the rows derived
 /// from them. Rows a device cannot offer are not offered (plan 0008 D12):
 /// no Display without a backlight, no Power when this applet may not
@@ -149,6 +160,15 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         if (declared.isNotEmpty) const CategoryRow(SettingsCategory.applets, 'Applets', 'apps', ''),
       ];
 
+  /// The light-off timeout now (absent: never, as the compositor reads it).
+  int get lightOff => int.tryParse(values['vrx']?['light_off'] ?? '') ?? 0;
+
+  /// What a tap on the light-off row sets: the next choice.
+  int get nextLightOff {
+    final i = lightOffChoices.indexOf(lightOff);
+    return lightOffChoices[(i + 1) % lightOffChoices.length];
+  }
+
   /// A setting's value now: its file's, else its declared default.
   String valueOf(String applet, SettingDecl decl) => values[applet]?[decl.key] ?? decl.defaultValue;
 
@@ -181,6 +201,13 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
             value: light == true ? 'On' : 'Off',
             kind: RowKind.toggle,
             on: light == true,
+          ),
+          // a tap steps through the choices; the compositor watches the file
+          SettingRow(
+            key: 'light_off',
+            label: 'Light off when idle',
+            value: lightOff == 0 ? 'Never' : 'After ${lightOffLabel(lightOff)}',
+            kind: RowKind.toggle,
           ),
         ];
       case SettingsCategory.power:
