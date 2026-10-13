@@ -16,6 +16,11 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tokio = { workspace = true }
+# the identity drop in the applet's pre-exec (launch.rs)
+libc = "0.2"
+# SOCK_SEQPACKET to the compositor (compositor.rs); same version tokio
+# already pulls, "all" for the seqpacket type
+socket2 = { version = "0.6", features = ["all"] }
 
 [dev-dependencies]
 tempfile = "3"

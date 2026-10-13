@@ -2,14 +2,15 @@
 
 **vrx-linux** is the applet operating system for Linux processors: a Rust
 workspace that provides the applet framework (store/model/view), the host
-daemon (lifecycle, intents, navigation), the compositor (DRM + Flutter),
-and the SDK for both Rust and Flutter applet developers. It is consumed by
+daemon (lifecycle, intents, navigation, the compositor's focus), and the
+SDK for both Rust and Flutter applet developers. The compositor is
+flutter-vrx (C, its own repo; plan 0007 amendment C), not a crate here. It is consumed by
 the vrx Yocto build as a layer. Linux is the kernel; vrx is the OS.
 
 > ## The gate is sacred
 
 ```bash
-cd rust && cargo xtask gate
+cargo xtask gate   # from the repo root (the workspace root)
 ```
 
 Runs: fmt + clippy -D warnings + tests + cargo-deny. All blocking. A
@@ -24,9 +25,12 @@ change is not "done" until the gate is green.
    Without it, tests run 31x slower and time out (octiva lesson).
 3. **One job per crate.** `protocol` is shared types only. `host` is the
    daemon. `sdk` is what applet developers import. `cli` is the `vrx`
-   tool. `compositor` is display. No cross-boundary imports.
-4. **`unsafe` only in `flutter-bridge` and `compositor`** (the FFI and
-   DRM layers). Everywhere else: none.
+   tool. No cross-boundary imports.
+4. **`unsafe` only where Linux offers no safe interface**, each block
+   with a SAFETY comment. Today there is one: the applet privilege drop
+   in `host/src/launch.rs` (setgroups/setgid/setuid in pre_exec; std
+   cannot set supplementary groups). The display and the engine FFI
+   live in flutter-vrx, in C.
 5. **"vrx" is always lowercase** — in prose, in code, in comments, in
    docs. Never "vrx" capitalized, never "VRX" except as a literal
    constant inherited from existing code.
@@ -60,8 +64,6 @@ by the agent.
 |---|---|
 | `rust/protocol/` | shared types (Manifest, Intent, PipeMessage) |
 | `rust/host/` | vrxhost: the applet OS daemon |
-| `rust/compositor/` | vrx-compositor: DRM + input + Flutter engine |
-| `rust/flutter-bridge/` | FFI bindings to the Flutter engine |
 | `rust/sdk/` | the Rust SDK crate (`vrx`) |
 | `rust/cli/` | the `vrx` command-line tool |
 | `rust/xtask/` | the gate |

@@ -21,14 +21,21 @@ UMask=0007
 # the spawn path lands (per-applet cgroups will want CAP_SYS_RESOURCE
 # or cgroup delegation instead).
 CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_KILL CAP_CHOWN
+# Inherited by every applet: no exec can raise privilege again (su,
+# sudo, file capabilities). vrxhost's own setuid() to the vrx user is a
+# drop, which NoNewPrivileges permits.
+NoNewPrivileges=yes
 # The filesystem is read-only to the daemon except the runtime dir
 # (the intent socket and pipes); applets share /tmp/vrx, so no
 # PrivateTmp here — that would hide the socket from the applets.
 ProtectSystem=strict
 ReadWritePaths=/tmp/vrx
 ProtectHome=yes
-# applets render nothing; vrxhost is headless until the compositor
-# handshake (part E) lands
+# Applets inherit this mount namespace: the system is read-only to
+# them too, and their only writable place is their home under
+# /tmp/vrx/home/<id>. vrxhost connects to the compositor's socket
+# (/run/vrx-ui/vrx.sock) as its controller and retries until it is up,
+# so no ordering against vrx-ui.service is needed.
 
 [Install]
 WantedBy=multi-user.target

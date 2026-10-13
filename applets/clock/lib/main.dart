@@ -5,7 +5,9 @@ import 'state.dart';
 
 /// The clock applet: the model plus its Flutter view.
 class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
-  final _model = ClockModel();
+  ClockApplet({DateTime Function()? clock}) : _model = ClockModel(clock: clock);
+
+  final ClockModel _model;
 
   @override
   ClockState get initial => _model.initial;
@@ -25,7 +27,17 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
     final screen = view.ringing //
         ? _RingScreen(view: view)
         : _ClockFace(view: view);
-    return Scaffold(body: screen);
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Back is a trail pop: vrxhost decides what comes next
+            VrxHeader(title: 'Clock', onBack: Nav.pop),
+            Expanded(child: screen),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -49,7 +61,8 @@ class _ClockFace extends StatelessWidget {
           SizedBox(height: ScaledSpacing.of(context).md),
           VrxChip(
             label: view.is24h ? '12-hour' : '24-hour',
-            onTap: () => Intent.send('clock.format.cycle'),
+            onTap: () =>
+                AppletScope.dispatch(context, ClockAction.formatChanged),
           ),
         ],
       ),
@@ -72,7 +85,8 @@ class _RingScreen extends StatelessWidget {
           Text(view.time, style: TypeRole.display(context)),
           SizedBox(height: Spacing.lg),
           ElevatedButton(
-            onPressed: () => Intent.send('clock.alarm.snooze'),
+            onPressed: () =>
+                AppletScope.dispatch(context, ClockAction.snoozeTapped),
             child: const Text('Snooze'),
           ),
         ],
@@ -82,7 +96,10 @@ class _RingScreen extends StatelessWidget {
 }
 
 void main() {
-  // The flutter-vrx runtime hosts applets; this entry point exists so
-  // the applet also runs under `flutter run` during development.
-  runApp(const MaterialApp(home: Scaffold(body: SizedBox.shrink())));
+  // the face follows the wall clock; a tick a second keeps the minute
+  // exact without a timer per widget
+  runApplet(
+    ClockApplet(clock: DateTime.now),
+    actions: Stream.periodic(const Duration(seconds: 1), (_) => ClockAction.tick),
+  );
 }

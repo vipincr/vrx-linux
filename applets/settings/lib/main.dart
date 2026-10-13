@@ -25,32 +25,45 @@ class SettingsApplet
 
   @override
   Widget build(BuildContext context, SettingsView view) {
-    if (view.openCategory == null) {
-      return _CategoryList(view: view);
+    void act(void Function() change, SettingsAction action) {
+      change();
+      AppletScope.dispatch(context, action);
     }
-    return _SettingList(view: view);
+
+    if (view.openCategory == null) {
+      return _CategoryList(
+        view: view,
+        onOpen: (category) =>
+            act(() => _model.openCategory(category), SettingsAction.categoryOpened),
+      );
+    }
+    return _SettingList(
+      view: view,
+      onClose: () => act(_model.closeCategory, SettingsAction.categoryOpened),
+      onCycle: (key) =>
+          act(() => _model.changeValue(key, _model.nextValue(key)), SettingsAction.changed),
+    );
   }
 }
 
 class _CategoryList extends StatelessWidget {
-  const _CategoryList({required this.view});
+  const _CategoryList({required this.view, required this.onOpen});
 
   final SettingsView view;
+  final void Function(String category) onOpen;
 
   @override
   Widget build(BuildContext context) {
     final categories = view.rows.map((r) => r.category).toSet().toList();
     return Scaffold(
       body: VrxList(children: [
-        VrxHeader(title: 'Settings'),
+        // Back leaves the applet: a trail pop, vrxhost's decision
+        VrxHeader(title: 'Settings', onBack: Nav.pop),
         for (final category in categories)
           VrxRow(
             label: category,
             value: '›',
-            onTap: () => Intent.send(
-              'settings.category.open',
-              {'category': category},
-            ),
+            onTap: () => onOpen(category),
           ),
       ]),
     );
@@ -58,9 +71,15 @@ class _CategoryList extends StatelessWidget {
 }
 
 class _SettingList extends StatelessWidget {
-  const _SettingList({required this.view});
+  const _SettingList({
+    required this.view,
+    required this.onClose,
+    required this.onCycle,
+  });
 
   final SettingsView view;
+  final VoidCallback onClose;
+  final void Function(String key) onCycle;
 
   @override
   Widget build(BuildContext context) {
@@ -68,22 +87,18 @@ class _SettingList extends StatelessWidget {
       body: VrxList(children: [
         VrxHeader(
           title: view.openCategory ?? '',
-          onBack: () => Nav.pop(),
+          // back within the applet: the category list
+          onBack: onClose,
         ),
         for (final row in view.rows)
           VrxSettingRow(
             label: row.label,
             value: row.value,
-            onTap: () => Intent.send(
-              'settings.value.cycle',
-              {'key': row.key},
-            ),
+            onTap: () => onCycle(row.key),
           ),
       ]),
     );
   }
 }
 
-void main() {
-  runApp(const MaterialApp(home: Scaffold(body: SizedBox.shrink())));
-}
+void main() => runApplet(SettingsApplet());

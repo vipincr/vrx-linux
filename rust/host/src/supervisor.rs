@@ -1,13 +1,14 @@
 // The supervisor: vrxhost's half of applet lifecycle. Spawns applet
-// processes, watches them, restarts on crash — at most MAX_RESTARTS
-// times, then the applet is disabled and a human is told. A clean
-// exit is an applet finishing (app.finished), not a crash.
+// processes (through launch.rs, so every one runs sandboxed), watches
+// them, restarts on crash: at most MAX_RESTARTS times, then the applet
+// is disabled and a human is told. A clean exit is an applet finishing
+// (app.finished), not a crash.
 
-use std::ffi::OsString;
 use std::process::Stdio;
 
-use tokio::process::Command;
 use tokio::sync::mpsc;
+
+use crate::launch::{self, Launch};
 
 /// Restarts allowed after a crash before the applet is disabled.
 pub const MAX_RESTARTS: u32 = 3;
@@ -15,8 +16,9 @@ pub const MAX_RESTARTS: u32 = 3;
 /// What the supervisor tells vrxhost about a supervised applet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
-    /// The applet process started (spawn or restart).
-    Started { applet: String },
+    /// The applet process started (spawn or restart) with this pid: the
+    /// pid the compositor sees on its socket, so focus is named by it.
+    Started { applet: String, pid: u32 },
     /// The applet exited cleanly (it finished; not restarted).
     Finished { applet: String },
     /// The applet crashed and is being restarted.
@@ -26,59 +28,78 @@ pub enum Event {
     Disabled { applet: String, crashes: u32 },
 }
 
+impl Event {
+    pub fn applet(&self) -> &str {
+        match self {
+            Event::Started { applet, .. }
+            | Event::Finished { applet }
+            | Event::Restarting { applet, .. }
+            | Event::Disabled { applet, .. } => applet,
+        }
+    }
+}
+
 /// The supervisor. Owns one monitoring task per supervised applet; all
 /// events surface on one channel, which is the source of truth for
-/// applet state. The command is held as program + args (tokio Commands
-/// cannot be cloned) and rebuilt per spawn.
-#[derive(Debug)]
+/// applet state. The launch is rebuilt into a fresh command per spawn
+/// (tokio Commands cannot be cloned).
+#[derive(Debug, Clone)]
 pub struct Supervisor {
     events_tx: mpsc::UnboundedSender<Event>,
-    events_rx: mpsc::UnboundedReceiver<Event>,
 }
 
 impl Supervisor {
-    pub fn new() -> Self {
+    /// A supervisor and the receiving end of its event channel.
+    pub fn new() -> (Self, mpsc::UnboundedReceiver<Event>) {
         let (events_tx, events_rx) = mpsc::unbounded_channel();
-        Self {
-            events_tx,
-            events_rx,
-        }
+        (Self { events_tx }, events_rx)
     }
 
-    /// Spawn and supervise an applet: `applet` is its id, the process
-    /// is `program` with `args`, re-spawned verbatim on restart.
-    pub fn supervise(
-        &mut self,
-        applet: &str,
-        program: impl Into<OsString>,
-        args: Vec<OsString>,
-    ) {
+    /// Spawn and supervise an applet: `applet` is its id, `launch` how
+    /// it starts, re-applied verbatim on restart.
+    pub fn supervise(&self, applet: &str, launch: Launch) {
         let applet = applet.to_owned();
-        let program = program.into();
         let events = self.events_tx.clone();
 
         tokio::spawn(async move {
             let mut restarts = 0u32;
             loop {
-                let mut command = Command::new(&program);
-                command.args(&args);
-                command.stdin(Stdio::null());
-                command.stdout(Stdio::null());
-                command.stderr(Stdio::null());
-                command.kill_on_drop(true);
-
+                let spawned = launch::prepare_home(&launch).and_then(|()| {
+                    let mut command = launch::command(&launch);
+                    command.stdin(Stdio::null());
+                    // the applet's output goes where vrxhost's goes: the
+                    // journal, under vrxhost's unit
+                    command.stdout(Stdio::inherit());
+                    command.stderr(Stdio::inherit());
+                    command.kill_on_drop(true);
+                    command.spawn()
+                });
+                let mut child = match spawned {
+                    Ok(child) => child,
+                    Err(err) => {
+                        // could not spawn at all: a configuration
+                        // failure, not a crash loop; do not spin
+                        tracing::warn!(applet = %applet, error = %err, "spawn failed");
+                        let _ = events.send(Event::Disabled {
+                            applet: applet.clone(),
+                            crashes: 0,
+                        });
+                        return;
+                    }
+                };
                 let _ = events.send(Event::Started {
                     applet: applet.clone(),
+                    pid: child.id().unwrap_or(0),
                 });
-                match command.status().await {
+                match child.wait().await {
                     Ok(status) if status.success() => {
                         let _ = events.send(Event::Finished {
                             applet: applet.clone(),
                         });
                         return;
                     }
-                    Ok(_) => {
-                        // a crash: restart, or disable after too many
+                    Ok(status) => {
+                        tracing::warn!(applet = %applet, %status, "applet crashed");
                         if restarts >= MAX_RESTARTS {
                             let _ = events.send(Event::Disabled {
                                 applet: applet.clone(),
@@ -93,12 +114,10 @@ impl Supervisor {
                         });
                     }
                     Err(err) => {
-                        // could not spawn at all: a configuration
-                        // failure, not a crash loop — do not spin
-                        tracing::warn!(applet = %applet, error = %err, "spawn failed");
+                        tracing::warn!(applet = %applet, error = %err, "wait failed");
                         let _ = events.send(Event::Disabled {
                             applet: applet.clone(),
-                            crashes: 0,
+                            crashes: restarts + 1,
                         });
                         return;
                     }
@@ -106,36 +125,32 @@ impl Supervisor {
             }
         });
     }
-
-    /// The next supervision event, or None when the channel closed.
-    pub async fn next_event(&mut self) -> Option<Event> {
-        self.events_rx.recv().await
-    }
-}
-
-impl Default for Supervisor {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn sh(script: &str) -> (String, Vec<OsString>) {
-        ("/bin/sh".to_owned(), vec!["-c".into(), script.into()])
+    fn sh(script: &str) -> Launch {
+        let home = std::env::temp_dir().join("vrx-supervisor-test");
+        Launch {
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), script.into()],
+            env: vec![("PATH".into(), "/usr/bin:/bin".into())],
+            cwd: "/".into(),
+            home,
+            cred: None,
+        }
     }
 
     #[tokio::test]
     async fn a_crashing_applet_is_restarted_then_disabled() {
-        let mut sup = Supervisor::new();
-        let (program, args) = sh("exit 3");
-        sup.supervise("crasher", program, args);
+        let (sup, mut events) = Supervisor::new();
+        sup.supervise("crasher", sh("exit 3"));
         let mut restarts = 0;
         let mut disabled = false;
         for _ in 0..30 {
-            match sup.next_event().await {
+            match events.recv().await {
                 Some(Event::Started { .. }) => {}
                 Some(Event::Restarting { attempt, .. }) => {
                     restarts += 1;
@@ -158,11 +173,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_clean_exit_finishes_without_restart() {
-        let mut sup = Supervisor::new();
-        let (program, args) = sh("exit 0");
-        sup.supervise("finisher", program, args);
+        let (sup, mut events) = Supervisor::new();
+        sup.supervise("finisher", sh("exit 0"));
         loop {
-            match sup.next_event().await {
+            match events.recv().await {
                 Some(Event::Started { .. }) => continue,
                 Some(Event::Finished { applet }) => {
                     assert_eq!(applet, "finisher");
@@ -175,10 +189,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_spawn_failure_disables_without_a_loop() {
-        let mut sup = Supervisor::new();
-        sup.supervise("ghost", "/nonexistent/vrx/applet", vec![]);
+        let (sup, mut events) = Supervisor::new();
+        let mut launch = sh("");
+        launch.program = "/nonexistent/vrx/applet".into();
+        sup.supervise("ghost", launch);
         loop {
-            match sup.next_event().await {
+            match events.recv().await {
                 Some(Event::Started { .. }) => continue,
                 Some(Event::Disabled { applet, crashes }) => {
                     assert_eq!(applet, "ghost");

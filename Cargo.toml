@@ -1,8 +1,8 @@
 # vrx-linux — the applet operating system for Linux processors.
 #
 # An applet OS shaped like evrx-rt (the MCU runtime) but running on Linux:
-# vrxhost supervises applets (Flutter or Rust), vrx-compositor owns the
-# display, and the SDK (Rust crate + Flutter package) gives developers
+# vrxhost supervises applets (Flutter or Rust) and tells the compositor
+# (flutter-vrx, its own repo) which one is on screen, and the SDK (Rust crate + Flutter package) gives developers
 # the same store/model/view paradigm in both languages. Linux is the
 # kernel; vrx is the OS.
 #
@@ -19,9 +19,6 @@ members = [
     "rust/xtask",
 ]
 
-# Compositor, flutter-bridge, and walk are added as they land (they
-# need target-specific dependencies).
-#
 # applets/ are standalone: each is built and tested on its own (the
 # way a developer's applet would be), never as a workspace member.
 exclude = ["applets"]

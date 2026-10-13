@@ -30,12 +30,17 @@ class ClockView {
 /// The clock model: state as fields, reduce applies and derives the
 /// view. The same model a host test drives.
 class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
-  ClockModel({DateTime? now})
-      : _now = now ?? DateTime(2026, 1, 1, 13, 4, 0),
+  /// `clock` is read on boot and on every tick; host tests pass a
+  /// fixed one (the default), the applet's main passes the wall clock.
+  ClockModel({DateTime Function()? clock})
+      : _clock = clock ?? (() => DateTime(2026, 1, 1, 13, 4, 0)),
         _is24h = true,
-        _ringing = false;
+        _ringing = false {
+    _now = _clock();
+  }
 
-  final DateTime _now;
+  final DateTime Function() _clock;
+  late DateTime _now;
   bool _is24h;
   bool _ringing;
 
@@ -56,7 +61,7 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
       case ClockAction.init:
         break;
       case ClockAction.tick:
-        break; // the tick updates via the state the host feeds in
+        _now = _clock();
       case ClockAction.formatChanged:
         _is24h = !_is24h;
       case ClockAction.alarmFired:

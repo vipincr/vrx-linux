@@ -72,7 +72,7 @@ class SettingsModel
       case SettingsAction.init:
         break;
       case SettingsAction.categoryOpened:
-        break; // opened through the nav intent, not a model change
+        break; // openCategory/closeCategory set it; this re-derives
       case SettingsAction.changed:
         break;
       case SettingsAction.resetAll:
@@ -93,6 +93,16 @@ class SettingsModel
   }
 
   void openCategory(String category) => _openCategory = category;
+
+  void closeCategory() => _openCategory = null;
+
+  /// The next declared option after the current value (wrapping).
+  String nextValue(String key) {
+    final options = _declared[key]?.$3 ?? const <String>[];
+    if (options.isEmpty) return _values[key] ?? '';
+    final at = options.indexOf(_values[key] ?? options.first);
+    return options[(at + 1) % options.length];
+  }
 
   List<SettingsRow> _rows() {
     final rows = <SettingsRow>[];

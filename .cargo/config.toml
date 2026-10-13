@@ -1,0 +1,3 @@
+# `cargo xtask gate` (AGENTS.md): the alias the docs have always used.
+[alias]
+xtask = "run -q -p vrx-xtask --"

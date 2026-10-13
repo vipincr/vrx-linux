@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart' hide Intent; // vrx's Intent
 import 'package:vrx_kit/vrx_kit.dart';
 
@@ -9,6 +11,10 @@ import 'state.dart';
 class LauncherApplet
     extends Applet<LauncherState, LauncherAction, LauncherView> {
   final _model = LauncherModel();
+
+  /// vrxhost's registry replaced the applet list (dispatch
+  /// [LauncherAction.registryChanged] after).
+  void replaceRegistry(Map<String, Tile> tiles) => _model.replaceRegistry(tiles);
 
   @override
   LauncherState get initial => _model.initial;
@@ -87,5 +93,24 @@ class _NoApps extends StatelessWidget {
 }
 
 void main() {
-  runApp(const MaterialApp(home: Scaffold(body: SizedBox.shrink())));
+  final applet = LauncherApplet();
+  final actions = StreamController<LauncherAction>();
+  runApplet(applet, actions: actions.stream);
+  // the tiles are vrxhost's registry; off-device the model's defaults
+  // stay (a desktop `flutter run`)
+  VrxHost.installed?.applets().then((applets) {
+    applet.replaceRegistry({
+      for (final a in applets)
+        a.id: Tile(id: a.id, name: a.name, position: a.position, icon: glyphFor(a)),
+    });
+    actions.add(LauncherAction.registryChanged);
+  }, onError: (Object err) => debugPrint('launcher: registry: $err'));
+}
+
+/// The tile glyph: the manifest's icon when it is a glyph, else the
+/// name's initial (icon files arrive with the asset pipeline).
+String glyphFor(RegistryApplet applet) {
+  final icon = applet.icon ?? '';
+  if (icon.isNotEmpty && !icon.contains('.')) return icon;
+  return applet.name.isEmpty ? '■' : applet.name.characters.first.toUpperCase();
 }

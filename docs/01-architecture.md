@@ -26,8 +26,7 @@ file names the reality.
 | Settings | `applets/settings` | model landed |
 | The terminal (console + pipeline stage) | `applets/terminal` | landed; interactive half pending input (part E) |
 | vrxinit (PID 1) | `rust/init` | decisions landed + tested; exec half is bench-verified |
-| The compositor (DRM/KMS + Flutter engine) | `rust/compositor` | not started — part E, bench |
-| flutter-bridge (bindgen for flutter_embedder.h) | `rust/flutter-bridge` | not started — part D, bench |
+| The compositor (DRM/KMS, input, one fullscreen app at a time) | flutter-vrx (`--compositor`, C, its own repo) | amendment C; vrxhost names the focus by pid over its socket |
 | The Yocto layer | `layer/` | vrxhost + vrxinit recipes, packagegroup; image-built (below) |
 | The design system (metrics, type, palettes, springs) | `flutter/vrx_kit` | landed with evrx-rt's exact numbers |
 | The component library (rows, header, segmented, chip, banner, press) | `flutter/vrx_kit` | landed; contracts pinned by tests |
@@ -59,9 +58,11 @@ Linux kernel
   → vrxinit (PID 1): mount /proc /sys /dev, ensure /tmp/vrx,
     debug console only when the cmdline carries vrx.debug
   → systemd (hardware services; starts vrxhost per its unit)
+  → vrx-ui: flutter-vrx --compositor takes the display and input
   → vrxhost: scan /apps + /system/defaults → registry →
-    supervise home + resident applets → serve the intent socket
-  → (with the compositor, part E) the screen lights: the launcher
+    start home + resident applets as the vrx user → control the
+    compositor (focus = the trail's top) → serve the intent socket
+  → the screen lights: the launcher
 ```
 
 ## The build rungs

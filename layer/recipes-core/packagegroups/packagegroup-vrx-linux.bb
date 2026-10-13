@@ -5,9 +5,9 @@
 #
 
 SUMMARY = "vrx-linux applet OS packages"
-DESCRIPTION = "vrxhost (the daemon); the vrx CLI and the compositor join \
-               as their recipes land. The SDKs ship to developers, not to \
-               the image."
+DESCRIPTION = "vrxhost (the daemon), vrxinit, and with a UI the built-in \
+               applets. The compositor is flutter-vrx (meta-vrx-ui); the \
+               SDKs ship to developers, not to the image."
 LICENSE = "MIT"
 
 PACKAGE_ARCH = "${MACHINE_ARCH}"
@@ -19,4 +19,9 @@ COMPATIBLE_MACHINE = "^vrxboard-"
 RDEPENDS:${PN} = "\
     vrxhost \
     vrxinit \
+    ${@'vrx-applet-launcher vrx-applet-clock vrx-applet-settings' if d.getVar('VRX_UI') == 'flutter' else ''} \
 "
+
+# The built-in applets render through flutter-vrx, so they ride only on
+# an image with the Flutter UI (VRX_UI = "flutter", validated by
+# packagegroup-vrx-ui); a headless vrx-linux image is vrxhost alone.
