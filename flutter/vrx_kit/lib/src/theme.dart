@@ -16,6 +16,8 @@ import 'package:flutter/material.dart';
 
 import 'metrics.dart';
 import 'scale.dart';
+import 'symbols.dart';
+import 'ui_standard.g.dart';
 
 /// The type scale. CLOCK renders digits only (`0-9:-`, no fallback
 /// face); CODE is monospace; MICRO is subscripts only.
@@ -113,122 +115,140 @@ abstract final class TypeRole {
       of(context, VrxTypeRole.caption);
 }
 
-/// The ink roles. `fill`/`onFill` are the inversion pair: pressed
-/// fills invert; an ON chip is filled with a knocked-out glyph.
-class VrxPalette {
-  const VrxPalette({
-    required this.text,
-    required this.secondary,
-    required this.faint,
-    required this.page,
-    required this.fill,
-    required this.onFill,
-    required this.line,
-    required this.focus,
-    required this.highlight,
-  });
+/// The colours this device draws with: the 32 slots of the vrx UI standard
+/// (plan 0009 D2), resolved once at boot from the display class, the
+/// scheme and the polarity. A widget names what a colour is for
+/// (`colors.text`, `colors.primary`), never a colour.
+@immutable
+class VrxColors extends ThemeExtension<VrxColors> with VrxSlotNames {
+  const VrxColors._(this._table, this.displayClass, this.dark);
 
-  /// The e-paper lineage: a light page, dark ink, inversion fills.
-  factory VrxPalette.paper() => const VrxPalette(
-        text: Color(0xFF202020),
-        secondary: Color(0xFF606060),
-        faint: Color(0xFFA0A0A0), // decoration only, never text
-        page: Color(0xFFFFFFFF),
-        fill: Color(0xFF000000),
-        onFill: Color(0xFFFFFFFF),
-        line: Color(0xFF000000),
-        focus: Color(0xFF000000),
-        highlight: Color(0xFFFFFFFF),
-      );
+  /// The table for a display: a colour panel draws [scheme] (1 to 20) in
+  /// the light or dark polarity; a grey panel draws its class's grey map,
+  /// every slot a grey with r = g = b (evrx-rt's `ui_color_table`).
+  factory VrxColors.resolve({
+    VrxDisplayClass displayClass = VrxDisplayClass.lcdColour,
+    int scheme = vrxDefaultScheme,
+    bool dark = true,
+  }) {
+    if (displayClass == VrxDisplayClass.lcdColour) {
+      final row = vrxSchemes[(scheme >= 1 && scheme <= vrxSchemes.length ? scheme : vrxDefaultScheme) - 1];
+      return VrxColors._(List.unmodifiable((dark ? row.dark : row.light).map(Color.new)), displayClass, dark);
+    }
+    final map = displayClass == VrxDisplayClass.epaperMono ? vrxMapGrey2 : vrxMapGrey4;
+    return VrxColors._(
+      List.unmodifiable(map.map((g) => Color(0xFF000000 | g << 16 | g << 8 | g))),
+      displayClass,
+      false,
+    );
+  }
 
-  /// The scanned-panel dark palette; `fill` is the product accent and
-  /// `onFill` is whichever of black/white contrasts better (4.58:1
-  /// floor).
-  factory VrxPalette.dark({required Color accent}) => VrxPalette(
-        text: const Color(0xFFEDEDED),
-        secondary: const Color(0xFFB0B0B0),
-        faint: const Color(0xFF6E6E6E),
-        page: const Color(0xFF121212),
-        fill: accent,
-        onFill: accent.computeLuminance() > 0.5
-            ? Colors.black
-            : Colors.white,
-        // a divider is structure, not ink: quiet on a lit panel
-        line: const Color(0xFF2E2E30),
-        focus: const Color(0xFFEDEDED),
-        highlight: Colors.white.withValues(alpha: 0.05),
-      );
+  final List<Color> _table;
+  final VrxDisplayClass displayClass;
 
-  final Color text;
-  final Color secondary;
-  final Color faint;
-  final Color page;
-  final Color fill;
-  final Color onFill;
-  final Color line;
-  final Color focus;
-  final Color highlight;
+  /// The dark polarity (only ever true on a colour panel).
+  final bool dark;
+
+  @override
+  Color operator [](VrxSlot slot) => _table[slot.index];
+
+  /// The colour drawn on [slot]: its own on-colour where it has one (a
+  /// fill, a container, the inverse, a signal), the text colour on a
+  /// surface (evrx-rt's `ui_style_tonal`).
+  Color on(VrxSlot slot) =>
+      (vrxSlotHasOnMask >> slot.index) & 1 == 1 ? _table[slot.index + 1] : text;
+
+  /// What differs by kind of panel: the press, the pacing.
+  VrxClassRow get classRow => vrxClasses[displayClass]!;
+
+  @override
+  VrxColors copyWith() => this;
+
+  /// No tween between schemes: the scheme changes at boot (plan 0009 D5).
+  @override
+  VrxColors lerp(VrxColors? other, double t) => t < 0.5 || other == null ? this : other;
 }
 
-/// The product accent on colour panels.
-const Color vrxAccent = Color(0xFF4C8DFF);
+/// A state that means something (plan 0062 D8): its slot and the glyph
+/// that says it too, since a grey panel shows the slot as a grey.
+enum VrxSignal {
+  error(VrxSlot.error, VrxSymbols.error),
+  warning(VrxSlot.warning, VrxSymbols.warning),
+  success(VrxSlot.success, VrxSymbols.check_circle),
+  info(VrxSlot.info, VrxSymbols.info);
 
-/// The palette for a display: `paper` for e-paper, the dark palette
-/// with the product accent for colour panels.
-VrxPalette paletteFor({required bool colour}) =>
-    colour ? VrxPalette.dark(accent: vrxAccent) : VrxPalette.paper();
+  const VrxSignal(this.slot, this.glyph);
+  final VrxSlot slot;
+  final IconData glyph;
+}
 
-/// Material's theme, derived from a vrx palette, so stock widgets
-/// (scaffolds, ink, icons, dividers) speak the same colours as vrx's.
-/// Roboto is the UI face (the image ships it, ttf-roboto); the clock
-/// role uses its tabular digits.
-ThemeData vrxThemeData(VrxPalette palette) {
-  final dark = palette.page.computeLuminance() < 0.5;
+/// The scheme a device draws until its settings name another: 12, amber
+/// complementary (the owner's pick for a colour board, plan 0062).
+const int vrxDefaultScheme = 12;
+
+/// The four hue names (plan 0062 D2): the signal slots by another name, so
+/// red is the error colour of the active scheme and a grey on a grey panel.
+/// Nothing else names a hue. A colour that means something is always shown
+/// with a glyph or a word as well.
+abstract final class VrxHue {
+  static Color red(BuildContext context) => VrxTheme.of(context).error;
+  static Color amber(BuildContext context) => VrxTheme.of(context).warning;
+  static Color green(BuildContext context) => VrxTheme.of(context).success;
+  static Color blue(BuildContext context) => VrxTheme.of(context).info;
+}
+
+/// Material's theme from the slots, so stock widgets (a text field, a
+/// dialog, ink, icons, dividers) draw the active scheme without being told.
+/// Roboto is the UI face (the image ships it, ttf-roboto); the clock role
+/// uses its tabular digits.
+ThemeData vrxThemeData(VrxColors c) {
   final scheme = ColorScheme(
-    brightness: dark ? Brightness.dark : Brightness.light,
-    primary: palette.fill,
-    onPrimary: palette.onFill,
-    secondary: palette.fill,
-    onSecondary: palette.onFill,
-    error: const Color(0xFFFF5A5F),
-    onError: Colors.white,
-    surface: palette.page,
-    onSurface: palette.text,
+    brightness: c.dark ? Brightness.dark : Brightness.light,
+    primary: c.primary,
+    onPrimary: c.onPrimary,
+    primaryContainer: c.primaryContainer,
+    onPrimaryContainer: c.onPrimaryContainer,
+    secondary: c.secondary,
+    onSecondary: c.onSecondary,
+    secondaryContainer: c.secondaryContainer,
+    onSecondaryContainer: c.onSecondaryContainer,
+    tertiary: c.tertiary,
+    onTertiary: c.onTertiary,
+    tertiaryContainer: c.tertiaryContainer,
+    onTertiaryContainer: c.onTertiaryContainer,
+    error: c.error,
+    onError: c.onError,
+    surface: c.page,
+    onSurface: c.text,
+    onSurfaceVariant: c.textSecondary,
+    surfaceContainer: c.surface,
+    surfaceContainerHigh: c.surfaceHigh,
+    outline: c.outline,
+    outlineVariant: c.outlineFaint,
+    shadow: c.shadow,
+    inverseSurface: c.inverse,
+    onInverseSurface: c.onInverse,
   );
   final base = ThemeData(
     colorScheme: scheme,
+    extensions: [c],
     fontFamily: 'Roboto',
-    scaffoldBackgroundColor: palette.page,
-    dividerColor: palette.line,
+    scaffoldBackgroundColor: c.page,
+    dividerColor: c.outlineFaint,
     // Material Symbols' axes: outlined, regular weight; a selected or
     // primary glyph passes fill: 1
-    iconTheme: IconThemeData(color: palette.text, fill: 0, weight: 400, grade: 0),
-    splashColor: palette.fill.withValues(alpha: 0.24),
-    highlightColor: palette.highlight,
+    iconTheme: IconThemeData(color: c.text, fill: 0, weight: 400, grade: 0),
+    splashColor: c.primary.withValues(alpha: c.classRow.pressedLayerPermille / 1000),
+    highlightColor: c.surfaceHigh,
   );
   return base.copyWith(
-    textTheme: base.textTheme.apply(bodyColor: palette.text, displayColor: palette.text),
+    textTheme: base.textTheme.apply(bodyColor: c.text, displayColor: c.text),
   );
 }
 
-/// [InheritedWidget] installing the active palette (the host resolves
-/// it at boot; applets read, never choose).
-class VrxTheme extends InheritedWidget {
-  const VrxTheme({
-    super.key,
-    required this.palette,
-    required super.child,
-  });
-
-  final VrxPalette palette;
-
-  static VrxPalette of(BuildContext context) {
-    final theme =
-        context.dependOnInheritedWidgetOfExactType<VrxTheme>();
-    return theme?.palette ?? VrxPalette.paper();
-  }
-
-  @override
-  bool updateShouldNotify(VrxTheme oldWidget) =>
-      oldWidget.palette != palette;
+/// The active colours: the [VrxColors] the applet's theme carries. The host
+/// resolves them at boot; applets read, never choose.
+abstract final class VrxTheme {
+  static VrxColors of(BuildContext context) =>
+      Theme.of(context).extension<VrxColors>() ?? VrxColors.resolve();
 }

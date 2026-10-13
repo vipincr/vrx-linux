@@ -170,10 +170,24 @@ pub fn generate(text: &str, commit: &str) -> Result<String, String> {
         "// contrast floors of the vrx UI standard, exactly as the C runtime has them."
     );
     let _ = writeln!(w);
+    let _ = writeln!(w, "import 'dart:ui' show Color;");
+    let _ = writeln!(w);
     let _ = writeln!(w, "/// What a colour is FOR (plan 0062 D1). The index is the column of every table below.");
     let _ = writeln!(w, "enum VrxSlot {{");
     for s in &slots {
         let _ = writeln!(w, "  {},", camel(s));
+    }
+    let _ = writeln!(w, "}}");
+    let _ = writeln!(w);
+    let _ = writeln!(
+        w,
+        "/// Each slot by name, over a lookup by slot (VrxColors mixes this in)."
+    );
+    let _ = writeln!(w, "mixin VrxSlotNames {{");
+    let _ = writeln!(w, "  Color operator [](VrxSlot slot);");
+    for s in &slots {
+        let c = camel(s);
+        let _ = writeln!(w, "  Color get {c} => this[VrxSlot.{c}];");
     }
     let _ = writeln!(w, "}}");
     let _ = writeln!(w);

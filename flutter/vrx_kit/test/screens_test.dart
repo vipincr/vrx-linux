@@ -52,7 +52,7 @@ void main() {
         ),
       ),
     );
-    final palette = VrxTheme.of(
+    final colors = VrxTheme.of(
       tester.element(find.byType(VrxQuickDrawer)),
     );
     final boxes = tester
@@ -60,7 +60,7 @@ void main() {
         .where((c) => c.decoration is BoxDecoration)
         .toList();
     final filled = boxes.where(
-      (c) => (c.decoration as BoxDecoration).color == palette.fill,
+      (c) => (c.decoration as BoxDecoration).color == colors.primary,
     );
     // exactly the wifi shortcut is filled
     expect(filled, isNotEmpty);

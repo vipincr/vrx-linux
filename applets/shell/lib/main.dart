@@ -69,7 +69,7 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
     // strip and the screen below it. Below the strip the shell is clear:
     // its plane sits above the focused app, which shows through.
     return Scaffold(
-      backgroundColor: const Color(0x00000000),
+      backgroundColor: Colors.transparent,
       body: SafeArea(
         child: Column(children: [
           strip,

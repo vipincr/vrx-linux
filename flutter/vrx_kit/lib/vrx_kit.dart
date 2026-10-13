@@ -29,3 +29,5 @@ export 'src/store.dart';
 export 'src/symbols.dart';
 export 'src/system.dart';
 export 'src/theme.dart';
+// the slot and class names applets may say; the tables stay the kit's
+export 'src/ui_standard.g.dart' show VrxSlot, VrxDisplayClass;

@@ -39,7 +39,7 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: Text('home')));
     final context = tester.element(find.text('home'));
     Navigator.of(context).push(
-      Motion.modal(const Scaffold(body: Text('modal'))),
+      Motion.modal(context, const Scaffold(body: Text('modal'))),
     );
 
     // two pumps: install, then build the first (still fading) frame

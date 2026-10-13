@@ -71,7 +71,7 @@ class VrxStatusStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     final s = ScaledSpacing.of(context);
     return Container(
       height: heightOf(context),
@@ -83,9 +83,9 @@ class VrxStatusStrip extends StatelessWidget {
       ),
       // opaque: on the board it is the shell's, on a plane above the app
       decoration: BoxDecoration(
-        color: palette.page,
+        color: colors.surface,
         border: Border(
-          bottom: BorderSide(color: palette.line, width: Strokes.hairline),
+          bottom: BorderSide(color: colors.outlineFaint, width: Strokes.hairline),
         ),
       ),
       child: Row(
@@ -105,7 +105,7 @@ class VrxStatusStrip extends StatelessWidget {
                 height: double.infinity,
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: Icon(VrxSymbols.arrow_back, size: Chrome.iconButton * VrxScale.of(context), color: palette.text),
+                  child: Icon(VrxSymbols.arrow_back, size: Chrome.iconButton * VrxScale.of(context), color: colors.text),
                 ),
               ),
             ),
@@ -127,7 +127,7 @@ class VrxStatusStrip extends StatelessWidget {
                       maxLines: 1,
                       softWrap: false,
                       overflow: TextOverflow.ellipsis,
-                      style: TypeRole.subtext(context).copyWith(color: palette.secondary),
+                      style: TypeRole.subtext(context).copyWith(color: colors.textSecondary),
                     ),
                   ),
                 ),
@@ -138,7 +138,7 @@ class VrxStatusStrip extends StatelessWidget {
           Icon(
             VrxSymbols.wifi,
             size: Chrome.statusButton,
-            color: facts.wifiUp ? palette.text : palette.faint,
+            color: facts.wifiUp ? colors.text : colors.outlineFaint,
           ),
           // slot 4: ble — hidden when down, never a dead glyph
           if (facts.bleUp)
@@ -147,7 +147,7 @@ class VrxStatusStrip extends StatelessWidget {
               child: Icon(
                 VrxSymbols.bluetooth,
                 size: Chrome.statusButton,
-                color: palette.text,
+                color: colors.text,
               ),
             ),
           // the battery cell
@@ -158,7 +158,7 @@ class VrxStatusStrip extends StatelessWidget {
                   ? VrxSymbols.bolt
                   : _batteryGlyph(facts.batteryLevel!),
               size: Chrome.statusButton,
-              color: palette.text,
+              color: colors.text,
             ),
             SizedBox(width: s.xs),
             Text(

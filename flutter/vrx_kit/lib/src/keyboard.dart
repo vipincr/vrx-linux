@@ -119,7 +119,7 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
     };
     final upper = _mode == _Mode.upper;
     final letters = _mode == _Mode.lower || upper;
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     final keyHeight = _terminal ? 6 * mmToDp * VrxScale.of(context) : ScaledSpacing.of(context).touch;
     Widget key(String label, VoidCallback onTap, {int flex = 1, IconData? glyph, bool strong = false}) {
       return Expanded(
@@ -128,7 +128,7 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
           // half the 1mm gutter each side: keys stand 1mm apart
           padding: EdgeInsets.all(Spacing.xs / 2 * VrxScale.of(context)),
           child: Material(
-            color: strong ? palette.fill.withValues(alpha: 0.28) : palette.highlight,
+            color: strong ? colors.secondaryContainer : colors.surfaceHigh,
             borderRadius: BorderRadius.circular(6),
             child: InkWell(
               borderRadius: BorderRadius.circular(6),
@@ -138,7 +138,7 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
                 child: Center(
                   child: glyph != null
                       ? Icon(glyph, size: keyHeight * 0.45)
-                      : Text(label, style: TextStyle(fontSize: keyHeight * 0.38, color: palette.text)),
+                      : Text(label, style: TextStyle(fontSize: keyHeight * 0.38, color: colors.text)),
                 ),
               ),
             ),
@@ -149,7 +149,7 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
 
     void term(VrxTermKey k) => widget.onKey!(k);
     return Container(
-      color: palette.page,
+      color: colors.page,
       padding: const EdgeInsets.symmetric(horizontal: 2, vertical: _edge),
       child: Column(
         mainAxisSize: MainAxisSize.min,

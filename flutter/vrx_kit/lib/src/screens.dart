@@ -45,21 +45,22 @@ class VrxQuickDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     final s = ScaledSpacing.of(context);
     return Positioned.fill(
       child: GestureDetector(
         // the scrim: a tap dismisses
         onTap: onDismiss,
         child: ColoredBox(
-          color: palette.page.withValues(alpha: 0.6),
+          color: colors.page.withValues(alpha: 0.6),
           child: Align(
             alignment: Alignment.topCenter,
             child: GestureDetector(
               onTap: () {}, // the panel eats taps; they do not dismiss
               child: Container(
                 width: double.infinity,
-                color: palette.page,
+                // the drawer rests on the surface, as the strip it opens from
+                color: colors.surface,
                 padding: EdgeInsets.fromLTRB(s.md, s.md, s.md, 0),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -89,7 +90,7 @@ class VrxQuickDrawer extends StatelessWidget {
                       decoration: BoxDecoration(
                         border: Border(
                           top: BorderSide(
-                            color: palette.line,
+                            color: colors.outline,
                             width: Strokes.hairline,
                           ),
                         ),
@@ -131,7 +132,7 @@ class _Shortcut extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     // a control: the touch minimum on a touch display, 4mm elsewhere
     final side = (Chrome.statusButton * VrxScale.of(context)).clamp(ScaledSpacing.minInteractive(context), double.infinity);
     return VrxPress(
@@ -140,13 +141,13 @@ class _Shortcut extends StatelessWidget {
         width: side,
         height: side,
         decoration: BoxDecoration(
-          color: filled ? palette.fill : null,
-          border: Border.all(color: palette.line, width: Strokes.hairline),
+          color: filled ? colors.primary : null,
+          border: Border.all(color: colors.outline, width: Strokes.hairline),
         ),
         child: Icon(
           glyph,
           size: side * 0.5,
-          color: filled ? palette.onFill : palette.secondary,
+          color: filled ? colors.onPrimary : colors.textSecondary,
         ),
       ),
     );

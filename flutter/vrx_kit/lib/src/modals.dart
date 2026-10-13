@@ -89,7 +89,7 @@ class VrxAsk extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     final s = ScaledSpacing.of(context);
     final cancel = VrxChip(
       label: cancelLabel,
@@ -141,8 +141,8 @@ class VrxAsk extends StatelessWidget {
         margin: EdgeInsets.all(s.xl),
         padding: EdgeInsets.all(s.md),
         decoration: BoxDecoration(
-          color: palette.page,
-          border: Border.all(color: palette.line, width: Strokes.border),
+          color: colors.page,
+          border: Border.all(color: colors.outline, width: Strokes.border),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,

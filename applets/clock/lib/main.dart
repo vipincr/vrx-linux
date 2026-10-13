@@ -231,10 +231,10 @@ class _TabBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     final touch = ScaledSpacing.of(context).touch;
     return Container(
-      decoration: BoxDecoration(border: Border(top: BorderSide(color: palette.line, width: Strokes.hairline))),
+      decoration: BoxDecoration(border: Border(top: BorderSide(color: colors.outlineFaint, width: Strokes.hairline))),
       child: Row(children: [
         for (final t in ClockTab.values)
           Expanded(
@@ -242,7 +242,7 @@ class _TabBar extends StatelessWidget {
               onTap: () => onTab(t),
               child: Container(
                 height: touch,
-                color: t == tab ? palette.highlight : null,
+                color: t == tab ? colors.secondaryContainer : null,
                 child: Icon(_glyphs[t.index], size: touch * 0.5),
               ),
             ),
@@ -319,7 +319,7 @@ class _Editor extends StatelessWidget {
           if (view.canDelete) VrxRow(glyph: VrxSymbols.delete, label: 'Delete this alarm', onTap: onDelete),
         ]),
       ),
-      if (view.notice.isNotEmpty) VrxBanner(text: view.notice),
+      if (view.notice.isNotEmpty) VrxBanner(text: view.notice, signal: VrxSignal.info),
     ]);
   }
 }
@@ -396,7 +396,7 @@ class _TimePickerState extends State<_TimePicker> {
 
   @override
   Widget build(BuildContext context) {
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     final touch = ScaledSpacing.of(context).touch;
     return Column(children: [
       VrxHeader(title: 'Time', onBack: widget.onBack),
@@ -405,7 +405,7 @@ class _TimePickerState extends State<_TimePicker> {
           padding: EdgeInsets.symmetric(vertical: ScaledSpacing.of(context).sm),
           child: Stack(alignment: Alignment.center, children: [
             // the band the chosen row sits in
-            Container(height: touch, color: palette.highlight),
+            Container(height: touch, color: colors.surfaceHigh),
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               _wheel(_hours, 24),
               Text(':', style: TypeRole.title(context)),
@@ -505,7 +505,7 @@ class _Dial extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     final touch = ScaledSpacing.of(context).touch;
     final precise = view.mode == TimerMode.precise;
     final inner = size / 2 - touch;
@@ -548,10 +548,10 @@ class _Dial extends StatelessWidget {
               ring: view.running ? view.ringValue : ringSteps,
               running: view.running,
               band: touch,
-              line: palette.line,
-              fill: palette.fill,
-              onFill: palette.onFill,
-              text: palette.text,
+              line: colors.outline,
+              fill: colors.primary,
+              onFill: colors.onPrimary,
+              text: colors.text,
               label: TypeRole.value(context),
               stroke: Strokes.border,
             ),
@@ -559,7 +559,7 @@ class _Dial extends StatelessWidget {
               child: Container(
                 width: centre,
                 height: centre,
-                decoration: BoxDecoration(shape: BoxShape.circle, color: palette.highlight),
+                decoration: BoxDecoration(shape: BoxShape.circle, color: colors.surfaceHigh),
                 padding: EdgeInsets.all(centre * 0.14),
                 child: FittedBox(
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -666,7 +666,7 @@ class _RingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     final space = ScaledSpacing.of(context);
     final touch = space.touch;
     // full width and stacked: side by side, a glyph and a word do not fit
@@ -678,14 +678,14 @@ class _RingScreen extends StatelessWidget {
             child: Container(
               height: touch * 1.3,
               decoration: BoxDecoration(
-                color: strong ? palette.fill : null,
-                border: Border.all(color: strong ? palette.fill : palette.line, width: Strokes.border),
+                color: strong ? colors.primary : null,
+                border: Border.all(color: strong ? colors.primary : colors.outline, width: Strokes.border),
                 borderRadius: BorderRadius.circular(Radii.md),
               ),
               child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Icon(glyph, size: touch * 0.45, color: strong ? palette.onFill : palette.text),
+                Icon(glyph, size: touch * 0.45, color: strong ? colors.onPrimary : colors.text),
                 SizedBox(width: space.sm),
-                Text(label, style: TypeRole.title(context).copyWith(color: strong ? palette.onFill : palette.text)),
+                Text(label, style: TypeRole.title(context).copyWith(color: strong ? colors.onPrimary : colors.text)),
               ]),
             ),
           ),
@@ -694,7 +694,7 @@ class _RingScreen extends StatelessWidget {
     // shell's strip steps aside), and it flashes while it rings
     return VrxNoChrome(
       child: Container(
-        color: flash ? palette.highlight : palette.page,
+        color: flash ? colors.primaryContainer : colors.page,
         padding: EdgeInsets.all(space.inset),
         child: Column(children: [
           const Spacer(),

@@ -66,13 +66,42 @@ class TerminalApplet extends Applet<TerminalState, TerminalAction, TermView> {
   @override
   Widget build(BuildContext context, TermView view) {
     final scale = VrxScale.of(context);
+    final colors = VrxTheme.of(context);
+    // the frame in the scheme's slots; the sixteen ANSI colours are the
+    // programs' own content and stay xterm's
+    const ansi = TerminalThemes.defaultTheme;
+    final theme = TerminalTheme(
+      cursor: colors.primary,
+      selection: colors.primaryContainer,
+      foreground: colors.text,
+      background: colors.page,
+      black: ansi.black,
+      red: ansi.red,
+      green: ansi.green,
+      yellow: ansi.yellow,
+      blue: ansi.blue,
+      magenta: ansi.magenta,
+      cyan: ansi.cyan,
+      white: ansi.white,
+      brightBlack: ansi.brightBlack,
+      brightRed: ansi.brightRed,
+      brightGreen: ansi.brightGreen,
+      brightYellow: ansi.brightYellow,
+      brightBlue: ansi.brightBlue,
+      brightMagenta: ansi.brightMagenta,
+      brightCyan: ansi.brightCyan,
+      brightWhite: ansi.brightWhite,
+      searchHitBackground: colors.tertiaryContainer,
+      searchHitBackgroundCurrent: colors.tertiary,
+      searchHitForeground: colors.onTertiaryContainer,
+    );
     return Scaffold(
-      backgroundColor: Colors.black,
       body: SafeArea(
         child: Column(children: [
           Expanded(
             child: xterm.TerminalView(
               terminal,
+              theme: theme,
               // 2mm text: about 35 columns on a 43mm panel, where body
               // text (3.5mm) would give 20 (AGENTS.md rule 10)
               textStyle: TerminalStyle(fontSize: Spacing.sm * scale, fontFamily: 'Liberation Mono'),

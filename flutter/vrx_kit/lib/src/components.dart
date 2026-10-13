@@ -49,7 +49,7 @@ class VrxHeader extends StatelessWidget {
       );
 
   Widget _build(BuildContext context) {
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     // one Back on screen: the shell's strip has it while it shows
     final arrow = onBack != null && !VrxShell.stripShown;
     return Column(
@@ -73,7 +73,7 @@ class VrxHeader extends StatelessWidget {
             ],
           ),
         ),
-        Divider(height: Strokes.hairline, thickness: Strokes.hairline, color: palette.line),
+        Divider(height: Strokes.hairline, thickness: Strokes.hairline, color: colors.outlineFaint),
       ],
     );
   }
@@ -186,7 +186,7 @@ class VrxRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     final glyphSize = VrxTypeRole.value.dp * VrxScale.of(context);
     final hasValue = value != null && value!.isNotEmpty;
     return VrxPress(
@@ -198,7 +198,7 @@ class VrxRow extends StatelessWidget {
         ),
         padding: EdgeInsets.symmetric(horizontal: ScaledSpacing.of(context).inset),
         decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: palette.line, width: Strokes.hairline)),
+          border: Border(bottom: BorderSide(color: colors.outlineFaint, width: Strokes.hairline)),
         ),
         // label and value side by side when both fit whole; when not,
         // the row grows and the value drops under the label (a setting's
@@ -302,7 +302,7 @@ class VrxSegmented extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: ScaledSpacing.of(context).inset),
       child: Row(
@@ -317,14 +317,14 @@ class VrxSegmented extends StatelessWidget {
                   ),
                   padding: EdgeInsets.symmetric(vertical: ScaledSpacing.of(context).sm),
                   decoration: BoxDecoration(
-                    color: i == selected ? palette.fill : null,
-                    border: Border.all(color: palette.line, width: Strokes.hairline),
+                    // segments rest on the secondary container; the chosen one is the primary
+                    color: i == selected ? colors.primary : colors.secondaryContainer,
                   ),
                   child: Text(
                     labels[i],
                     textAlign: TextAlign.center,
                     style: TypeRole.of(context, VrxTypeRole.list).copyWith(
-                      color: i == selected ? palette.onFill : palette.text,
+                      color: i == selected ? colors.onPrimary : colors.onSecondaryContainer,
                     ),
                   ),
                 ),
@@ -336,8 +336,9 @@ class VrxSegmented extends StatelessWidget {
   }
 }
 
-/// A bordered word, optionally filled (the monochrome ON idiom: a
-/// filled chip carries a knocked-out label; an outlined one is OFF).
+/// A word to tap: filled in the primary for the screen's action, resting on
+/// the secondary container otherwise (evrx-rt's chip); on a grey panel the
+/// container is the page and the chip keeps its frame.
 class VrxChip extends StatelessWidget {
   const VrxChip({super.key, required this.label, this.filled = false, this.onTap});
 
@@ -347,7 +348,7 @@ class VrxChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     final s = ScaledSpacing.of(context);
     return VrxPress(
       onTap: onTap,
@@ -357,14 +358,17 @@ class VrxChip extends StatelessWidget {
         alignment: Alignment.centerLeft,
         padding: EdgeInsets.symmetric(horizontal: s.sm, vertical: s.xs),
         decoration: BoxDecoration(
-          color: filled ? palette.fill : null,
-          border: Border.all(color: palette.line, width: Strokes.hairline),
+          color: filled ? colors.primary : colors.secondaryContainer,
+          // a container the page's own grey needs a frame to be seen
+          border: colors.secondaryContainer == colors.page
+              ? Border.all(color: colors.outline, width: Strokes.hairline)
+              : null,
           borderRadius: BorderRadius.circular(Radii.sm),
         ),
         child: Text(
           label,
           style: TypeRole.of(context, VrxTypeRole.list).copyWith(
-            color: filled ? palette.onFill : palette.text,
+            color: filled ? colors.onPrimary : colors.onSecondaryContainer,
           ),
         ),
       ),
@@ -375,13 +379,16 @@ class VrxChip extends StatelessWidget {
 /// A persistent message band across the bottom — deliberately NOT a
 /// toast: nothing transient. NULL text slides it away.
 class VrxBanner extends StatelessWidget {
-  const VrxBanner({super.key, required this.text});
+  const VrxBanner({super.key, required this.text, this.signal = VrxSignal.error});
 
   final String? text;
 
+  /// What it means: its colour and its glyph, never the colour alone.
+  final VrxSignal signal;
+
   @override
   Widget build(BuildContext context) {
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     if (text == null) return const SizedBox.shrink();
     return Container(
       width: double.infinity,
@@ -392,18 +399,25 @@ class VrxBanner extends StatelessWidget {
         horizontal: ScaledSpacing.of(context).inset,
         vertical: ScaledSpacing.of(context).sm,
       ),
-      color: palette.fill,
-      child: Text(
-        text!,
-        style: TypeRole.of(context, VrxTypeRole.subtext).copyWith(color: palette.onFill),
-      ),
+      color: colors[signal.slot],
+      child: Row(children: [
+        Icon(signal.glyph, size: Chrome.statusButton * VrxScale.of(context), color: colors.on(signal.slot)),
+        SizedBox(width: ScaledSpacing.of(context).sm),
+        Expanded(
+          child: Text(
+            text!,
+            style: TypeRole.of(context, VrxTypeRole.subtext).copyWith(color: colors.on(signal.slot)),
+          ),
+        ),
+      ]),
     );
   }
 }
 
-/// The press micro-interaction: the fill inverts AT ONCE (never
-/// faded) and the control sinks to 0.97 scale back on the
-/// spatial-fast spring. Wraps any child; press is never eased.
+/// The press micro-interaction, answered by the display class (plan 0009
+/// D8): a state layer of the primary on a lit panel, the inversion on a
+/// grey one, AT ONCE (never faded), and the control sinks to 0.97 scale
+/// back on the spatial-fast spring. Wraps any child; press is never eased.
 class VrxPress extends StatefulWidget {
   const VrxPress({super.key, required this.child, this.onTap, this.onLongPress});
 
@@ -446,26 +460,37 @@ class _VrxPressState extends State<VrxPress> with SingleTickerProviderStateMixin
 
   @override
   Widget build(BuildContext context) {
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     final enabled = widget.onTap != null || widget.onLongPress != null;
     Widget child = widget.child;
-    if (_held) {
+    final layer = colors.classRow.pressedLayerPermille;
+    if (_held && layer > 0) {
+      // a lit panel: the primary laid over the control at the class's
+      // strength, its words as they were (a whole control turning to its
+      // ink for a tap read as a flicker on evrx-rt's first colour board)
+      child = DecoratedBox(
+        position: DecorationPosition.foreground,
+        decoration: BoxDecoration(color: colors.primary.withValues(alpha: layer / 1000)),
+        child: child,
+      );
+    } else if (_held) {
+      // a grey or one-bit panel: the inversion, one partial refresh
       child = ColoredBox(
-        color: palette.fill,
+        color: colors.primary,
         child: DefaultTextStyle(
-          style: TextStyle(color: palette.onFill),
-          child: IconTheme(data: IconThemeData(color: palette.onFill), child: child),
+          style: TextStyle(color: colors.onPrimary),
+          child: IconTheme(data: IconThemeData(color: colors.onPrimary), child: child),
         ),
       );
     } else if (_hovered) {
-      child = ColoredBox(color: palette.highlight, child: child);
+      child = ColoredBox(color: colors.surfaceHigh, child: child);
     }
     if (_focused) {
       // the keyboard's place: a ring in the accent, drawn over the
       // control so the layout never moves for it
       child = DecoratedBox(
         position: DecorationPosition.foreground,
-        decoration: BoxDecoration(border: Border.all(color: palette.focus, width: Strokes.border)),
+        decoration: BoxDecoration(border: Border.all(color: colors.focus, width: Strokes.border)),
         child: child,
       );
     }

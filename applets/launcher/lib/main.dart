@@ -84,7 +84,7 @@ class _Tile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     final space = ScaledSpacing.of(context);
     final glyph = VrxSymbols.named(tile.icon);
     final radius = BorderRadius.circular(Radii.md * 1.5);
@@ -96,17 +96,17 @@ class _Tile extends StatelessWidget {
           Expanded(
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: palette.fill.withValues(alpha: 0.18),
+                color: colors.surfaceHigh,
                 borderRadius: radius,
               ),
               child: Center(
                 child: glyph != null
                     ? LayoutBuilder(
-                        builder: (context, box) => Icon(glyph, color: palette.fill, size: box.maxHeight * 0.5, fill: 1),
+                        builder: (context, box) => Icon(glyph, color: colors.primary, size: box.maxHeight * 0.5, fill: 1),
                       )
                     : Text(
                         tile.name.isEmpty ? '?' : tile.name.characters.first,
-                        style: TypeRole.title(context).copyWith(color: palette.fill),
+                        style: TypeRole.title(context).copyWith(color: colors.primary),
                       ),
               ),
             ),

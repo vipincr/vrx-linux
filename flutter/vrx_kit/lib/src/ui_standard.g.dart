@@ -4,6 +4,8 @@
 // The colour slots, the 20 schemes, the grey maps, the display classes and the
 // contrast floors of the vrx UI standard, exactly as the C runtime has them.
 
+import 'dart:ui' show Color;
+
 /// What a colour is FOR (plan 0062 D1). The index is the column of every table below.
 enum VrxSlot {
   page,
@@ -38,6 +40,43 @@ enum VrxSlot {
   onWarning,
   info,
   onInfo,
+}
+
+/// Each slot by name, over a lookup by slot (VrxColors mixes this in).
+mixin VrxSlotNames {
+  Color operator [](VrxSlot slot);
+  Color get page => this[VrxSlot.page];
+  Color get surface => this[VrxSlot.surface];
+  Color get surfaceHigh => this[VrxSlot.surfaceHigh];
+  Color get text => this[VrxSlot.text];
+  Color get textSecondary => this[VrxSlot.textSecondary];
+  Color get outline => this[VrxSlot.outline];
+  Color get outlineFaint => this[VrxSlot.outlineFaint];
+  Color get focus => this[VrxSlot.focus];
+  Color get shadow => this[VrxSlot.shadow];
+  Color get highlight => this[VrxSlot.highlight];
+  Color get inverse => this[VrxSlot.inverse];
+  Color get onInverse => this[VrxSlot.onInverse];
+  Color get primary => this[VrxSlot.primary];
+  Color get onPrimary => this[VrxSlot.onPrimary];
+  Color get primaryContainer => this[VrxSlot.primaryContainer];
+  Color get onPrimaryContainer => this[VrxSlot.onPrimaryContainer];
+  Color get secondary => this[VrxSlot.secondary];
+  Color get onSecondary => this[VrxSlot.onSecondary];
+  Color get secondaryContainer => this[VrxSlot.secondaryContainer];
+  Color get onSecondaryContainer => this[VrxSlot.onSecondaryContainer];
+  Color get tertiary => this[VrxSlot.tertiary];
+  Color get onTertiary => this[VrxSlot.onTertiary];
+  Color get tertiaryContainer => this[VrxSlot.tertiaryContainer];
+  Color get onTertiaryContainer => this[VrxSlot.onTertiaryContainer];
+  Color get error => this[VrxSlot.error];
+  Color get onError => this[VrxSlot.onError];
+  Color get success => this[VrxSlot.success];
+  Color get onSuccess => this[VrxSlot.onSuccess];
+  Color get warning => this[VrxSlot.warning];
+  Color get onWarning => this[VrxSlot.onWarning];
+  Color get info => this[VrxSlot.info];
+  Color get onInfo => this[VrxSlot.onInfo];
 }
 
 /// The slots with an on-colour (the next slot), as a mask over the index.

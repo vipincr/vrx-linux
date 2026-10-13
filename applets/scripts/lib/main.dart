@@ -120,7 +120,8 @@ class _Console extends StatelessWidget {
       VrxHeader(title: view.open ?? '', onBack: onBack),
       Expanded(
         child: ColoredBox(
-          color: Colors.black,
+          // the output rests on the surface, a card on the page
+          color: VrxTheme.of(context).surface,
           // the newest line at the bottom, where the eye is
           child: ListView.builder(
             reverse: true,

@@ -4,7 +4,7 @@
 library;
 
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io' show File, FileSystemException;
 
 import 'package:flutter/material.dart';
 
@@ -12,8 +12,10 @@ import 'host.dart';
 import 'input.dart';
 import 'scale.dart';
 import 'shell.dart';
+import 'settings.dart';
 import 'store.dart';
 import 'theme.dart';
+import 'ui_standard.g.dart';
 
 /// A vrx applet: a store (model + reducer + view model + effects)
 /// plus the Widget that renders the view model.
@@ -38,18 +40,37 @@ abstract class Applet<S, A, V> extends StoreModel<S, A, V> {
 void runApplet<S, A, V>(
   Applet<S, A, V> applet, {
   Stream<A>? actions,
-  VrxPalette? palette,
 }) {
   WidgetsFlutterBinding.ensureInitialized();
   AppletsService.install();
-  runApp(AppletHost<S, A, V>(applet: applet, actions: actions, palette: palette));
+  runApp(AppletHost<S, A, V>(applet: applet, actions: actions));
 }
 
-/// The palette the runtime picks when the applet names none: colour,
-/// unless the board says its panel is e-paper (VRX_DISPLAY=epaper in
-/// the applet's environment, which vrxhost passes through).
-VrxPalette defaultPalette() =>
-    paletteFor(colour: Platform.environment['VRX_DISPLAY'] != 'epaper');
+/// The colours this boot draws with (plan 0009 D4, D5): the display class
+/// the image declares and the scheme and polarity snapshotted at boot, so
+/// a scheme chosen in Settings shows on every applet at the next boot and
+/// on none before. Anything absent or malformed is the default.
+VrxColors bootColors({
+  String classFile = '/usr/lib/vrx/display-class',
+  String themeFile = '/run/vrx/theme.conf',
+}) {
+  String read(String path) {
+    try {
+      // vrx-allow: two short files, read once before the first frame
+      return File(path).readAsStringSync();
+    } on FileSystemException {
+      return '';
+    }
+  }
+
+  final cls = vrxClassNames[read(classFile).trim()] ?? VrxDisplayClass.lcdColour;
+  final theme = parseSettings(read(themeFile));
+  return VrxColors.resolve(
+    displayClass: cls,
+    scheme: int.tryParse(theme['scheme'] ?? '') ?? vrxDefaultScheme,
+    dark: theme['polarity'] != 'light',
+  );
+}
 
 /// The applet's root widget: owns the [Store], rebuilds the view on
 /// every published view model. `runApplet` mounts it; tests may pump
@@ -59,12 +80,15 @@ class AppletHost<S, A, V> extends StatefulWidget {
     super.key,
     required this.applet,
     this.actions,
-    this.palette,
+    this.colors,
   });
 
   final Applet<S, A, V> applet;
   final Stream<A>? actions;
-  final VrxPalette? palette;
+
+  /// The colours; the boot's ([bootColors]) when none are given (tests
+  /// and shots pass their own).
+  final VrxColors? colors;
 
   @override
   State<AppletHost<S, A, V>> createState() => _AppletHostState<S, A, V>();
@@ -72,6 +96,8 @@ class AppletHost<S, A, V> extends StatefulWidget {
 
 class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
   late final Store<S, A, V> _store = Store<S, A, V>(widget.applet);
+  // read once: the scheme changes at the next boot, never under an applet
+  late final VrxColors _boot = bootColors();
   StreamSubscription<V>? _views;
   StreamSubscription<A>? _actions;
 
@@ -96,27 +122,23 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
 
   @override
   Widget build(BuildContext context) {
-    final palette = widget.palette ?? defaultPalette();
-    return VrxTheme(
-      palette: palette,
-      child: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: vrxThemeData(palette),
-        scrollBehavior: const VrxScrollBehavior(),
-        // dialogs too: the input root wraps the navigator, and the
-        // navigator sits below the shell's strip; the scale is the
-        // display's, read before the strip takes its share
-        builder: (context, child) => VrxScale.install(
-          child: VrxInsets(
-            child: VrxInputRoot(child: child ?? const SizedBox.shrink()),
-          ),
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: vrxThemeData(widget.colors ?? _boot),
+      scrollBehavior: const VrxScrollBehavior(),
+      // dialogs too: the input root wraps the navigator, and the
+      // navigator sits below the shell's strip; the scale is the
+      // display's, read before the strip takes its share
+      builder: (context, child) => VrxScale.install(
+        child: VrxInsets(
+          child: VrxInputRoot(child: child ?? const SizedBox.shrink()),
         ),
-        home: VrxInput.install(
-          child: AppletScope<A>(
-            onAction: _store.dispatch,
-            child: Builder(
-              builder: (context) => widget.applet.build(context, _store.view),
-            ),
+      ),
+      home: VrxInput.install(
+        child: AppletScope<A>(
+          onAction: _store.dispatch,
+          child: Builder(
+            builder: (context) => widget.applet.build(context, _store.view),
           ),
         ),
       ),

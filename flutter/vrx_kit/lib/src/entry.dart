@@ -62,7 +62,7 @@ class _VrxTextEntryState extends State<VrxTextEntry> {
   void _done() => widget.onDone(_controller.text);
 
   Widget _field(BuildContext context, {required String? hint, required bool lines}) {
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     final space = ScaledSpacing.of(context);
     return ListenableBuilder(
       listenable: _controller,
@@ -80,7 +80,7 @@ class _VrxTextEntryState extends State<VrxTextEntry> {
           // the field is a control too: a touch minimum tall
           constraints: BoxConstraints(minHeight: space.touch),
           hintText: hint,
-          hintStyle: TypeRole.body(context).copyWith(color: palette.faint),
+          hintStyle: TypeRole.body(context).copyWith(color: colors.textSecondary),
           helperText: lines ? widget.helper?.call(_controller.text) : null,
           errorText: lines ? widget.error : null,
         ),
@@ -103,7 +103,7 @@ class _VrxTextEntryState extends State<VrxTextEntry> {
 
   Widget _layout(BuildContext context) {
     final space = ScaledSpacing.of(context);
-    final palette = VrxTheme.of(context);
+    final colors = VrxTheme.of(context);
     return LayoutBuilder(builder: (context, box) {
       // a header, a field and the keyboard's four rows, each the touch
       // minimum: on a panel too short for all of them (the 58mm
@@ -134,7 +134,7 @@ class _VrxTextEntryState extends State<VrxTextEntry> {
               SizedBox(width: space.inset),
             ]),
           ),
-          Divider(height: Strokes.hairline, thickness: Strokes.hairline, color: palette.line),
+          Divider(height: Strokes.hairline, thickness: Strokes.hairline, color: colors.outlineFaint),
           Expanded(
             child: Padding(
               padding: EdgeInsets.symmetric(horizontal: space.inset),

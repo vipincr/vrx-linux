@@ -6,6 +6,8 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 
+import 'theme.dart';
+
 /// The motion tokens: six springs, androidx Material 3 values, ported
 /// to Flutter's spring physics (mass 1). Spatial tokens may overshoot
 /// (position/size/rotation); effects tokens are critically damped
@@ -64,10 +66,11 @@ abstract final class Motion {
   }
 
   /// Fade in over a dimmed background (a modal).
-  static PageRouteBuilder<T> modal<T>(Widget screen) {
+  static PageRouteBuilder<T> modal<T>(BuildContext context, Widget screen) {
     return PageRouteBuilder<T>(
       opaque: false,
-      barrierColor: Colors.black54,
+      // the page dimmed, as the drawer's scrim: the field behind stays legible
+      barrierColor: VrxTheme.of(context).page.withValues(alpha: 0.6),
       pageBuilder: (context, animation, secondary) => screen,
       transitionsBuilder: (context, animation, secondary, child) {
         return FadeTransition(
