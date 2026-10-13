@@ -71,7 +71,8 @@ Linux kernel
     debug console only when the cmdline carries vrx.debug
   → systemd (hardware services; tmpfiles makes /run/vrx; starts vrxhost)
   → vrx-ui (UI images only): flutter-vrx --compositor takes the display
-  → vrxhost: scan /apps + /system/defaults → registry →
+  → vrxhost: scan /system/defaults + /usr/lib/vrx/apps (installed
+    applets, merged by systemd-sysext, plan 0011 D16) → registry →
     start home + resident applets as systemd units
     (vrx-applet@<id>.service, user vrx-<id>) → with a UI, control the
     compositor (focus = the trail's top) → serve io.vrx.Host

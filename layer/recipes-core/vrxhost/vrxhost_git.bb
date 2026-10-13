@@ -1,7 +1,8 @@
 #
 # vrxhost: the applet OS daemon (plan 0007 part C). Registry scan
-# (/apps + /system/defaults), applet supervision, the intent socket at
-# /tmp/vrx/vrx.sock, the back trail.
+# (/system/defaults, and /usr/lib/vrx/apps where systemd-sysext merges
+# installed applets), applet supervision through systemd, io.vrx.Host on
+# /run/vrx, the back trail, installs (plan 0011 D16).
 #
 # SPDX-License-Identifier: MIT
 #
