@@ -116,19 +116,32 @@ String hostnameFor(String name) {
 
 // ── power ─────────────────────────────────────────────────────────────
 
-/// Power off, restart, and the supply. Needs the `power` grant (logind).
-/// The screen is the compositor's alone (plan 0010): its brightness and
-/// timeout are `ScreenSettings`, a hold is `VrxKeepScreenOn`.
+/// Power off, restart, the supply, and logind's idle inhibitor. Power
+/// off and restart need the `power` grant; an idle inhibitor needs none
+/// (polkit's inhibit-block-idle). The screen's brightness and timeout
+/// are `ScreenSettings`; the compositor turns it off and on (plan 0010).
 abstract class PowerService {
   /// Whether this applet may power off (logind's answer, without acting).
   Future<bool> canPowerOff();
   Future<void> powerOff();
   Future<void> reboot();
 
+  /// Keep the screen on: a logind idle inhibitor (`Inhibit("idle", who,
+  /// why, "block")`), held until [ScreenHold.release], or until the
+  /// process ends, since logind drops it with its descriptor. The
+  /// compositor honours it only while [who]'s applet is in front. Use
+  /// `VrxKeepScreenOn`, which counts holds and releases them.
+  Future<ScreenHold> holdScreen({required String who, required String why});
+
   /// The supply: true while it is below what the board needs (the Pi's
   /// rpi_volt alarm), false while it is fine; nothing on a board without
   /// a supply sensor. Now and on every change.
   Stream<bool> watchSupplyLow();
+}
+
+/// An open idle inhibitor: the descriptor logind handed over.
+abstract class ScreenHold {
+  Future<void> release();
 }
 
 // ── network ───────────────────────────────────────────────────────────
@@ -632,7 +645,7 @@ class DBusDeviceService implements DeviceService {
       });
 }
 
-/// logind for power, hwmon for the supply.
+/// logind for power and the idle inhibitor, hwmon for the supply.
 class LinuxPowerService implements PowerService {
   LinuxPowerService(DBusClient bus, {this.hwmonRoot = '/sys/class/hwmon'})
       : _login = DBusRemoteObject(bus,
@@ -685,6 +698,29 @@ class LinuxPowerService implements PowerService {
   Future<void> reboot() => _call(() => _login.callMethod(
       _manager, 'Reboot', [const DBusBoolean(false)],
       replySignature: DBusSignature('')));
+
+  @override
+  Future<ScreenHold> holdScreen({required String who, required String why}) => _call(() async {
+        final reply = await _login.callMethod(
+            _manager, 'Inhibit', [const DBusString('idle'), DBusString(who), DBusString(why), const DBusString('block')],
+            replySignature: DBusSignature('h'));
+        return _LogindHold((reply.returnValues.first as DBusUnixFd).handle);
+      });
+}
+
+/// The inhibitor is the descriptor: closing it is the release.
+class _LogindHold implements ScreenHold {
+  _LogindHold(this._fd);
+
+  final ResourceHandle _fd;
+  bool _released = false;
+
+  @override
+  Future<void> release() async {
+    if (_released) return;
+    _released = true;
+    await _fd.toFile().close();
+  }
 }
 
 /// A system unit an applet may start and stop (its grant's polkit rule

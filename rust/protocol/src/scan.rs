@@ -37,11 +37,15 @@ const NO_COLOUR: &str =
     "colour is a slot (VrxTheme.of(context).<slot>, VrxHue, VrxSignal), never a literal";
 const NO_CLASS: &str =
     "an applet never knows what panel it is on (plan 0009 D4): the kit answers by class";
-const NO_SCREEN_POWER: &str = "G019: the screen's light and power are the compositor's alone (plan 0010 D1): brightness and the timeout are ScreenSettings, a hold is VrxKeepScreenOn";
+const NO_SCREEN_POWER: &str = "G019: the screen's power is the compositor's (plan 0010 D1); the backlight is reached through the kit's ScreenSettings, a hold is VrxKeepScreenOn";
 
 /// G019: forms no `vrx-allow` excuses. An applet that switches the light
 /// or the panel can leave a person with no screen to switch it back on.
 const NEVER_ALLOWED: &[&str] = &["/sys/class/backlight", "bl_power", "dpms", "DPMS"];
+
+/// Where Linux's backlight is wrapped: the kit's vrx interface to it
+/// (brightness on the backlight's own attribute, plan 0010).
+const BACKLIGHT_HOME: &[&str] = &["vrx_kit/lib/src/screen.dart"];
 
 const RULES: &[Rule] = &[
     Rule {
@@ -108,7 +112,7 @@ const RULES: &[Rule] = &[
         ext: "dart",
         needle: "/sys/class/backlight",
         why: NO_SCREEN_POWER,
-        except: &[],
+        except: BACKLIGHT_HOME,
     },
     Rule {
         ext: "dart",
@@ -333,13 +337,23 @@ mod tests {
             .iter()
             .map(|v| v.1)
             .collect();
-        // a reason does not excuse it, in the kit as in an applet
+        // a reason does not excuse it
         assert_eq!(found, vec!["/sys/class/backlight", "bl_power", "dpms"]);
+        // the kit's screen.dart wraps the backlight; nowhere else in the kit
+        let kit = "const backlightRoot = '/sys/class/backlight';\n";
+        assert!(
+            violations("flutter/vrx_kit/lib/src/screen.dart", "dart", kit).is_empty()
+        );
+        assert_eq!(
+            violations("flutter/vrx_kit/lib/src/system.dart", "dart", kit).len(),
+            1
+        );
+        // and even there, switching the panel is not the kit's
         assert_eq!(
             violations(
-                "flutter/vrx_kit/lib/src/system.dart",
+                "flutter/vrx_kit/lib/src/screen.dart",
                 "dart",
-                "Directory('/sys/class/backlight')\n"
+                "write('bl_power', 4);\n"
             )
             .len(),
             1
@@ -347,7 +361,12 @@ mod tests {
         let rs = "let f = \"/sys/class/backlight/x/bl_power\"; // vrx-allow: no\n";
         assert_eq!(violations("applets/y/src/main.rs", "rs", rs).len(), 2);
         // what the kit says instead is not caught
-        assert!(violations(applet, "dart", "VrxKeepScreenOn(child: c);\nScreenSettings().setBrightness(0);\nVrxDimming.backlight;\n").is_empty());
+        assert!(violations(
+            applet,
+            "dart",
+            "VrxKeepScreenOn(child: c);\nScreenSettings().setBrightness(0);\nVrxDimming.backlight;\n"
+        )
+        .is_empty());
     }
 
     #[test]

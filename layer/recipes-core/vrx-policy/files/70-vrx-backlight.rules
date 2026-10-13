@@ -1,0 +1,6 @@
+# Plan 0010 D7: the display grant (group vrx-display) sets the brightness
+# where it lives, on the backlight's own brightness attribute (Linux's
+# home for it; systemd-backlight keeps it across boots), so that file is
+# group-writable by vrx-display (root-only by default). Turning the screen
+# off and on stays the compositor's (it writes as root).
+SUBSYSTEM=="backlight", ACTION=="add", RUN+="/bin/chgrp vrx-display /sys%p/brightness", RUN+="/bin/chmod g+w /sys%p/brightness"

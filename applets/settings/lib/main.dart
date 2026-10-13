@@ -18,7 +18,8 @@ final _screen = ScreenSettings();
 /// The settings applet: the system's own settings, each row bound to the
 /// Linux service that owns it (plan 0008 Part D): time and zone through
 /// timedated, the device name through hostnamed, power through logind,
-/// the screen through its settings file, which the compositor applies.
+/// the screen through ScreenSettings (the backlight's own attribute, or
+/// the compositor's file where there is none to dim).
 /// A tap asks the service; the row
 /// changes when the service says it changed, so what is shown is what
 /// is true. A refusal (no grant) is shown as the service phrased it.

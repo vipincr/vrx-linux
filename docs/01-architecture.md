@@ -80,32 +80,46 @@ Linux kernel
 
 ## The screen
 
-The compositor owns the screen's light and power (plan 0010). After
-`light_off` seconds with no touch, click or key it turns the backlight
-off and powers the panel down (DPMS), and tells every app it is hidden
-(Flutter's `AppLifecycleState.hidden`: frames stop, Dart timers keep
-running, so an alarm still fires). The next input wakes it, and that
-first press is swallowed so it never presses what is under the finger.
+The rule here, as everywhere in vrx: Linux first. Where Linux provides
+the thing, vrx wraps or extends it behind a vrx interface; vrx keeps its
+own only where Linux has none (plan 0010).
 
-Two settings, in `/etc/vrx/display/screen.conf`, which the compositor
-watches: `brightness` (a position, 0 to 100) and `light_off` (seconds, 0
-for never). Only the `display` grant writes the file (Settings, the
-shell's drawer), through the kit's `ScreenSettings`. The compositor maps
-brightness into its own floor-to-full range, by the backlight's levels
-or by every plane's alpha over black, and says which in
-`/run/vrx-ui/screen` (`dim=backlight|alpha|none`); the slider is offered
-only where it can dim. No value, row or button makes the screen dark by
-hand, and no rule opens the backlight to an applet (G019: the scan
-refuses `/sys/class/backlight`, `bl_power` and `dpms` in applet and kit
-code, with no `vrx-allow`).
+The compositor owns the screen's power. After `light_off` seconds with
+no touch, click or key it turns the backlight off and powers the panel
+down (DPMS), and tells every app it is hidden (Flutter's
+`AppLifecycleState.hidden`: frames stop, Dart timers keep running, so an
+alarm still fires). The next input wakes it, and that first press is
+swallowed so it never presses what is under the finger.
+
+Each setting has one home, and the kit's `ScreenSettings` is the vrx
+interface to all of them:
+
+| Setting | Home | Why there |
+|---|---|---|
+| brightness, where the backlight has levels | the backlight's own sysfs `brightness` | Linux's attribute; systemd-backlight keeps it across boots |
+| brightness, where the compositor dims by plane alpha (a GPIO light, HDMI) | `brightness` in `/etc/vrx/display/screen.conf` | Linux has no software dimming |
+| the idle timeout | `light_off` in `screen.conf` | the compositor's own policy |
+
+The compositor says which dimming it does in `/run/vrx-ui/screen`
+(`dim=backlight|alpha|none`); the slider is offered only where it can
+dim. A position maps to a backlight level linearly and is never written
+as 0, and the compositor keeps a perceptual floor above that, so no
+value, row or button makes the screen dark by hand. The display grant
+(group `vrx-display`, Settings and the shell) writes the brightness
+attribute (udev opens it to that group) and `screen.conf`. G019: the
+scan refuses `/sys/class/backlight` outside the kit's `screen.dart`, and
+`bl_power` and `dpms` everywhere, with no `vrx-allow`.
 
 An applet keeps the screen on with `VrxKeepScreenOn` round what is being
-watched without being touched: a ringing alarm, a viewfinder. The
-compositor honours a hold only while that applet is in front, a hold
-that takes effect with the screen off wakes it (that is how an alarm
-lights the screen), a released hold restarts the full timeout, and a
-closed socket releases it. Never wrap a whole applet: a screen nobody
-releases never goes off.
+watched without being touched: a ringing alarm, a viewfinder. It takes a
+logind idle inhibitor (`Inhibit("idle", <applet>, <why>, "block")`, no
+grant needed), one per applet however many are mounted, released on the
+last unmount or with the process (logind drops it with its descriptor);
+`systemd-inhibit --list` shows it. The compositor honours an inhibitor
+only while its applet is in front, one that takes effect with the screen
+off wakes it (that is how an alarm lights the screen), and a released
+one restarts the full timeout. Never wrap a whole applet: a screen
+nobody releases never goes off.
 
 ## The build rungs
 

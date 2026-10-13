@@ -94,13 +94,16 @@ the gate is green.
     excepted), a control under 9mm on a touch display, and anything off
     the screen. The gate runs it in the image's own fonts (`cargo xtask
     fonts`). A new screen is not done until it is in that test.
-12. **The screen is the compositor's** (plan 0010, G019). No applet or
-    kit code switches the light or the panel: brightness and the idle
-    timeout are `ScreenSettings` (the `display` grant), and the one way
-    to keep the screen on is `VrxKeepScreenOn`, wrapped round what is
-    watched without being touched (a ring, a viewfinder), never round a
-    whole applet. The compositor honours it only while the applet is in
-    front.
+12. **Linux first.** Where Linux provides a thing, vrx wraps or extends
+    it behind a vrx interface (the kit, the SDK); vrx builds its own only
+    where Linux has none, and never a second home beside Linux's. The
+    screen (plan 0010, G019): a hold is `VrxKeepScreenOn`, a logind idle
+    inhibitor, wrapped round what is watched without being touched (a
+    ring, a viewfinder), never round a whole applet; the brightness is
+    the backlight's sysfs attribute (kept by systemd-backlight) through
+    `ScreenSettings`, and only a panel with no levels keeps it in
+    `/etc/vrx/display/screen.conf`. No applet or kit code switches the
+    light or the panel: that is the compositor's.
 
 > ## Planning uses the plan skill
 

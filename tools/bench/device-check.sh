@@ -1,6 +1,6 @@
 #!/bin/sh
 # Plan 0008 D16 on a board: devices are grants like the rest; and plan
-# 0010's G019, the backlight writable by the compositor alone. An applet
+# 0010's backlight, writable by the display grant and no other. An applet
 # unit has DevicePolicy=closed, so a device its grants do not name cannot
 # be opened even when its groups would allow it; each grant's device
 # classes (grants.conf) open it.
@@ -85,25 +85,28 @@ for manifest in sorted(glob.glob("/system/defaults/*/manifest.toml")):
 sys.exit(1 if bad else 0)
 EOF3
 
-echo "== the screen is the compositor's alone (plan 0010 G019)"
+echo "== the brightness is the display grant's, on Linux's own attribute (plan 0010)"
+# the display grant's group and writable paths, as its applet units get
+# them (ProtectKernelTunables makes /sys read-only, path: reopens it;
+# "-": a path not made yet is no failure)
+dgroup=$(group_of display)
+dpaths=$(echo "$GRANTS_CONF" | awk '$1=="display" && $2=="=" {for (i = 4; i <= NF; i++) if ($i ~ /^path:/) printf "-%s ", substr($i, 6)}')
 found=0
 for b in /sys/class/backlight/*/brightness; do
     [ -e "$b" ] || continue
     found=1
-    # no group or world write: the compositor (root) is its only writer
-    if [ -n "$(find "$b" -perm /022)" ]; then
-        bad "$b is writable beyond root: $(ls -l "$b" | cut -c1-10)"
-    else
-        ok "$b is root's alone"
-    fi
-    # an applet holding the display grant still cannot open it for
-    # writing (it writes back what is there: a failure dims nothing)
-    if systemd-run --quiet --wait --pipe -p User=vrx-clock -p SupplementaryGroups="video vrx-display" \
-        -- sh -c "v=\$(cat $b); echo \$v > $b" >/dev/null 2>&1; then
-        bad "an applet user wrote $b"
-    else
-        ok "an applet user cannot write $b"
-    fi
+    real=$(readlink -f "$b")
+    mode=$(stat -c '%U:%G %a' "$real")
+    if [ "$mode" = "root:$dgroup 664" ]; then ok "$b is $mode"; else bad "$b is $mode, not root:$dgroup 664"; fi
+    # an applet unit's sandbox; it writes back what is there, so a pass
+    # or a failure dims nothing
+    write() {
+        systemd-run --quiet --wait --pipe -p User=vrx-clock -p ProtectKernelTunables=yes \
+            ${2:+-p "SupplementaryGroups=$2"} ${3:+-p "ReadWritePaths=$3"} \
+            -- sh -c "v=\$(cat $1); echo \$v > $1" >/dev/null 2>&1
+    }
+    if write "$b" "" ""; then bad "an applet without the display grant wrote $b"; else ok "an applet without the display grant cannot write $b"; fi
+    if write "$b" "$dgroup" "$dpaths"; then ok "an applet with the display grant writes $b"; else bad "an applet with the display grant cannot write $b"; fi
 done
 [ "$found" -eq 1 ] || echo "  skip  no backlight on this board"
 echo
