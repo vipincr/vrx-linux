@@ -111,6 +111,33 @@ fn rust_applets_gate(repo: &std::path::Path, stamps: &impact::Stamps) -> bool {
     true
 }
 
+/// Every applet's literal intents and pushes against the manifests under
+/// applets/ (vrx_protocol::scan::sent_violations), as `applets/<id>/...`.
+fn sent_literals_gate(repo: &std::path::Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(repo.join("applets")) else {
+        return Vec::new();
+    };
+    let mut dirs: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+    dirs.sort();
+    let manifests: Vec<(std::path::PathBuf, vrx_protocol::Manifest)> = dirs
+        .into_iter()
+        .filter_map(|d| {
+            let text = std::fs::read_to_string(d.join("manifest.toml")).ok()?;
+            Some((d, text.parse().ok()?))
+        })
+        .collect();
+    let known: Vec<vrx_protocol::Manifest> =
+        manifests.iter().map(|(_, m)| m.clone()).collect();
+    let mut out = Vec::new();
+    for (dir, manifest) in &manifests {
+        let shown = dir.strip_prefix(repo).unwrap_or(dir).display().to_string();
+        for f in vrx_protocol::scan::sent_violations(dir, manifest, Some(&known)) {
+            out.push(format!("{shown}/{f}"));
+        }
+    }
+    out
+}
+
 /// The Flutter SDK's version file: an SDK upgrade changes every package's
 /// analysis and tests.
 fn flutter_version_file() -> Option<std::path::PathBuf> {
@@ -145,6 +172,17 @@ fn flutter_gate(repo: &std::path::Path, stamps: &impact::Stamps) -> bool {
     shared.extend(flutter_version_file());
     for dir in dirs {
         let shown = dir.strip_prefix(repo).unwrap_or(&dir).display().to_string();
+        // every screen of every applet on every display (AGENTS.md rule 11,
+        // evrx-rt rule 52): an applet without its layout test is refused,
+        // as `vrx build` refuses it
+        if dir.parent() == Some(&repo.join("applets"))
+            && !dir.join("test").join("layout_test.dart").is_file()
+        {
+            eprintln!(
+                "gate: FAILED — {shown} has no test/layout_test.dart (AGENTS.md rule 11)"
+            );
+            return false;
+        }
         let mut inputs = vec![dir.clone()];
         inputs.extend(impact::path_deps(&dir));
         inputs.extend(shared.iter().cloned());
@@ -436,6 +474,17 @@ fn gate(all: bool) -> ExitCode {
     }
     if !found.is_empty() {
         eprintln!("gate: FAILED at the responsiveness scan");
+        return ExitCode::FAILURE;
+    }
+    // G022 (plan 0011 D9): what applets send by name is what they declare,
+    // and what they push by name exists
+    println!("gate: intents sent are declared; pushes name real applets and routes");
+    let found = sent_literals_gate(&repo);
+    for f in &found {
+        eprintln!("{f}");
+    }
+    if !found.is_empty() {
+        eprintln!("gate: FAILED at the declared-intents check (G022)");
         return ExitCode::FAILURE;
     }
     // an applet runs as user vrx-<id> (plan 0008 D1); a grant is a group

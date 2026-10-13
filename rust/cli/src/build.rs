@@ -2,8 +2,8 @@
 // gate the whole system leans on — a manifest that parses on the host
 // but not in the SDK would be a fifth IPC shape by the back door:
 // - the manifest parses and all keys are known
-// - intents sent in code are declared in the `emits` list
-// - intents handled in code are declared in the `handles` list
+// - intents sent by name in code are declared in the `emits` list (G022;
+//   vrxhost also refuses an undeclared one at the socket)
 // - nothing in the applet's source blocks its event loop or a frame
 //   (the responsiveness scan, the same code as the repo's gate)
 // - the runtime's own gates pass: Rust fmt, clippy -D warnings and tests;
@@ -72,6 +72,17 @@ pub fn run(args: &[String]) -> ExitCode {
         return ExitCode::from(65);
     }
     println!("scan ok");
+
+    // G022: every intent the code sends by name is in emits (pushes are
+    // checked against the whole registry by the repo's gate)
+    let undeclared = vrx_protocol::scan::sent_violations(&manifest_dir, &manifest, None);
+    for f in &undeclared {
+        eprintln!("{f}");
+    }
+    if !undeclared.is_empty() {
+        eprintln!("vrx build: an intent is sent that the manifest does not emit");
+        return ExitCode::from(65);
+    }
 
     // the runtime's gates, then the compile; each step must pass. The
     // layout test is required: every screen on every display vrx drives

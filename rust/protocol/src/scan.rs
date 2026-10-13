@@ -4,6 +4,12 @@
 // above; a bare marker without a reason does not count. One
 // implementation: `cargo xtask gate` scans the repo, `vrx build` the
 // applet it builds.
+//
+// The source is tokenized before it is matched (plan 0011, evrx-rt rule
+// 93: checkers parse, never grep): comments never match, and a rule about
+// code (a call, a class) never matches inside a string literal. A rule
+// about a value (a path, a class name) matches in strings too, which is
+// where such values live.
 
 use std::path::{Path, PathBuf};
 
@@ -14,10 +20,17 @@ struct Rule {
     /// Substring that marks a violation.
     needle: &'static str,
     why: &'static str,
-    /// Files (path endings) where the form is the job: the kit's theme
+    /// Files (path parts) where the form is the job: the kit's theme
     /// may spell a colour, the boot reader a display class.
     except: &'static [&'static str],
+    /// The form is a value that lives in string literals (a path, a class
+    /// name); otherwise it is code, and a string never matches it.
+    in_strings: bool,
 }
+
+/// The kit: where the SDK's own forms (dialogs, timers, raw gestures) are
+/// built once, for every applet.
+const KIT: &[&str] = &["vrx_kit/lib/"];
 
 /// Where colour is decided (plan 0009 D2, D7): the slots' home and the
 /// generated tables.
@@ -38,10 +51,24 @@ const NO_COLOUR: &str =
 const NO_CLASS: &str =
     "an applet never knows what panel it is on (plan 0009 D4): the kit answers by class";
 const NO_SCREEN_POWER: &str = "G019: the screen's power is the compositor's (plan 0010 D1); the backlight is reached through the kit's ScreenSettings, a hold is VrxKeepScreenOn";
+const NO_DIALOG: &str = "G020: a modal is a route the kit opens (vrxConfirm, vrxAsk), so Back, Escape and the strip close it first (plan 0011 D1)";
+const NO_TIMER: &str = "G021: a periodic source is VrxTicker, which rests while the applet is hidden (plan 0011 D3)";
+const NO_RAW_PRESS: &str = "a tappable control comes from the kit's press components (VrxPress and the rows, chips and buttons on it), so every press is acknowledged the same way";
 
-/// G019: forms no `vrx-allow` excuses. An applet that switches the light
+/// Forms no `vrx-allow` excuses. G019: an applet that switches the light
 /// or the panel can leave a person with no screen to switch it back on.
-const NEVER_ALLOWED: &[&str] = &["/sys/class/backlight", "bl_power", "dpms", "DPMS"];
+/// G020 and G021: the kit's forms are the only way to open a modal or
+/// tick, by construction.
+const NEVER_ALLOWED: &[&str] = &[
+    "/sys/class/backlight",
+    "bl_power",
+    "dpms",
+    "DPMS",
+    "showDialog",
+    "showGeneralDialog",
+    "showModalBottomSheet",
+    "Timer.periodic",
+];
 
 /// Where Linux's backlight is wrapped: the kit's vrx interface to it
 /// (brightness on the backlight's own attribute, plan 0010).
@@ -53,114 +80,196 @@ const RULES: &[Rule] = &[
         needle: "Sync(",
         why: "a synchronous dart:io call blocks the isolate that builds frames",
         except: &[],
+        in_strings: false,
     },
     Rule {
         ext: "dart",
         needle: "sleep(",
         why: "sleep blocks the isolate that builds frames",
         except: &[],
+        in_strings: false,
     },
     Rule {
         ext: "dart",
         needle: "Navigator.",
         why: "navigation is vrxhost's back trail (Nav), never Navigator",
         except: &[],
+        in_strings: false,
     },
     Rule {
         ext: "dart",
         needle: "print(",
         why: "stdout is not a log: debugPrint",
         except: &[],
+        in_strings: false,
     },
     Rule {
         ext: "dart",
         needle: "Color(0x",
         why: NO_COLOUR,
         except: COLOUR_HOME,
+        in_strings: false,
     },
     Rule {
         ext: "dart",
         needle: "Colors.",
         why: NO_COLOUR,
         except: COLOUR_HOME,
+        in_strings: false,
     },
     Rule {
         ext: "dart",
         needle: "VrxPalette",
         why: "VrxPalette is gone: the 32 slots are VrxColors (plan 0009 D2)",
         except: &[],
+        in_strings: false,
     },
     Rule {
         ext: "dart",
         needle: "epaper",
         why: NO_CLASS,
         except: CLASS_HOME,
+        in_strings: true,
     },
     Rule {
         ext: "dart",
         needle: "lcdColour",
         why: NO_CLASS,
         except: CLASS_HOME,
+        in_strings: true,
     },
     Rule {
         ext: "dart",
         needle: "display-class",
         why: NO_CLASS,
         except: CLASS_HOME,
+        in_strings: true,
     },
     Rule {
         ext: "dart",
         needle: "/sys/class/backlight",
         why: NO_SCREEN_POWER,
         except: BACKLIGHT_HOME,
+        in_strings: true,
     },
     Rule {
         ext: "dart",
         needle: "bl_power",
         why: NO_SCREEN_POWER,
         except: &[],
+        in_strings: true,
     },
     Rule {
         ext: "dart",
         needle: "dpms",
         why: NO_SCREEN_POWER,
         except: &[],
+        in_strings: true,
     },
     Rule {
         ext: "dart",
         needle: "DPMS",
         why: NO_SCREEN_POWER,
         except: &[],
+        in_strings: true,
     },
     Rule {
         ext: "rs",
         needle: "/sys/class/backlight",
         why: NO_SCREEN_POWER,
         except: &[],
+        in_strings: true,
     },
     Rule {
         ext: "rs",
         needle: "bl_power",
         why: NO_SCREEN_POWER,
         except: &[],
+        in_strings: true,
     },
     Rule {
         ext: "rs",
         needle: "dpms",
         why: NO_SCREEN_POWER,
         except: &[],
+        in_strings: true,
     },
     Rule {
         ext: "rs",
         needle: "DPMS",
         why: NO_SCREEN_POWER,
         except: &[],
+        in_strings: true,
+    },
+    Rule {
+        ext: "dart",
+        needle: "showDialog",
+        why: NO_DIALOG,
+        except: KIT,
+        in_strings: false,
+    },
+    Rule {
+        ext: "dart",
+        needle: "showGeneralDialog",
+        why: NO_DIALOG,
+        except: KIT,
+        in_strings: false,
+    },
+    Rule {
+        ext: "dart",
+        needle: "showModalBottomSheet",
+        why: NO_DIALOG,
+        except: KIT,
+        in_strings: false,
+    },
+    Rule {
+        ext: "dart",
+        needle: "Timer.periodic",
+        why: NO_TIMER,
+        except: KIT,
+        in_strings: false,
+    },
+    Rule {
+        ext: "dart",
+        needle: "InkWell",
+        why: NO_RAW_PRESS,
+        except: KIT,
+        in_strings: false,
+    },
+    Rule {
+        ext: "dart",
+        needle: "GestureDetector",
+        why: NO_RAW_PRESS,
+        except: KIT,
+        in_strings: false,
+    },
+    Rule {
+        ext: "dart",
+        needle: "VrxDisplayClass",
+        why: NO_CLASS,
+        except: KIT,
+        in_strings: false,
+    },
+    Rule {
+        ext: "dart",
+        needle: "classRow",
+        why: NO_CLASS,
+        except: KIT,
+        in_strings: false,
+    },
+    Rule {
+        ext: "dart",
+        needle: "displayClass",
+        why: NO_CLASS,
+        except: KIT,
+        in_strings: false,
     },
     Rule {
         ext: "rs",
         needle: "thread::sleep(",
         why: "sleeping stalls the applet's loop and its watchdog",
         except: &[],
+        in_strings: false,
     },
 ];
 
@@ -176,6 +285,170 @@ fn files(dir: &Path, out: &mut Vec<PathBuf>) {
             out.push(path);
         }
     }
+}
+
+/// Two views of a source file, each the same length line for line:
+/// comments blanked in both; string literals' contents kept in the first
+/// and blanked in the second. Dart: `//`, nested `/* */`, '…', "…",
+/// triple-quoted and raw (r'…') strings. Rust: `//`, nested `/* */`,
+/// "…", raw r#"…"# and byte strings, char literals (not lifetimes).
+pub fn views(ext: &str, text: &str) -> (String, String) {
+    let chars: Vec<char> = text.chars().collect();
+    let mut kept = String::with_capacity(text.len());
+    let mut code = String::with_capacity(text.len());
+    let blank = |c: char| if c == '\n' { '\n' } else { ' ' };
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let next = chars.get(i + 1).copied();
+        // a line comment
+        if c == '/' && next == Some('/') {
+            while i < chars.len() && chars[i] != '\n' {
+                kept.push(' ');
+                code.push(' ');
+                i += 1;
+            }
+            continue;
+        }
+        // a block comment, nested in both languages
+        if c == '/' && next == Some('*') {
+            let mut depth = 0;
+            while i < chars.len() {
+                if chars[i] == '/' && chars.get(i + 1) == Some(&'*') {
+                    depth += 1;
+                    kept.push_str("  ");
+                    code.push_str("  ");
+                    i += 2;
+                    continue;
+                }
+                if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
+                    depth -= 1;
+                    kept.push_str("  ");
+                    code.push_str("  ");
+                    i += 2;
+                    if depth == 0 {
+                        break;
+                    }
+                    continue;
+                }
+                kept.push(blank(chars[i]));
+                code.push(blank(chars[i]));
+                i += 1;
+            }
+            continue;
+        }
+        let prev_ident = i > 0 && (chars[i - 1].is_alphanumeric() || chars[i - 1] == '_');
+        // a Rust raw string: r"…", r#"…"#, br"…"
+        if ext == "rs" && (c == 'r' || (c == 'b' && next == Some('r'))) && !prev_ident {
+            let start = if c == 'b' { i + 2 } else { i + 1 };
+            let mut j = start;
+            while chars.get(j) == Some(&'#') {
+                j += 1;
+            }
+            if chars.get(j) == Some(&'"') {
+                let hashes = j - start;
+                for &ch in &chars[i..=j] {
+                    kept.push(ch);
+                    code.push(ch);
+                }
+                i = j + 1;
+                while i < chars.len() {
+                    if chars[i] == '"'
+                        && (0..hashes).all(|h| chars.get(i + 1 + h) == Some(&'#'))
+                    {
+                        for &ch in &chars[i..=i + hashes] {
+                            kept.push(ch);
+                            code.push(ch);
+                        }
+                        i += hashes + 1;
+                        break;
+                    }
+                    kept.push(chars[i]);
+                    code.push(blank(chars[i]));
+                    i += 1;
+                }
+                continue;
+            }
+        }
+        // a Rust char literal ('a', '\n', '\u{..}'); a lifetime is code
+        if ext == "rs" && c == '\'' {
+            let close = if next == Some('\\') {
+                (i + 2..chars.len().min(i + 12)).find(|&k| chars[k] == '\'')
+            } else if chars.get(i + 2) == Some(&'\'') {
+                Some(i + 2)
+            } else {
+                None
+            };
+            if let Some(end) = close {
+                kept.push('\'');
+                code.push('\'');
+                for &ch in &chars[i + 1..end] {
+                    kept.push(ch);
+                    code.push(' ');
+                }
+                kept.push('\'');
+                code.push('\'');
+                i = end + 1;
+                continue;
+            }
+            kept.push(c);
+            code.push(c);
+            i += 1;
+            continue;
+        }
+        // a string literal
+        if c == '"' || (ext == "dart" && c == '\'') {
+            let raw = ext == "dart"
+                && i > 0
+                && chars[i - 1] == 'r'
+                && !(i > 1 && (chars[i - 2].is_alphanumeric() || chars[i - 2] == '_'));
+            let triple = ext == "dart" && next == Some(c) && chars.get(i + 2) == Some(&c);
+            let open = if triple { 3 } else { 1 };
+            for &ch in &chars[i..i + open] {
+                kept.push(ch);
+                code.push(ch);
+            }
+            i += open;
+            while i < chars.len() {
+                let d = chars[i];
+                if d == '\\' && !raw {
+                    kept.push(d);
+                    code.push(' ');
+                    if let Some(&e) = chars.get(i + 1) {
+                        kept.push(e);
+                        code.push(blank(e));
+                    }
+                    i += 2;
+                    continue;
+                }
+                let closes = if triple {
+                    d == c && chars.get(i + 1) == Some(&c) && chars.get(i + 2) == Some(&c)
+                } else {
+                    d == c
+                };
+                if closes {
+                    for &ch in &chars[i..i + open] {
+                        kept.push(ch);
+                        code.push(ch);
+                    }
+                    i += open;
+                    break;
+                }
+                // a single-line Dart string ends at the line (malformed)
+                if d == '\n' && !triple && ext == "dart" {
+                    break;
+                }
+                kept.push(d);
+                code.push(blank(d));
+                i += 1;
+            }
+            continue;
+        }
+        kept.push(c);
+        code.push(c);
+        i += 1;
+    }
+    (kept, code)
 }
 
 fn allowed(line: &str) -> bool {
@@ -197,10 +470,14 @@ fn violations(
     text: &str,
 ) -> Vec<(usize, &'static str, &'static str)> {
     let lines: Vec<&str> = text.lines().collect();
+    let (kept, bare) = views(ext, text);
+    let kept: Vec<&str> = kept.lines().collect();
+    let bare: Vec<&str> = bare.lines().collect();
     let mut found = Vec::new();
     for (i, line) in lines.iter().enumerate() {
-        let code = line.split("//").next().unwrap_or("");
-        if ext == "dart" && code.chars().any(is_emoji) {
+        let with_strings = kept.get(i).copied().unwrap_or("");
+        let code_only = bare.get(i).copied().unwrap_or("");
+        if ext == "dart" && with_strings.chars().any(is_emoji) {
             found.push((
                 i + 1,
                 "emoji",
@@ -209,8 +486,13 @@ fn violations(
         }
         for rule in RULES
             .iter()
-            .filter(|r| r.ext == ext && !r.except.iter().any(|e| path.ends_with(e)))
+            .filter(|r| r.ext == ext && !r.except.iter().any(|e| path.contains(e)))
         {
+            let code = if rule.in_strings {
+                with_strings
+            } else {
+                code_only
+            };
             if !code.contains(rule.needle) {
                 continue;
             }
@@ -294,6 +576,158 @@ pub fn scan(roots: &[PathBuf]) -> Vec<Violation> {
     out
 }
 
+/// A literal an applet's Dart source sends: an intent by name, or a push
+/// to an applet (and route). What is computed at run time is not here;
+/// vrxhost refuses it at the socket instead (plan 0011 D9).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Sent {
+    Intent {
+        line: usize,
+        name: String,
+    },
+    Push {
+        line: usize,
+        applet: String,
+        route: Option<String>,
+    },
+}
+
+/// The string literal that opens `chars` (after blanks), if it is one
+/// with no interpolation.
+fn literal_at(chars: &[char]) -> Option<String> {
+    let mut i = chars.iter().position(|c| !c.is_whitespace())?;
+    let quote = chars[i];
+    if quote != '\'' && quote != '"' {
+        return None;
+    }
+    i += 1;
+    let mut out = String::new();
+    while let Some(&c) = chars.get(i) {
+        if c == quote {
+            return Some(out);
+        }
+        if c == '$' || c == '\\' {
+            return None;
+        }
+        out.push(c);
+        i += 1;
+    }
+    None
+}
+
+/// Every literal `Intent.send('…')` and `Nav.push('…', route: '…')` in a
+/// Dart file, found in its code (never in comments or strings).
+pub fn sent_literals(text: &str) -> Vec<Sent> {
+    let (kept, bare) = views("dart", text);
+    let mut out = Vec::new();
+    for (n, (k, b)) in kept.lines().zip(bare.lines()).enumerate() {
+        let k: Vec<char> = k.chars().collect();
+        let b: String = b.to_owned();
+        let bc: Vec<char> = b.chars().collect();
+        for (call, is_push) in [("Intent.send(", false), ("Nav.push(", true)] {
+            let pat: Vec<char> = call.chars().collect();
+            let mut at = 0;
+            while at + pat.len() <= bc.len() {
+                if bc[at..at + pat.len()] != pat[..]
+                    || (at > 0 && (bc[at - 1].is_alphanumeric() || bc[at - 1] == '_'))
+                {
+                    at += 1;
+                    continue;
+                }
+                let args = &k[at + pat.len()..];
+                if let Some(first) = literal_at(args) {
+                    if is_push {
+                        // a route: '…' named argument inside the same call
+                        let close = bc[at..]
+                            .iter()
+                            .position(|c| *c == ')')
+                            .map_or(bc.len(), |p| at + p);
+                        let call_text: String = bc[at..close].iter().collect();
+                        let route = call_text.find("route:").and_then(|r| {
+                            let start =
+                                at + call_text[..r].chars().count() + "route:".len();
+                            literal_at(&k[start..])
+                        });
+                        out.push(Sent::Push {
+                            line: n + 1,
+                            applet: first,
+                            route,
+                        });
+                    } else {
+                        out.push(Sent::Intent {
+                            line: n + 1,
+                            name: first,
+                        });
+                    }
+                }
+                at += pat.len();
+            }
+        }
+    }
+    out
+}
+
+/// G022 at build time: every intent an applet's Dart code sends by name
+/// is in its manifest's emits, and every applet it pushes by name exists
+/// with the route it names (`known`: the other manifests; None checks the
+/// intents only, as `vrx build` does for one applet). One finding per
+/// line: `path:line: why`.
+pub fn sent_violations(
+    dir: &Path,
+    own: &crate::Manifest,
+    known: Option<&[crate::Manifest]>,
+) -> Vec<String> {
+    let mut sources = Vec::new();
+    files(&dir.join("lib"), &mut sources);
+    sources.retain(|p| p.extension().is_some_and(|e| e == "dart"));
+    sources.sort();
+    let mut out = Vec::new();
+    for path in sources {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let shown = path
+            .strip_prefix(dir)
+            .unwrap_or(&path)
+            .display()
+            .to_string();
+        for sent in sent_literals(&text) {
+            match sent {
+                Sent::Intent { line, name } => {
+                    if !own.applet.intents.emits.contains(&name) {
+                        out.push(format!(
+                            "{shown}:{line}: sends {name:?}, which {}'s manifest does not emit (G022)",
+                            own.applet.id
+                        ));
+                    }
+                }
+                Sent::Push {
+                    line,
+                    applet,
+                    route,
+                } => {
+                    let Some(known) = known else { continue };
+                    match known.iter().find(|m| m.applet.id == applet) {
+                        None => out.push(format!(
+                            "{shown}:{line}: pushes {applet:?}, which is no applet (G022)"
+                        )),
+                        Some(target) => {
+                            if let Some(route) =
+                                route.filter(|r| target.route_number(r).is_none())
+                            {
+                                out.push(format!(
+                                    "{shown}:{line}: pushes {applet:?} at {route:?}, a route it does not declare (G022)"
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// An applet's own source trees: lib/ (Flutter) and src/ (Rust).
 pub fn applet_roots(dir: &Path) -> Vec<PathBuf> {
     ["lib", "src"]
@@ -367,6 +801,114 @@ mod tests {
             "VrxKeepScreenOn(child: c);\nScreenSettings().setBrightness(0);\nVrxDimming.backlight;\n"
         )
         .is_empty());
+    }
+
+    #[test]
+    fn comments_never_match_and_strings_match_only_values() {
+        let applet = "applets/x/lib/main.dart";
+        let code = "// print('x') and Timer.periodic in a comment\n/* showDialog\n   still a comment */\nfinal s = 'print(1) showDialog InkWell';\nfinal t = '''\nTimer.periodic\n''';\nfinal u = 'http://x/print(';\nfinal p = '/sys/class/backlight';\n";
+        let found: Vec<(usize, &str)> = violations(applet, "dart", code)
+            .iter()
+            .map(|v| (v.0, v.1))
+            .collect();
+        // only the value rule fires, in its string
+        assert_eq!(found, vec![(9, "/sys/class/backlight")]);
+        let rs = "let s = \"thread::sleep(\"; // thread::sleep(\nlet r = r#\"thread::sleep(\"#;\nfn f<'a>(x: &'a str) -> char { 'x' }\nstd::thread::sleep(d);\n";
+        let found: Vec<usize> =
+            violations("a.rs", "rs", rs).iter().map(|v| v.0).collect();
+        assert_eq!(found, vec![4]);
+        let (kept, bare) = views("dart", "a('b\\'c') // d\n");
+        assert_eq!(kept, "a('b\\'c')     \n");
+        assert_eq!(bare, "a('    ')     \n");
+    }
+
+    /// G020, G021, rule 16 and rule 34: the kit's forms outside the kit.
+    #[test]
+    fn dialogs_timers_raw_presses_and_the_class_stay_in_the_kit() {
+        let applet = "applets/x/lib/main.dart";
+        // (a marker covers its own line and the one below)
+        let code = "InkWell(onTap: f);\nVrxColors.classRow;\nif (VrxDisplayClass.lcdColour == x) {}\nshowModalBottomSheet(c);\n\nshowDialog(context: c, builder: b); // vrx-allow: legacy\nTimer.periodic(d, f); // vrx-allow: legacy\nGestureDetector(onTap: f); // vrx-allow: a drag surface\n";
+        let found: Vec<(usize, &str)> = violations(applet, "dart", code)
+            .iter()
+            .map(|v| (v.0, v.1))
+            .collect();
+        // a reason excuses a raw press, never a dialog or a timer
+        assert_eq!(
+            found,
+            vec![
+                (1, "InkWell"),
+                (2, "classRow"),
+                (3, "lcdColour"),
+                (3, "VrxDisplayClass"),
+                (4, "showModalBottomSheet"),
+                (6, "showDialog"),
+                (7, "Timer.periodic"),
+            ]
+        );
+        assert!(violations(
+            "flutter/vrx_kit/lib/src/modals.dart",
+            "dart",
+            "showDialog(c);\nTimer.periodic(d, f);\nInkWell();\n"
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn sent_literals_are_found_in_code_only() {
+        let text = "await Intent.send('sys.alarm.ring', {'k': 1});\n// Intent.send('in.comment')\nNav.push('docs');\nNav.push('setup', route: 'again');\nNav.push(row.key);\nIntent.send('a.$b');\nfinal s = \"Nav.push('x')\";\nMyIntent.send('no.match');\n";
+        assert_eq!(
+            sent_literals(text),
+            vec![
+                Sent::Intent {
+                    line: 1,
+                    name: "sys.alarm.ring".into()
+                },
+                Sent::Push {
+                    line: 3,
+                    applet: "docs".into(),
+                    route: None
+                },
+                Sent::Push {
+                    line: 4,
+                    applet: "setup".into(),
+                    route: Some("again".into())
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn an_undeclared_intent_or_a_missing_applet_or_route_is_named_g022() {
+        let dir = std::env::temp_dir().join(format!("vrx-sent-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("lib")).unwrap();
+        std::fs::write(
+            dir.join("lib/main.dart"),
+            "Intent.send('web.done');\nIntent.send('web.other');\nNav.push('docs');\nNav.push('ghost');\nNav.push('setup', route: 'again');\nNav.push('setup', route: 'nope');\n",
+        )
+        .unwrap();
+        let m = |id: &str, extra: &str| -> crate::Manifest {
+            format!("[applet]\nid = \"{id}\"\nname = \"N\"\nversion = \"1\"\nruntime = \"flutter\"\n{extra}")
+                .parse()
+                .unwrap()
+        };
+        let own = m("web", "[applet.intents]\nemits = [\"web.done\"]\n");
+        let known = [
+            own.clone(),
+            m("docs", ""),
+            m("setup", "[applet.routes]\nagain = {}\n"),
+        ];
+        let found = sent_violations(&dir, &own, Some(&known));
+        let lines: Vec<&str> = found
+            .iter()
+            .map(|f| f.split(": ").next().unwrap())
+            .collect();
+        assert_eq!(
+            lines,
+            ["lib/main.dart:2", "lib/main.dart:4", "lib/main.dart:6"],
+            "{found:?}"
+        );
+        assert_eq!(sent_violations(&dir, &own, None).len(), 1, "intents only");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
