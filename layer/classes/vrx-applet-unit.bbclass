@@ -32,6 +32,12 @@ python vrx_applet_unit() {
     runtime = section.get('runtime')
     grants = section.get('permissions', {}).get('system', [])
     table = vrx_grants_table(d)
+    # an applet's own user and group is vrx-<id>; a grant group of that
+    # name would make every member of the grant that applet (the settings
+    # applet met the settings grant's first group name, vrx-settings)
+    clash = [g for g, _ in table.values() if g == 'vrx-%s' % applet]
+    if clash:
+        bb.fatal("%s: its user vrx-%s is also a grant group in grants.conf" % (applet, applet))
     unknown = [g for g in grants if g not in table]
     if unknown:
         bb.fatal("%s: manifest grants %s, which grants.conf does not define" % (applet, unknown))
@@ -95,7 +101,7 @@ python vrx_applet_unit() {
     with open(os.path.join(dropdir, '10-manifest.conf'), 'w') as f:
         f.write("\n".join(lines) + "\n")
     # plan 0008 D5: the declared settings' defaults, /etc/vrx/settings/<id>.conf
-    # (key=value; vrx-policy's tmpfiles gives it root:vrx-settings 0664)
+    # (key=value; vrx-policy's tmpfiles gives it root:vrx-config 0664)
     declared = section.get('settings', [])
     if declared:
         etc = d.getVar('D') + d.getVar('sysconfdir') + '/vrx/settings'

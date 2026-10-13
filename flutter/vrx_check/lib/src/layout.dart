@@ -143,6 +143,18 @@ Element? _wheelOf(Element e) {
   return wheel;
 }
 
+bool _under<T extends Widget>(Element e) {
+  var found = false;
+  e.visitAncestorElements((a) {
+    if (a.widget is T) {
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
 bool _insideTextField(Element e) {
   var found = false;
   e.visitAncestorElements((a) {
@@ -214,7 +226,7 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
     final rect = viewport == null ? whole : whole.intersect(viewport);
     if (rect.width <= 0 || rect.height <= 0) continue;
     texts.add((box, rect, text, scrolls));
-    if (box.didExceedMaxLines) issues.add(LayoutIssue('cut', '"$text"', rect));
+    if (box.didExceedMaxLines && !_under<VrxTruncates>(e)) issues.add(LayoutIssue('cut', '"$text"', rect));
     // a line that ends inside a word: the paragraph's own text laid out
     // again at the width it had, its line ends read back
     final painter = TextPainter(

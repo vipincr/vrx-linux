@@ -236,11 +236,9 @@ class _Category extends StatelessWidget {
       VrxHeader(title: _titles[category] ?? '', onBack: onBack),
       for (final row in view.rows)
         switch (row.kind) {
-          RowKind.toggle => VrxRow(
-              label: row.label,
-              value: row.on ? 'On' : 'Off',
-              onTap: () => onRow(row),
-            ),
+          // a switch reads On or Off, an applet's enum its value: the
+          // model has already put the words in row.value
+          RowKind.toggle => VrxRow(label: row.label, value: row.value, onTap: () => onRow(row)),
           RowKind.open => VrxRow(label: row.label, value: '${row.value}  ›', onTap: () => onRow(row)),
           RowKind.confirm => VrxRow(label: row.label, value: '', onTap: () => onRow(row)),
           RowKind.info => VrxRow(label: row.label, value: row.value),

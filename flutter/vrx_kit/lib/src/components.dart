@@ -532,3 +532,16 @@ class VrxFitText extends StatelessWidget {
     });
   }
 }
+
+/// Marks text that may end in an ellipsis by design (Home's tile titles:
+/// one size on every tile, two lines at most, the rest hidden; the owner,
+/// 2026-10-13). vrx_check's "cut" rule passes text under it; everywhere
+/// else a cut word is a layout bug.
+class VrxTruncates extends StatelessWidget {
+  const VrxTruncates({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => child;
+}

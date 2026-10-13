@@ -11,6 +11,7 @@ void main() {
     ..replaceRegistry({
       for (final (i, t) in [
         ('web', 'Web requests', 'language'),
+        ('long', 'A tile with a name far too long for two lines', 'apps'),
         ('clock', 'Clock', 'schedule'),
         ('settings', 'Settings', 'settings'),
         ('terminal', 'Terminal', 'terminal'),

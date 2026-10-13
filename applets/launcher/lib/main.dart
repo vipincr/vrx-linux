@@ -51,17 +51,19 @@ class LauncherApplet
                           .floor()
                           .clamp(3, 8);
                       final tileWidth = (inner - space.sm * (columns - 1)) / columns;
-                      final label = TypeRole.caption(context);
-                      // a name takes one line, or two at 70% when it is long
-                      // ("Web requests"): room for the two
-                      final labelHeight = space.xs + (label.fontSize ?? 14) * 1.3 * 1.45;
+                      // every title one size (the owner): the caption size,
+                      // or less on a screen where the longest word of any
+                      // title would not fit a tile, so lines break between
+                      // words; two lines at most, room for two
+                      final label = titleStyle(context, view.tiles, tileWidth);
+                      final labelHeight = space.xs + (label.fontSize ?? 14) * 1.2 * 2;
                       return GridView.count(
                         padding: EdgeInsets.fromLTRB(space.inset, space.sm, space.inset, space.inset),
                         crossAxisCount: columns,
                         mainAxisSpacing: space.md,
                         crossAxisSpacing: space.sm,
                         childAspectRatio: tileWidth / (tileWidth + labelHeight),
-                        children: [for (final tile in view.tiles) _Tile(tile: tile, labelHeight: labelHeight)],
+                        children: [for (final tile in view.tiles) _Tile(tile: tile, labelHeight: labelHeight, style: label)],
                       );
                     }),
             ),
@@ -130,9 +132,10 @@ class _NowState extends State<_Now> {
 }
 
 class _Tile extends StatelessWidget {
-  const _Tile({required this.tile, required this.labelHeight});
+  const _Tile({required this.tile, required this.labelHeight, required this.style});
 
   final Tile tile;
+  final TextStyle style;
 
   /// The label's room, the same on every tile so every icon is the same
   /// size whether its name takes one line or two.
@@ -171,10 +174,19 @@ class _Tile extends StatelessWidget {
             height: labelHeight,
             child: Padding(
               padding: EdgeInsets.only(top: space.xs),
-              // a long name shrinks to fit, then takes two lines
+              // one size on every tile; a long name wraps to a second
+              // line and anything past it ends in an ellipsis
               child: Align(
                 alignment: Alignment.topCenter,
-                child: VrxFitText(tile.name, style: TypeRole.caption(context).copyWith(height: 1.2), textAlign: TextAlign.center),
+                child: VrxTruncates(
+                  child: Text(
+                    tile.name,
+                    style: style,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ),
             ),
           ),
@@ -182,6 +194,26 @@ class _Tile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The one style every tile title takes on this screen: the caption,
+/// shrunk (to 70% at most) until the longest word of any title fits a
+/// tile's width.
+TextStyle titleStyle(BuildContext context, List<Tile> tiles, double tileWidth) {
+  final base = TypeRole.caption(context).copyWith(height: 1.2);
+  final size = base.fontSize ?? 14;
+  final scaler = MediaQuery.textScalerOf(context);
+  var widest = 0.0;
+  for (final t in tiles) {
+    for (final word in t.name.split(' ')) {
+      final tp = TextPainter(text: TextSpan(text: word, style: base), textDirection: TextDirection.ltr, textScaler: scaler)
+        ..layout();
+      if (tp.width > widest) widest = tp.width;
+      tp.dispose();
+    }
+  }
+  if (widest <= tileWidth) return base;
+  return base.copyWith(fontSize: size * (tileWidth / widest).clamp(0.7, 1.0) * 0.98);
 }
 
 class _NoApps extends StatelessWidget {

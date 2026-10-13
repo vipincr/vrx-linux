@@ -1,7 +1,8 @@
 /// Applet settings (plan 0008 D5): one file per applet,
 /// /etc/vrx/settings/ID.conf, `key=value` lines. Every applet reads its
 /// own and is told when it changes (inotify, the state shape "a file,
-/// watched"); the Settings applet, holding the settings grant, writes any.
+/// watched"); the Settings applet, holding the settings grant (group
+/// vrx-config), writes any.
 /// What an applet may set is declared in its manifest; vrxhost serves the
 /// declarations (io.vrx.Host.Settings).
 library;
@@ -128,6 +129,10 @@ class AppletSettings {
     final values = Map.of(await read(applet))..[key] = value;
     final tmp = File('$dir/.$applet.conf.new');
     await tmp.writeAsString(formatSettings(applet, values), flush: true);
+    // the applet's unit has UMask=0077: the file must stay readable by
+    // the applet it belongs to (0664, the directory's group by setgid)
+    final chmod = await Process.run('chmod', ['0664', tmp.path]);
+    if (chmod.exitCode != 0) throw FileSystemException('chmod: ${chmod.stderr}'.trim(), tmp.path);
     await tmp.rename(_file(applet).path);
   }
 }
