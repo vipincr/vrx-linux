@@ -39,7 +39,9 @@ pub enum Order {
 pub enum NavError {
     #[error("no applet {0:?} in the registry")]
     Unknown(String),
-    #[error("applet {0:?} is a library or the shell; it cannot be opened")]
+    #[error(
+        "applet {0:?} is a library, a service or the shell; it has no screen to open"
+    )]
     NotOpenable(String),
     #[error("applet {0:?} is disabled after repeated crashes")]
     Disabled(String),
@@ -149,7 +151,7 @@ impl Session {
                 let entry = registry
                     .find(&applet)
                     .ok_or_else(|| NavError::Unknown(applet.clone()))?;
-                if entry.manifest.applet.kind == vrx_protocol::manifest::Kind::Library
+                if !entry.manifest.applet.kind.opens()
                     || self.shell.as_deref() == Some(applet.as_str())
                 {
                     return Err(NavError::NotOpenable(applet));

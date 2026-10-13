@@ -71,7 +71,12 @@ fn rust_applets_gate(repo: &std::path::Path, stamps: &impact::Stamps) -> bool {
     crates.sort();
     for dir in crates {
         let shown = dir.strip_prefix(repo).unwrap_or(&dir).display().to_string();
-        if !dir.join("tests").join("layout.rs").is_file() {
+        // a service has no screen, so nothing to lay out (manifest kind)
+        let service = std::fs::read_to_string(dir.join("manifest.toml"))
+            .ok()
+            .and_then(|t| t.parse::<vrx_protocol::manifest::Manifest>().ok())
+            .is_some_and(|m| m.applet.kind == vrx_protocol::manifest::Kind::Service);
+        if !service && !dir.join("tests").join("layout.rs").is_file() {
             eprintln!(
                 "gate: FAILED — {shown} has no tests/layout.rs (AGENTS.md rule 11)"
             );

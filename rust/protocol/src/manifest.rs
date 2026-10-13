@@ -133,13 +133,24 @@ impl SystemGrant {
     ];
 }
 
-/// Applet or library: libraries are linkable kits, never launched.
+/// What an applet is: one with screens (the default); a library, a
+/// linkable kit never launched; or a service, launched and supervised like
+/// any applet but with no screen, so never opened and never focused
+/// (stt, plan 0011 D18). A service has no layout to check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
     #[default]
     Applet,
     Library,
+    Service,
+}
+
+impl Kind {
+    /// It has screens a person opens.
+    pub fn opens(self) -> bool {
+        self == Kind::Applet
+    }
 }
 
 /// Screen orientation an applet accepts.
@@ -436,6 +447,20 @@ impl Manifest {
             return invalid("applet.version: must not be empty".to_owned());
         }
 
+        // a service has no screen: it cannot be Flutter, a tile, or a
+        // place a deep link opens
+        if a.kind == Kind::Service {
+            if a.runtime == Runtime::Flutter {
+                return invalid("kind = \"service\": a Flutter applet has screens; a service has none".to_owned());
+            }
+            if a.display.as_ref().is_some_and(|d| d.tile) || !a.routes.is_empty() {
+                return invalid("kind = \"service\": a service has no screen, so no tile and no routes".to_owned());
+            }
+            if a.intents.handles.iter().any(|h| h.at.is_some()) {
+                return invalid("kind = \"service\": a handler opens at a route, and a service has none".to_owned());
+            }
+        }
+
         // Intent names: shared rule with the intent wire type.
         for handle in &a.intents.handles {
             intent::validate_name(&handle.name)
@@ -622,7 +647,7 @@ id = "clock"                   # [a-z][a-z0-9_]*, max 32, "vrx" refused
 name = "Clock"                 # what a person reads, max 32
 version = "1.0.0"
 runtime = "flutter"            # "flutter" | "rust" | "native"
-kind = "applet"                # "applet" (default) or "library"
+kind = "applet"                # "applet" (default), "library" or "service" (no screen)
 
 [applet.display]
 icon = "icon.png"              # or a glyph from the icon font
@@ -688,6 +713,23 @@ options = ["12h", "24h"]
                 at: Some("ring".to_owned()),
             }
         );
+    }
+
+    #[test]
+    fn a_service_has_no_screen_no_tile_and_no_routes() {
+        let base = "[applet]\nid = \"stt\"\nname = \"S\"\nversion = \"0.1.0\"\n";
+        let ok = format!("{base}runtime = \"rust\"\nkind = \"service\"\n[applet.display]\nicon = \"mic\"\ntile = false\n");
+        let m = ok.parse::<Manifest>().expect("a rust service parses");
+        assert_eq!(m.applet.kind, Kind::Service);
+        assert!(!m.applet.kind.opens());
+        assert!(Kind::Applet.opens() && !Kind::Library.opens());
+        for bad in [
+            format!("{base}runtime = \"flutter\"\nkind = \"service\"\n"),
+            format!("{base}runtime = \"rust\"\nkind = \"service\"\n[applet.display]\nicon = \"mic\"\ntile = true\n"),
+            format!("{base}runtime = \"rust\"\nkind = \"service\"\n[applet.routes]\nx = {{}}\n"),
+        ] {
+            assert!(bad.parse::<Manifest>().is_err(), "refused: {bad}");
+        }
     }
 
     #[test]
