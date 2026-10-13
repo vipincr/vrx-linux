@@ -82,6 +82,60 @@ mixin VrxSlotNames {
 /// The slots with an on-colour (the next slot), as a mask over the index.
 const int vrxSlotHasOnMask = 0x55555400;
 
+// [spacing_mm]
+const double vrxSpacingMmXs = 1.0;
+const double vrxSpacingMmSm = 2.0;
+const double vrxSpacingMmMd = 3.0;
+const double vrxSpacingMmLg = 4.0;
+const double vrxSpacingMmXl = 6.0;
+const double vrxSpacingMmEdgeInset = 2.0;
+
+// [radius_mm]
+const double vrxRadiusMmSm = 1.0;
+const double vrxRadiusMmMd = 2.0;
+
+// [size_mm]
+const double vrxSizeMmTouchMin = 9.0;
+const double vrxSizeMmIconButton = 5.0;
+const double vrxSizeMmStatusButton = 4.0;
+const double vrxSizeMmQrMin = 18.0;
+const double vrxSizeMmDrawerPullMin = 27.0;
+
+// [device_px]
+const double vrxDevicePxHairline = 2.0;
+const double vrxDevicePxBorder = 3.0;
+
+// [gesture]
+const double vrxGestureSwipeMinMm = 2.5;
+const double vrxGestureSwipeMinPxPerS = 60.0;
+const double vrxGestureTouchSlopMm = 2.0;
+const double vrxGestureWheelStepMm = 4.5;
+
+// [type_pt]
+const double vrxTypePtDisplay = 14.5;
+const double vrxTypePtTitle = 12.5;
+const double vrxTypePtSubtitle = 11.2;
+const double vrxTypePtBody = 9.9;
+const double vrxTypePtSubtext = 8.5;
+const double vrxTypePtMicro = 6.6;
+const double vrxTypePtClock = 42.1;
+const double vrxTypePtCode = 8.5;
+
+// [springs.standard], at mass 1.0
+const double vrxSpringSpatialFastStiffness = 1400.0;
+const double vrxSpringSpatialFastDamping = 67.34983;
+const double vrxSpringSpatialStiffness = 700.0;
+const double vrxSpringSpatialDamping = 47.62352;
+const double vrxSpringSpatialSlowStiffness = 300.0;
+const double vrxSpringSpatialSlowDamping = 31.17691;
+const double vrxSpringEffectsFastStiffness = 3800.0;
+const double vrxSpringEffectsFastDamping = 123.28828;
+const double vrxSpringEffectsStiffness = 1600.0;
+const double vrxSpringEffectsDamping = 80.00000;
+const double vrxSpringEffectsSlowStiffness = 800.0;
+const double vrxSpringEffectsSlowDamping = 56.56854;
+const double vrxSpringMass = 1.0;
+
 /// One scheme: a seed hue and a harmony rule, each slot in light and dark (0xAARRGGBB).
 class VrxSchemeRow {
   const VrxSchemeRow(this.id, this.seed, this.rule, this.light, this.dark);

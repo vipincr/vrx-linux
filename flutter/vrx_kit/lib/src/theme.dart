@@ -1,5 +1,5 @@
-/// The vrx design system, ported from evrx-rt's `ui_metrics.h` type
-/// scale and `ui_palette.c` — the numbers are the design.
+/// The vrx design system's type and colour, from the vrx UI standard
+/// (standard/vrx-ui-standard.toml, generated into ui_standard.g.dart).
 ///
 /// Type roles by meaning, never by size; roles outnumber sizes on
 /// purpose. Sizes are evrx-rt's values in typographic points, snapped
@@ -22,20 +22,20 @@ import 'ui_standard.g.dart';
 /// The type scale. CLOCK renders digits only (`0-9:-`, no fallback
 /// face); CODE is monospace; MICRO is subscripts only.
 enum VrxTypeRole {
-  clock(42.1),
-  display(14.5),
-  title(12.5),
-  iconLarge(12.5),
-  subtitle(11.2),
-  emphasis(11.2),
-  body(9.9),
-  list(9.9),
-  icon(9.9),
-  value(8.5),
-  subtext(8.5),
-  caption(8.5),
-  code(8.5),
-  micro(6.6);
+  clock(vrxTypePtClock),
+  display(vrxTypePtDisplay),
+  title(vrxTypePtTitle),
+  iconLarge(vrxTypePtTitle),
+  subtitle(vrxTypePtSubtitle),
+  emphasis(vrxTypePtSubtitle),
+  body(vrxTypePtBody),
+  list(vrxTypePtBody),
+  icon(vrxTypePtBody),
+  value(vrxTypePtSubtext),
+  subtext(vrxTypePtSubtext),
+  caption(vrxTypePtSubtext),
+  code(vrxTypePtCode),
+  micro(vrxTypePtMicro);
 
   const VrxTypeRole(this.size);
 

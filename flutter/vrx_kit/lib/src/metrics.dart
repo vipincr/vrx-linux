@@ -1,12 +1,14 @@
-/// The vrx metrics, ported from evrx-rt's `ui_metrics.h` — the numbers
-/// are the design; the mm values are the truth and the dp values are
-/// the mm at Flutter's logical density (1mm = 160/25.4 ≈ 6.299dp), so
-/// a touch minimum is 9mm on every panel the way it is on evrx-rt's.
+/// The vrx metrics, from the vrx UI standard (standard/vrx-ui-standard.toml,
+/// generated into ui_standard.g.dart): the mm values are the truth and the
+/// dp values are the mm at Flutter's logical density (1mm = 160/25.4 ≈
+/// 6.299dp), so a touch minimum is 9mm on every panel, as on evrx-rt's.
 ///
 /// evrx-rt computes px from mm via the panel's PPI
 /// (`UI_MM(mm) = (mm·PPI·100+1270)/2540`); Flutter bakes density into
 /// dp, so the mm→dp conversion is fixed and the physical size holds.
 library;
+
+import 'ui_standard.g.dart';
 
 /// Millimetres to logical dp.
 const double mmToDp = 160.0 / 25.4;
@@ -16,72 +18,58 @@ const double mmToDp = 160.0 / 25.4;
 /// PPI), so 9.9pt body text is 3.5mm on every panel, here as there.
 const double ptToDp = 160.0 / 72.0;
 
-/// The spacing scale: 1 / 2 / 3 / 4 / 6mm. Pick by role, never by
-/// number: XS glyph gaps, SM inside a control, MD a control's default
-/// margin, LG between groups, XL screen margins.
+/// The spacing scale (the standard's [spacing_mm]: 1 / 2 / 3 / 4 / 6mm).
+/// Pick by role, never by number: XS glyph gaps, SM inside a control, MD
+/// a control's default margin, LG between groups, XL screen margins.
 abstract final class Spacing {
-  /// 1mm.
-  static const double xs = mmToDp;
+  static const double xs = vrxSpacingMmXs * mmToDp;
+  static const double sm = vrxSpacingMmSm * mmToDp;
+  static const double md = vrxSpacingMmMd * mmToDp;
+  static const double lg = vrxSpacingMmLg * mmToDp;
+  static const double xl = vrxSpacingMmXl * mmToDp;
 
-  /// 2mm.
-  static const double sm = 2 * mmToDp;
+  /// The minimum touch target ([size_mm] touch_min).
+  static const double touch = vrxSizeMmTouchMin * mmToDp;
 
-  /// 3mm.
-  static const double md = 3 * mmToDp;
+  /// Between the glass edge and the client area ([spacing_mm] edge_inset).
+  static const double inset = vrxSpacingMmEdgeInset * mmToDp;
 
-  /// 4mm.
-  static const double lg = 4 * mmToDp;
-
-  /// 6mm.
-  static const double xl = 6 * mmToDp;
-
-  /// The minimum touch target: 9mm.
-  static const double touch = 9 * mmToDp;
-
-  /// The screen edge inset: 2mm.
-  static const double inset = 2 * mmToDp;
-
-  /// The gutter between list rows: 2mm.
-  static const double gutter = 2 * mmToDp;
+  /// The gutter between list rows: the SM step.
+  static const double gutter = sm;
 }
 
-/// Lines and strokes.
+/// Lines and strokes, in device pixels and never scaled ([device_px]): a
+/// line on whole pixels stays a line on a panel with four greys.
 abstract final class Strokes {
-  /// A hairline: 2 physical px at evrx-rt's reference; the thinnest
-  /// ink a panel holds.
-  static const double hairline = 2;
+  /// A rule, a thin frame, the seam between two controls.
+  static const double hairline = vrxDevicePxHairline;
 
-  /// A border: 3px, 1.5× a hairline.
-  static const double border = 3;
+  /// A control's frame, the focus frame.
+  static const double border = vrxDevicePxBorder;
 }
 
-/// Corner radii: 1mm and 2mm.
+/// Corner radii ([radius_mm]).
 abstract final class Radii {
-  static const double sm = mmToDp;
-  static const double md = 2 * mmToDp;
+  static const double sm = vrxRadiusMmSm * mmToDp;
+  static const double md = vrxRadiusMmMd * mmToDp;
 }
 
-/// Gestures (ported thresholds).
+/// Gestures ([gesture]).
 abstract final class Gestures {
-  /// A swipe needs 2.5mm of travel…
-  static const double swipeMin = 2.5 * mmToDp;
+  /// A swipe needs this much travel…
+  static const double swipeMin = vrxGestureSwipeMinMm * mmToDp;
 
-  /// …and at least 60px/s of speed, dominant axis only.
-  static const double swipeMinPxPerS = 60;
+  /// …and at least this speed, dominant axis only.
+  static const double swipeMinPxPerS = vrxGestureSwipeMinPxPerS;
 
-  /// Touch slop before a drag claims a contact: 2mm.
-  static const double touchSlop = 2 * mmToDp;
-
-  /// Paged scrolling keeps one touch-min of the previous screen as
-  /// the anchor.
-  static const double pageOverlap = 9 * mmToDp;
+  /// Travel past which a contact is no longer a tap.
+  static const double touchSlop = vrxGestureTouchSlopMm * mmToDp;
 }
 
-/// The status strip (7 slots), the icon-button square (5mm), the
-/// strip's control (4mm) and height (control + 2·XS).
+/// The icon-button square, the strip's glyph, and the strip's height (its
+/// glyph and an XS above and below).
 abstract final class Chrome {
-  static const double iconButton = 5 * mmToDp;
-  static const double statusButton = 4 * mmToDp;
-  static const double statusHeight = 4 * mmToDp + 2 * mmToDp;
-  static const int statusSlots = 7;
+  static const double iconButton = vrxSizeMmIconButton * mmToDp;
+  static const double statusButton = vrxSizeMmStatusButton * mmToDp;
+  static const double statusHeight = statusButton + 2 * Spacing.xs;
 }

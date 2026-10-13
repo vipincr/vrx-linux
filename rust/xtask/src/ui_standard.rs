@@ -198,6 +198,55 @@ pub fn generate(text: &str, commit: &str) -> Result<String, String> {
     let _ = writeln!(w, "const int vrxSlotHasOnMask = 0x{has_on:08X};");
     let _ = writeln!(w);
 
+    // the physical numbers: millimetres, points, device pixels (the kit
+    // converts; plan 0009 Part C)
+    for (section, prefix) in [
+        ("spacing_mm", "vrxSpacingMm"),
+        ("radius_mm", "vrxRadiusMm"),
+        ("size_mm", "vrxSizeMm"),
+        ("device_px", "vrxDevicePx"),
+        ("gesture", "vrxGesture"),
+        ("type_pt", "vrxTypePt"),
+    ] {
+        let _ = writeln!(w, "// [{section}]");
+        for (key, value) in table(&doc, section)? {
+            let number = value
+                .as_float()
+                .or_else(|| value.as_integer().map(|i| i as f64))
+                .ok_or_else(|| format!("{section}.{key}: not a number"))?;
+            let name = format!("{prefix}{}", camel(&format!("_{key}")));
+            let _ = writeln!(w, "const double {name} = {number:?};");
+        }
+        let _ = writeln!(w);
+    }
+    // the standard springs: stiffness at mass 1, and the damping
+    // coefficient Flutter's SpringDescription takes (ratio x 2 sqrt(k m))
+    let springs = doc.get("springs").ok_or("the standard has no [springs]")?;
+    let mass = springs
+        .get("mass")
+        .and_then(Value::as_integer)
+        .ok_or("springs.mass: not an integer")? as f64;
+    let _ = writeln!(w, "// [springs.standard], at mass {mass:?}");
+    for (key, spring) in table(springs, "standard")? {
+        let k = spring
+            .get("stiffness")
+            .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)))
+            .ok_or_else(|| format!("springs.standard.{key}: no stiffness"))?;
+        let ratio = spring
+            .get("damping")
+            .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)))
+            .ok_or_else(|| format!("springs.standard.{key}: no damping"))?;
+        let name = camel(&format!("_{key}"));
+        let _ = writeln!(w, "const double vrxSpring{name}Stiffness = {k:?};");
+        let _ = writeln!(
+            w,
+            "const double vrxSpring{name}Damping = {:.5};",
+            ratio * 2.0 * (k * mass).sqrt()
+        );
+    }
+    let _ = writeln!(w, "const double vrxSpringMass = {mass:?};");
+    let _ = writeln!(w);
+
     // the schemes, numbered 1.. in the file's [schemes] order
     let schemes = table(&doc, "schemes")?;
     let _ = writeln!(w, "/// One scheme: a seed hue and a harmony rule, each slot in light and dark (0xAARRGGBB).");
@@ -394,6 +443,23 @@ mod tests {
     use super::*;
 
     const MINI: &str = r##"
+[spacing_mm]
+xs = 1
+[radius_mm]
+sm = 1
+[size_mm]
+touch_min = 9
+[device_px]
+hairline = 2
+[gesture]
+swipe_min_mm = 2.5
+[type_pt]
+body = 9.9
+[springs]
+mass = 1
+[springs.standard]
+spatial = { stiffness = 700, damping = 0.9 }
+
 [colour]
 slot = [
   { name = "page" }, { name = "text" }, { name = "primary" }, { name = "on_primary" },
@@ -430,6 +496,10 @@ light = [255, 0, 0, 255]
         assert!(dart.contains("vrxMapGrey4 = [0xFF, 0x20, 0x00, 0xFF]"));
         assert!(dart.contains("'lcd_colour': VrxDisplayClass.lcdColour"));
         assert!(dart.contains("VrxPairFloor(VrxSlot.primary, VrxSlot.onPrimary, 450)"));
+        // the physical numbers, and Flutter's damping coefficient from the ratio
+        assert!(dart.contains("const double vrxSpacingMmXs = 1.0;"));
+        assert!(dart.contains("const double vrxTypePtBody = 9.9;"));
+        assert!(dart.contains("const double vrxSpringSpatialDamping = 47.62352;"));
     }
 
     #[test]
