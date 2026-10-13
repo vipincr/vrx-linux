@@ -45,5 +45,6 @@ do_install:append() {
 }
 
 FILES:${PN} += "${FLUTTER_INSTALL_DIR}"
-# flutter-vrx is the runtime that hosts the bundle
-RDEPENDS:${PN} += "flutter-vrx"
+# flutter-vrx is the runtime that hosts the bundle; vrx_kit draws its
+# icons from the system's Material Symbols and its text in Roboto
+RDEPENDS:${PN} += "flutter-vrx ttf-material-symbols ttf-roboto"

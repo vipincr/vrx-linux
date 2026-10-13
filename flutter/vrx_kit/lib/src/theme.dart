@@ -200,7 +200,9 @@ ThemeData vrxThemeData(VrxPalette palette) {
     fontFamily: 'Roboto',
     scaffoldBackgroundColor: palette.page,
     dividerColor: palette.line,
-    iconTheme: IconThemeData(color: palette.text),
+    // Material Symbols' axes: outlined, regular weight; a selected or
+    // primary glyph passes fill: 1
+    iconTheme: IconThemeData(color: palette.text, fill: 0, weight: 400, grade: 0),
     splashColor: palette.fill.withValues(alpha: 0.24),
     highlightColor: palette.highlight,
   );

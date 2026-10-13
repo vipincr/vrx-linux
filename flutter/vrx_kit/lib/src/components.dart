@@ -19,6 +19,7 @@ import 'package:flutter/material.dart';
 import 'metrics.dart';
 import 'motion.dart';
 import 'scale.dart';
+import 'symbols.dart';
 import 'theme.dart';
 
 /// The screen's own name with a back chevron: full width × the touch
@@ -46,7 +47,7 @@ class VrxHeader extends StatelessWidget {
             children: [
               if (onBack != null)
                 VrxIconButton(
-                  glyph: Icons.arrow_back,
+                  glyph: VrxSymbols.arrow_back,
                   onTap: onBack,
                 ),
               SizedBox(width: onBack == null ? ScaledSpacing.of(context).inset : ScaledSpacing.of(context).xs),

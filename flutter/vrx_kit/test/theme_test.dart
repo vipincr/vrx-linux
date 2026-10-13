@@ -17,9 +17,12 @@ void main() {
     expect(dark.colorScheme.primary, vrxAccent);
   });
 
-  test('manifest glyph names resolve; unknown ones do not', () {
-    expect(VrxGlyphs.named('clock'), isNotNull);
-    expect(VrxGlyphs.named('settings'), isNotNull);
-    expect(VrxGlyphs.named('clock.png'), isNull);
+  test('every Material Symbol is named; unknown names are not', () {
+    expect(VrxSymbols.byName.length, greaterThan(4000));
+    expect(VrxSymbols.named('schedule'), VrxSymbols.schedule);
+    expect(VrxSymbols.named('10k'), VrxSymbols.$10k);
+    expect(VrxSymbols.named('class'), VrxSymbols.class_);
+    expect(VrxSymbols.schedule.fontFamily, 'Material Symbols Rounded');
+    expect(VrxSymbols.named('clock.png'), isNull);
   });
 }

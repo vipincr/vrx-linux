@@ -138,7 +138,7 @@ class _Tile extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = VrxTheme.of(context);
     final space = ScaledSpacing.of(context);
-    final glyph = VrxGlyphs.named(tile.icon);
+    final glyph = VrxSymbols.named(tile.icon);
     return InkWell(
       onTap: () => Nav.push(tile.id),
       borderRadius: BorderRadius.circular(Radii.md * 2),
@@ -152,7 +152,7 @@ class _Tile extends StatelessWidget {
               ),
               child: Center(
                 child: glyph != null
-                    ? Icon(glyph, color: palette.fill, size: space.touch * 0.75)
+                    ? Icon(glyph, color: palette.fill, size: space.touch * 0.75, fill: 1)
                     : Text(
                         tile.name.isEmpty ? '?' : tile.name.characters.first,
                         style: TypeRole.title(context).copyWith(color: palette.fill),

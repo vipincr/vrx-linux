@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'components.dart';
 import 'metrics.dart';
 import 'scale.dart';
+import 'symbols.dart';
 import 'theme.dart';
 
 /// The quick drawer: an overlay pulled from the top — an opaque scrim
@@ -71,12 +72,12 @@ class VrxQuickDrawer extends StatelessWidget {
                           ),
                         ),
                         VrxIconButton(
-                          glyph: lightOn ? Icons.light_mode : Icons.dark_mode,
+                          glyph: lightOn ? VrxSymbols.light_mode : VrxSymbols.dark_mode,
                           onTap: onLightToggle,
                         ),
                         SizedBox(width: s.xs),
                         VrxIconButton(
-                          glyph: Icons.power_settings_new,
+                          glyph: VrxSymbols.power_settings_new,
                           onTap: onSleep,
                         ),
                       ],
@@ -95,13 +96,13 @@ class VrxQuickDrawer extends StatelessWidget {
                       child: Row(
                         children: [
                           _Shortcut(
-                            glyph: Icons.wifi,
+                            glyph: VrxSymbols.wifi,
                             filled: wifiUp,
                             onTap: onWifi,
                           ),
                           SizedBox(width: s.sm),
                           _Shortcut(
-                            glyph: Icons.bluetooth,
+                            glyph: VrxSymbols.bluetooth,
                             filled: bleUp,
                             onTap: onBle,
                           ),

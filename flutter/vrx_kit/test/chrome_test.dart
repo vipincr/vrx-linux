@@ -17,10 +17,10 @@ void main() {
 
   testWidgets('ble is hidden when down, present when up', (tester) async {
     await pumpFacts(tester, const VrxStatusFacts());
-    expect(find.byIcon(Icons.bluetooth), findsNothing);
+    expect(find.byIcon(VrxSymbols.bluetooth), findsNothing);
 
     await pumpFacts(tester, const VrxStatusFacts(bleUp: true));
-    expect(find.byIcon(Icons.bluetooth), findsOneWidget);
+    expect(find.byIcon(VrxSymbols.bluetooth), findsOneWidget);
   });
 
   testWidgets('the clock reads --:-- when unset', (tester) async {
@@ -40,20 +40,20 @@ void main() {
       tester,
       const VrxStatusFacts(batteryLevel: 41, batteryCharging: true),
     );
-    expect(find.byIcon(Icons.bolt), findsOneWidget);
+    expect(find.byIcon(VrxSymbols.bolt), findsOneWidget);
     expect(find.text('41%'), findsOneWidget);
   });
 
   testWidgets('back is offered only when there is somewhere to go',
       (tester) async {
     await pumpFacts(tester, const VrxStatusFacts());
-    expect(find.byIcon(Icons.arrow_back), findsNothing);
+    expect(find.byIcon(VrxSymbols.arrow_back), findsNothing);
 
     await pumpFacts(
       tester,
       VrxStatusFacts(showBack: true, onBack: () {}),
     );
-    expect(find.byIcon(Icons.arrow_back), findsOneWidget);
+    expect(find.byIcon(VrxSymbols.arrow_back), findsOneWidget);
   });
 
   testWidgets('the five battery levels bucket at the surveyed cuts',
@@ -69,10 +69,10 @@ void main() {
       return icon.icon!;
     }
 
-    expect(await glyphAt(89), Icons.battery_full);
-    expect(await glyphAt(64), Icons.battery_5_bar);
-    expect(await glyphAt(39), Icons.battery_3_bar);
-    expect(await glyphAt(14), Icons.battery_2_bar);
-    expect(await glyphAt(5), Icons.battery_0_bar);
+    expect(await glyphAt(89), VrxSymbols.battery_full);
+    expect(await glyphAt(64), VrxSymbols.battery_5_bar);
+    expect(await glyphAt(39), VrxSymbols.battery_3_bar);
+    expect(await glyphAt(14), VrxSymbols.battery_2_bar);
+    expect(await glyphAt(5), VrxSymbols.battery_0_bar);
   });
 }

@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 import 'components.dart';
 import 'metrics.dart';
 import 'scale.dart';
+import 'symbols.dart';
 import 'theme.dart';
 
 /// What is true; the strip draws it.
@@ -75,7 +76,7 @@ class VrxStatusStrip extends StatelessWidget {
         children: [
           // slot 0: back (offered, not asserted)
           if (facts.showBack)
-            VrxIconButton(glyph: Icons.arrow_back, onTap: facts.onBack),
+            VrxIconButton(glyph: VrxSymbols.arrow_back, onTap: facts.onBack),
           // slots 1-2: the clock
           Expanded(
             flex: 2,
@@ -86,7 +87,7 @@ class VrxStatusStrip extends StatelessWidget {
           ),
           // slot 3: wifi
           Icon(
-            Icons.wifi,
+            VrxSymbols.wifi,
             size: Chrome.statusButton,
             color: facts.wifiUp ? palette.text : palette.faint,
           ),
@@ -95,7 +96,7 @@ class VrxStatusStrip extends StatelessWidget {
             Padding(
               padding: EdgeInsets.only(left: s.xs),
               child: Icon(
-                Icons.bluetooth,
+                VrxSymbols.bluetooth,
                 size: Chrome.statusButton,
                 color: palette.text,
               ),
@@ -105,7 +106,7 @@ class VrxStatusStrip extends StatelessWidget {
           if (facts.batteryLevel != null) ...[
             Icon(
               facts.batteryCharging
-                  ? Icons.bolt
+                  ? VrxSymbols.bolt
                   : _batteryGlyph(facts.batteryLevel!),
               size: Chrome.statusButton,
               color: palette.text,
@@ -123,10 +124,10 @@ class VrxStatusStrip extends StatelessWidget {
 
   /// Five levels: ≥88 full, ≥63, ≥38, ≥13, else empty.
   IconData _batteryGlyph(int level) {
-    if (level >= 88) return Icons.battery_full;
-    if (level >= 63) return Icons.battery_5_bar;
-    if (level >= 38) return Icons.battery_3_bar;
-    if (level >= 13) return Icons.battery_2_bar;
-    return Icons.battery_0_bar;
+    if (level >= 88) return VrxSymbols.battery_full;
+    if (level >= 63) return VrxSymbols.battery_5_bar;
+    if (level >= 38) return VrxSymbols.battery_3_bar;
+    if (level >= 13) return VrxSymbols.battery_2_bar;
+    return VrxSymbols.battery_0_bar;
   }
 }
