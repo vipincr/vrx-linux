@@ -9,6 +9,7 @@ library;
 
 export 'src/applet.dart';
 export 'src/channel.dart';
+export 'src/chat.dart';
 export 'src/chrome.dart';
 export 'src/components.dart';
 export 'src/entry.dart';
