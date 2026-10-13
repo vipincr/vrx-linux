@@ -157,15 +157,7 @@ impl Session {
         let applet = event.applet().to_owned();
         match event {
             Event::Started { pid, .. } => {
-                let is_home = self.home.as_deref() == Some(applet.as_str());
                 self.procs.insert(applet, Proc::Running(*pid));
-                if is_home && !self.warm.is_empty() {
-                    let warm = std::mem::take(&mut self.warm);
-                    let mut orders: Vec<Order> =
-                        warm.iter().flat_map(|a| self.start(a)).collect();
-                    orders.extend(self.refocus());
-                    return orders;
-                }
             }
             Event::Restarting { .. } => {
                 // the supervisor respawns it; Started brings the new pid
@@ -495,18 +487,22 @@ mod tests {
             .unwrap();
         }
         let mut s = Session::new(Session::home_of(&reg));
-        // Home first, alone: the warm-up never delays its first frame
+        let shown = |pid| LinkEvent::App {
+            pid,
+            state: AppState::Shown,
+            id: String::new(),
+        };
+        // Home first, alone: its process start warms nothing
         assert_eq!(s.boot(&reg), vec![Order::Start("launcher".into())]);
-        // then the tiles (not the untiled wifi), once
-        assert_eq!(
-            s.supervision(&started("launcher", 1)),
-            vec![Order::Start("clock".into())]
-        );
+        assert_eq!(s.supervision(&started("launcher", 1)), vec![]);
+        assert_eq!(s.link(&LinkEvent::Connected), vec![Order::Focus(1)]);
+        // another app's frame is not Home's
+        assert_eq!(s.link(&shown(99)), vec![]);
+        // Home on the panel: the tiles (not the untiled wifi), once
+        assert_eq!(s.link(&shown(1)), vec![Order::Start("clock".into())]);
         assert_eq!(s.supervision(&started("clock", 2)), vec![]);
-        // a later Home restart does not warm again
-        assert_eq!(s.supervision(&started("launcher", 3)), vec![]);
+        assert_eq!(s.link(&shown(1)), vec![]);
         // opening the warm applet is a focus, not a start
-        assert_eq!(s.link(&LinkEvent::Connected), vec![Order::Focus(3)]);
         assert_eq!(s.nav(&reg, push("clock")).unwrap(), vec![Order::Focus(2)]);
     }
 
