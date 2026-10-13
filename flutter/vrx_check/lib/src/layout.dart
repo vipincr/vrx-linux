@@ -55,6 +55,18 @@ class _Target {
   final Element? wheel;
 }
 
+/// Mount [applet] as the board shows it: below the shell's strip (the
+/// shell's plane covers that much of every app), unless it is the shell.
+Future<void> mountApplet<S, A, V>(WidgetTester tester, Applet<S, A, V> applet) async {
+  VrxShell.reset();
+  addTearDown(VrxShell.reset);
+  await tester.pumpWidget(AppletHost<S, A, V>(applet: applet));
+  if (find.byType(VrxShellRegion).evaluate().isNotEmpty) return;
+  final inside = find.byType(VrxInputRoot).evaluate().first;
+  VrxShell.top.value = VrxStatusStrip.heightOf(inside) * tester.view.devicePixelRatio;
+  await tester.pump();
+}
+
 /// Mount [applet] on [display] as runApplet would, let [setUp] act on it,
 /// and return every rule it breaks. [setUp] may tap through the tester.
 Future<List<LayoutIssue>> checkApplet<S, A, V>(
@@ -75,7 +87,7 @@ Future<List<LayoutIssue>> checkApplet<S, A, V>(
   try {
     tester.view.physicalSize = Size(display.width, display.height);
     tester.view.devicePixelRatio = display.pixelRatio;
-    await tester.pumpWidget(AppletHost<S, A, V>(applet: applet));
+    await mountApplet(tester, applet);
     await tester.pump(const Duration(milliseconds: 50));
     if (setUp != null) await setUp(tester);
     await tester.pump(const Duration(seconds: 1));
@@ -95,7 +107,7 @@ Future<void> shotLayout<S, A, V>(WidgetTester tester, Applet<S, A, V> applet, {D
   tester.view.physicalSize = Size(display.width, display.height);
   tester.view.devicePixelRatio = display.pixelRatio;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(AppletHost<S, A, V>(applet: applet));
+  await mountApplet(tester, applet);
   await tester.pump(const Duration(seconds: 1));
 }
 

@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use tokio::sync::{mpsc, watch};
 use vrx_host::applets::{Applets, Event};
-use vrx_host::compositor::{self, LinkEvent};
+use vrx_host::compositor::{self, Control, LinkEvent};
 use vrx_host::session::{NavOp, Order, Session};
 use vrx_host::varlink::{self, Front, NavRequest};
 use vrx_host::{paths, registry};
@@ -56,6 +56,7 @@ async fn main() -> ExitCode {
     // Without one the image is headless (plan 0008 D14): applets still
     // run, intents still route, nothing is focused.
     let home = Session::home_of(&registry);
+    let shell = home.as_ref().and_then(|_| Session::shell_of(&registry));
     if home.is_some() {
         tokio::spawn(compositor::run(
             PathBuf::from(compositor::SOCKET),
@@ -73,7 +74,7 @@ async fn main() -> ExitCode {
         focus: focus_tx,
         front: front_tx,
     };
-    tokio::spawn(host.run(Session::new(home), events_rx, link_rx, nav_rx));
+    tokio::spawn(host.run(Session::new(home, shell), events_rx, link_rx, nav_rx));
 
     let socket = paths.host_socket();
     let host = varlink::Host {
@@ -97,7 +98,7 @@ struct Host {
     registry: Arc<Registry>,
     applets: Applets,
     events: mpsc::UnboundedSender<Event>,
-    focus: mpsc::UnboundedSender<u32>,
+    focus: mpsc::UnboundedSender<Control>,
     front: watch::Sender<Front>,
 }
 
@@ -161,7 +162,11 @@ impl Host {
             match order {
                 Order::Focus(pid) => {
                     tracing::info!(pid, top = ?session.top(), "focus");
-                    let _ = self.focus.send(pid);
+                    let _ = self.focus.send(Control::Focus(pid));
+                }
+                Order::Shell(pid) => {
+                    tracing::info!(pid, "shell");
+                    let _ = self.focus.send(Control::Shell(pid));
                 }
                 Order::Start(applet) => {
                     tracing::info!(%applet, "start");

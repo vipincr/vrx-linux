@@ -31,10 +31,14 @@ class VrxHeader extends StatelessWidget {
     super.key,
     required this.title,
     this.onBack,
+    this.action,
   });
 
   final String title;
   final VoidCallback? onBack;
+
+  /// One control at the header's end (a mode the whole screen is in).
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) => VrxBackOffer(onBack: onBack, child: _build(context));
@@ -55,6 +59,10 @@ class VrxHeader extends StatelessWidget {
                 ),
               SizedBox(width: onBack == null ? ScaledSpacing.of(context).inset : ScaledSpacing.of(context).xs),
               Expanded(child: VrxFitText(title, style: TypeRole.of(context, VrxTypeRole.title))),
+              if (action != null) ...[
+                action!,
+                SizedBox(width: ScaledSpacing.of(context).inset),
+              ],
             ],
           ),
         ),

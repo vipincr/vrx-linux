@@ -41,6 +41,16 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
     return '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
   }
 
+  static const _days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  static const _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  /// "Tue 13 Oct"; nothing while the clock is unset.
+  String? get dateText {
+    if (!clockValid) return null;
+    final t = DateTime.fromMillisecondsSinceEpoch(_now());
+    return '${_days[t.weekday - 1]} ${t.day} ${_months[t.month - 1]}';
+  }
+
   @override
   ShellState get initial => const ShellState();
 
@@ -52,7 +62,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
     if (action == ShellAction.drawerToggled) drawer = !drawer;
     return ShellView(
       drawer: drawer,
-      facts: VrxStatusFacts(showBack: depth > 0, clockText: clockText, wifiUp: wifiUp),
+      facts: VrxStatusFacts(showBack: depth > 0, clockText: clockText, dateText: dateText, wifiUp: wifiUp),
       version: version,
       lightOn: lightOn,
       wifiUp: wifiUp,

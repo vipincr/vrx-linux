@@ -12,6 +12,7 @@ import 'package:vrx_kit/vrx_kit.dart';
 
 import 'src/displays.dart';
 import 'src/fonts.dart';
+import 'src/layout.dart';
 
 /// Mount [applet] as runApplet would on [display], let [setUp] act on
 /// it, and write test/shots/DISPLAY-NAME.png.
@@ -27,7 +28,7 @@ Future<void> shotApplet<S, A, V>(
   tester.view.physicalSize = Size(display.width, display.height);
   tester.view.devicePixelRatio = display.pixelRatio;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(AppletHost<S, A, V>(applet: applet));
+  await mountApplet(tester, applet);
   await tester.pump(const Duration(milliseconds: 50));
   if (setUp != null) await setUp(tester);
   await tester.pump(const Duration(seconds: 1));

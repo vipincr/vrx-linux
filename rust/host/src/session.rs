@@ -2,9 +2,9 @@
 // point for focus (plan 0007 amendment C): the back trail's top applet
 // is the focused one. A headless image (plan 0008 D14) has no home
 // applet and no compositor: the session then only starts the resident
-// applets and keeps opened applets running; nothing is focused; this module turns navigation, supervision and
-// compositor events into two kinds of order: start an applet, focus a
-// pid. It does no I/O, so every policy below is host-testable; main.rs
+// applets and keeps opened applets running; nothing is focused. This
+// module turns navigation, supervision and compositor events into orders:
+// start an applet, focus a pid, name the shell's pid (plan 0008 D10). It does no I/O, so every policy below is host-testable; main.rs
 // carries the orders out.
 
 use std::collections::HashMap;
@@ -30,6 +30,8 @@ pub enum Order {
     Start(String),
     /// Tell the compositor to focus this pid.
     Focus(u32),
+    /// Tell the compositor this pid is the shell.
+    Shell(u32),
 }
 
 /// Why a navigation request was refused.
@@ -37,7 +39,7 @@ pub enum Order {
 pub enum NavError {
     #[error("no applet {0:?} in the registry")]
     Unknown(String),
-    #[error("applet {0:?} is a library or has no display; it cannot be opened")]
+    #[error("applet {0:?} is a library or the shell; it cannot be opened")]
     NotOpenable(String),
     #[error("applet {0:?} is disabled after repeated crashes")]
     Disabled(String),
@@ -53,6 +55,10 @@ enum Proc {
 #[derive(Debug)]
 pub struct Session {
     home: Option<String>,
+    /// The shell-role applet: always running, never focused, named to the
+    /// compositor, which draws it above whatever is focused.
+    shell: Option<String>,
+    shell_sent: Option<u32>,
     trail: Trail,
     procs: HashMap<String, Proc>,
     linked: bool,
@@ -64,10 +70,12 @@ pub struct Session {
 
 impl Session {
     /// A session whose Home is `home` (the registry's home-role applet),
-    /// or a headless one (None).
-    pub fn new(home: Option<String>) -> Self {
+    /// or a headless one (None), with the chrome drawn by `shell`.
+    pub fn new(home: Option<String>, shell: Option<String>) -> Self {
         Self {
             home,
+            shell,
+            shell_sent: None,
             trail: Trail::new(),
             procs: HashMap::new(),
             linked: false,
@@ -82,6 +90,18 @@ impl Session {
             .iter()
             .find(|e| e.manifest.applet.roles.home)
             .map(|e| e.manifest.applet.id.clone())
+    }
+
+    /// The shell-role applet in a registry, if one is declared.
+    pub fn shell_of(registry: &Registry) -> Option<String> {
+        registry
+            .iter()
+            .find(|e| e.manifest.applet.roles.shell)
+            .map(|e| e.manifest.applet.id.clone())
+    }
+
+    fn is_kept(&self, applet: &str) -> bool {
+        self.home.as_deref() == Some(applet) || self.shell.as_deref() == Some(applet)
     }
 
     /// Boot: the trail starts at Home; the home applet and every
@@ -101,7 +121,7 @@ impl Session {
         let mut orders = Vec::new();
         for entry in registry.iter() {
             let applet = &entry.manifest.applet;
-            if self.home.as_deref() == Some(applet.id.as_str()) || applet.roles.resident {
+            if self.is_kept(&applet.id) || applet.roles.resident {
                 orders.extend(self.start(&applet.id));
             }
         }
@@ -129,7 +149,9 @@ impl Session {
                 let entry = registry
                     .find(&applet)
                     .ok_or_else(|| NavError::Unknown(applet.clone()))?;
-                if entry.manifest.applet.kind == vrx_protocol::manifest::Kind::Library {
+                if entry.manifest.applet.kind == vrx_protocol::manifest::Kind::Library
+                    || self.shell.as_deref() == Some(applet.as_str())
+                {
                     return Err(NavError::NotOpenable(applet));
                 }
                 if self.procs.get(&applet) == Some(&Proc::Disabled) {
@@ -158,6 +180,7 @@ impl Session {
         match event {
             Event::Started { pid, .. } => {
                 self.procs.insert(applet, Proc::Running(*pid));
+                return [self.reshell(), self.refocus()].concat();
             }
             Event::Restarting { .. } => {
                 // the supervisor respawns it; Started brings the new pid
@@ -166,8 +189,9 @@ impl Session {
             Event::Finished { .. } => {
                 self.procs.remove(&applet);
                 self.leave(&applet);
-                if self.home.as_deref() == Some(applet.as_str()) {
-                    // Home is always there to go back to
+                if self.is_kept(&applet) {
+                    // Home is always there to go back to; the shell is
+                    // the chrome
                     return [self.start(&applet), self.refocus()].concat();
                 }
             }
@@ -184,21 +208,24 @@ impl Session {
         match event {
             LinkEvent::Connected => {
                 self.linked = true;
-                self.sent = None; // a new compositor knows no focus
-                                  // an applet disabled while the compositor was away most
-                                  // likely died of that; a returning compositor is a new
-                                  // chance (and Home must come back regardless)
+                // a new compositor knows no focus and no shell
+                self.sent = None;
+                self.shell_sent = None;
+                // an applet disabled while the compositor was away most
+                // likely died of that; a returning compositor is a new
+                // chance (and Home and the shell must come back regardless)
                 self.procs.retain(|_, p| *p != Proc::Disabled);
-                let mut orders = match self.home.clone() {
-                    Some(home) => self.start(&home),
-                    None => Vec::new(),
-                };
+                let kept = [self.home.clone(), self.shell.clone()];
+                let mut orders: Vec<Order> =
+                    kept.iter().flatten().flat_map(|a| self.start(a)).collect();
+                orders.extend(self.reshell());
                 orders.extend(self.refocus());
                 orders
             }
             LinkEvent::Lost => {
                 self.linked = false;
                 self.sent = None;
+                self.shell_sent = None;
                 Vec::new()
             }
             LinkEvent::App { pid, state, .. } => {
@@ -246,6 +273,20 @@ impl Session {
                 self.procs.insert(applet.to_owned(), Proc::Starting);
                 vec![Order::Start(applet.to_owned())]
             }
+        }
+    }
+
+    /// Name the running shell to the compositor, once per pid and link.
+    fn reshell(&mut self) -> Vec<Order> {
+        let Some(shell) = &self.shell else {
+            return Vec::new();
+        };
+        match self.procs.get(shell) {
+            Some(Proc::Running(pid)) if self.linked && self.shell_sent != Some(*pid) => {
+                self.shell_sent = Some(*pid);
+                vec![Order::Shell(*pid)]
+            }
+            _ => Vec::new(),
         }
     }
 
@@ -314,11 +355,65 @@ mod tests {
     /// Booted, linked, launcher running as pid 100.
     fn booted() -> (Registry, Session) {
         let reg = registry();
-        let mut s = Session::new(Session::home_of(&reg));
+        let mut s = Session::new(Session::home_of(&reg), None);
         assert_eq!(s.boot(&reg), vec![Order::Start("launcher".into())]);
         assert_eq!(s.supervision(&started("launcher", 100)), vec![]);
         assert_eq!(s.link(&LinkEvent::Connected), vec![Order::Focus(100)]);
         (reg, s)
+    }
+
+    #[test]
+    fn the_shell_runs_beside_home_is_named_once_per_link_and_never_opens() {
+        let mut reg = registry();
+        reg.admit(RegistryEntry {
+            manifest: "[applet]\nid = \"shell\"\nname = \"S\"\nversion = \"1.0.0\"\nruntime = \"flutter\"\n[applet.roles]\nshell = true\n"
+                .parse()
+                .unwrap(),
+            path: PathBuf::from("/system/defaults/shell"),
+            builtin: true,
+        })
+        .unwrap();
+        let mut s = Session::new(Session::home_of(&reg), Session::shell_of(&reg));
+        let mut boot = s.boot(&reg);
+        boot.sort_by_key(|o| format!("{o:?}"));
+        assert_eq!(
+            boot,
+            vec![
+                Order::Start("launcher".into()),
+                Order::Start("shell".into())
+            ]
+        );
+        s.supervision(&started("launcher", 100));
+        assert_eq!(s.supervision(&started("shell", 50)), vec![]);
+        assert_eq!(
+            s.link(&LinkEvent::Connected),
+            vec![Order::Shell(50), Order::Focus(100)]
+        );
+        // a respawned shell is named again; the focus stays
+        s.supervision(&Event::Restarting {
+            applet: "shell".into(),
+            attempt: 1,
+        });
+        assert_eq!(s.supervision(&started("shell", 51)), vec![Order::Shell(51)]);
+        // it is chrome, not an app: it cannot be opened
+        assert_eq!(
+            s.nav(&reg, push("shell")),
+            Err(NavError::NotOpenable("shell".into()))
+        );
+        // a shell that exits comes back
+        assert_eq!(
+            s.supervision(&Event::Finished {
+                applet: "shell".into(),
+            }),
+            vec![Order::Start("shell".into())]
+        );
+        // a new compositor is told again
+        s.supervision(&started("shell", 52));
+        s.link(&LinkEvent::Lost);
+        assert_eq!(
+            s.link(&LinkEvent::Connected),
+            vec![Order::Shell(52), Order::Focus(100)]
+        );
     }
 
     #[test]
@@ -330,7 +425,7 @@ mod tests {
     #[test]
     fn focus_waits_for_the_link_and_is_resent_after_a_reconnect() {
         let reg = registry();
-        let mut s = Session::new(Some("launcher".into()));
+        let mut s = Session::new(Some("launcher".into()), None);
         s.boot(&reg);
         assert_eq!(s.supervision(&started("launcher", 7)), vec![]);
         assert_eq!(s.link(&LinkEvent::Connected), vec![Order::Focus(7)]);
@@ -451,7 +546,7 @@ mod tests {
             })
             .unwrap();
         }
-        let mut s = Session::new(Session::home_of(&reg));
+        let mut s = Session::new(Session::home_of(&reg), None);
         assert_eq!(s.boot(&reg), vec![Order::Start("sensor".into())]);
         assert_eq!(s.supervision(&started("sensor", 10)), vec![]);
         // opening an applet starts it; nothing is focused without a compositor
@@ -486,7 +581,7 @@ mod tests {
             })
             .unwrap();
         }
-        let mut s = Session::new(Session::home_of(&reg));
+        let mut s = Session::new(Session::home_of(&reg), None);
         let shown = |pid| LinkEvent::App {
             pid,
             state: AppState::Shown,

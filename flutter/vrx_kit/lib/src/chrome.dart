@@ -27,6 +27,7 @@ class VrxStatusFacts {
     this.showBack = false,
     this.onBack,
     this.clockText,
+    this.dateText,
     this.wifiUp = false,
     this.bleUp = false,
     this.batteryLevel,
@@ -40,6 +41,10 @@ class VrxStatusFacts {
 
   /// "--:--" when unset; the caller formats the hour.
   final String? clockText;
+
+  /// The day beside the clock ("Tue 13 Oct"); dropped first when the
+  /// strip is narrow.
+  final String? dateText;
 
   final bool wifiUp;
   final bool bleUp;
@@ -57,23 +62,28 @@ class VrxStatusStrip extends StatelessWidget {
 
   final VrxStatusFacts facts;
 
+  /// The strip's height on this display, in logical px: evrx-rt's 6mm,
+  /// but never under the touch minimum on a touch display (its Back is a
+  /// control; the layout check found it at 4mm on every touch panel),
+  /// the hairline under it extra. Apps are laid out below it.
+  static double heightOf(BuildContext context) => (Chrome.statusHeight * VrxScale.of(context))
+      .clamp(ScaledSpacing.minInteractive(context) + Strokes.hairline, double.infinity);
+
   @override
   Widget build(BuildContext context) {
     final palette = VrxTheme.of(context);
     final s = ScaledSpacing.of(context);
     return Container(
-      // evrx-rt's 6mm strip, but never under the touch minimum on a
-      // touch display: its Back is a control (the layout check found it
-      // at 4mm on every touch panel); the hairline under it is extra
-      height: (Chrome.statusHeight * VrxScale.of(context))
-          .clamp(ScaledSpacing.minInteractive(context) + Strokes.hairline, double.infinity),
+      height: heightOf(context),
       // no breathing room above and below a touch-height strip: it would
       // squeeze the Back control under the minimum again
       padding: EdgeInsets.symmetric(
         horizontal: s.inset,
         vertical: ScaledSpacing.minInteractive(context) > 0 ? 0 : s.xs,
       ),
+      // opaque: on the board it is the shell's, on a plane above the app
       decoration: BoxDecoration(
+        color: palette.page,
         border: Border(
           bottom: BorderSide(color: palette.line, width: Strokes.hairline),
         ),
@@ -83,13 +93,29 @@ class VrxStatusStrip extends StatelessWidget {
           // slot 0: back (offered, not asserted)
           if (facts.showBack)
             VrxIconButton(glyph: VrxSymbols.arrow_back, onTap: facts.onBack),
-          // slots 1-2: the clock
+          // slots 1-2: the clock, and the day while there is room
           Expanded(
             flex: 2,
-            child: Text(
-              facts.clockText ?? '--:--',
-              style: TypeRole.of(context, VrxTypeRole.value),
-            ),
+            child: Row(children: [
+              Text(
+                facts.clockText ?? '--:--',
+                style: TypeRole.of(context, VrxTypeRole.value),
+              ),
+              if (facts.dateText != null) ...[
+                SizedBox(width: s.sm),
+                Flexible(
+                  child: VrxTruncates(
+                    child: Text(
+                      facts.dateText!,
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
+                      style: TypeRole.subtext(context).copyWith(color: palette.secondary),
+                    ),
+                  ),
+                ),
+              ],
+            ]),
           ),
           // slot 3: wifi
           Icon(

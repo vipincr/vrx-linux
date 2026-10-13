@@ -25,6 +25,8 @@ enum _Mode { lower, upper, symbols, more }
 enum VrxTermKey { escape, tab, backspace, enter, left, up, down, right }
 
 /// A keyboard bound to [controller]; [onDone] fires on the done key.
+const double _edge = 4;
+
 class VrxKeyboard extends StatefulWidget {
   const VrxKeyboard({super.key, required TextEditingController this.controller, this.onDone})
       : onText = null,
@@ -50,6 +52,11 @@ class VrxKeyboard extends StatefulWidget {
   final void Function(VrxTermKey key)? onKey;
   final VoidCallback? onHide;
   final VoidCallback? onBack;
+
+  /// The text keyboard's height: four rows of touch-minimum keys 1mm
+  /// apart, and its edge.
+  static double heightOf(BuildContext context) =>
+      4 * (ScaledSpacing.of(context).touch + Spacing.xs * VrxScale.of(context)) + 2 * _edge;
 
   @override
   State<VrxKeyboard> createState() => _VrxKeyboardState();
@@ -143,7 +150,7 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
     void term(VrxTermKey k) => widget.onKey!(k);
     return Container(
       color: palette.page,
-      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: _edge),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

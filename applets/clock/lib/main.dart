@@ -176,15 +176,28 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
         ]),
       ClockTab.timer => _Timer(
           view: view,
-          onMode: (m) => _do(() => model.setMode(m)),
           onPick: (i) => _do(() => model.pickDial(i)),
           onPrecise: (m) => _do(() => model.setPrecise(m)),
           onPress: () => _do(model.pressDial, save: true),
           onHold: () => _do(model.resetTimer, save: true),
         ),
     };
+    final precise = view.mode == TimerMode.precise;
     return Column(children: [
-      VrxHeader(title: titles[view.tab]!, onBack: Nav.pop),
+      VrxHeader(
+        title: titles[view.tab]!,
+        onBack: Nav.pop,
+        // the timer's mode, in the header: the dial needs every millimetre
+        // of a 58mm panel under the shell's strip
+        action: view.tab == ClockTab.timer
+            ? VrxChip(
+                label: precise ? 'Precise' : 'Pomodoro',
+                onTap: view.running
+                    ? null
+                    : () => _do(() => model.setMode(precise ? TimerMode.pomodoro : TimerMode.precise)),
+              )
+            : null,
+      ),
       Expanded(child: content),
       _TabBar(tab: view.tab, onTab: (t) => _do(() => model.openTab(t))),
     ]);
@@ -413,7 +426,6 @@ class _TimePickerState extends State<_TimePicker> {
 class _Timer extends StatelessWidget {
   const _Timer({
     required this.view,
-    required this.onMode,
     required this.onPick,
     required this.onPrecise,
     required this.onPress,
@@ -421,7 +433,6 @@ class _Timer extends StatelessWidget {
   });
 
   final ClockView view;
-  final void Function(TimerMode) onMode;
   final void Function(int) onPick;
   final void Function(int) onPrecise;
   final VoidCallback onPress, onHold;
@@ -429,37 +440,25 @@ class _Timer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final space = ScaledSpacing.of(context);
-    final precise = view.mode == TimerMode.precise;
-    return Column(children: [
-      Expanded(
-        child: Padding(
-          padding: EdgeInsets.all(space.xs),
-          child: LayoutBuilder(builder: (context, box) {
-            final size = math.min(box.maxWidth, box.maxHeight);
-            return Center(
-              child: SizedBox.square(
-                dimension: size,
-                child: _Dial(
-                  view: view,
-                  size: size,
-                  onPick: onPick,
-                  onPrecise: onPrecise,
-                  onPress: onPress,
-                  onHold: onHold,
-                ),
-              ),
-            );
-          }),
-        ),
-      ),
-      // a row, not a segmented pair: "Pomodoro" does not fit half of a
-      // 43mm panel at list size
-      VrxRow(
-        label: 'Mode',
-        value: precise ? 'Precise' : 'Pomodoro',
-        onTap: view.running ? null : () => onMode(precise ? TimerMode.pomodoro : TimerMode.precise),
-      ),
-    ]);
+    return Padding(
+      padding: EdgeInsets.all(space.xs),
+      child: LayoutBuilder(builder: (context, box) {
+        final size = math.min(box.maxWidth, box.maxHeight);
+        return Center(
+          child: SizedBox.square(
+            dimension: size,
+            child: _Dial(
+              view: view,
+              size: size,
+              onPick: onPick,
+              onPrecise: onPrecise,
+              onPress: onPress,
+              onHold: onHold,
+            ),
+          ),
+        );
+      }),
+    );
   }
 }
 
@@ -691,20 +690,22 @@ class _RingScreen extends StatelessWidget {
             ),
           ),
         );
-    // the one screen read from across a room: the whole panel, and it
-    // flashes while it rings
-    return Container(
-      color: flash ? palette.highlight : palette.page,
-      padding: EdgeInsets.all(space.inset),
-      child: Column(children: [
-        const Spacer(),
-        FittedBox(fit: BoxFit.scaleDown, child: Text(view.time, style: TypeRole.clock(context))),
-        Text(view.ringNote, style: TypeRole.title(context), textAlign: TextAlign.center),
-        const Spacer(),
-        // words on these two: whoever reads this was asleep a second ago
-        if (view.canSnooze) button(VrxSymbols.snooze, 'Snooze 9 min', onSnooze),
-        button(view.ringIsTimer ? VrxSymbols.timer_off : VrxSymbols.alarm_off, 'Stop', onStop, strong: true),
-      ]),
+    // the one screen read from across a room: the whole panel (the
+    // shell's strip steps aside), and it flashes while it rings
+    return VrxNoChrome(
+      child: Container(
+        color: flash ? palette.highlight : palette.page,
+        padding: EdgeInsets.all(space.inset),
+        child: Column(children: [
+          const Spacer(),
+          FittedBox(fit: BoxFit.scaleDown, child: Text(view.time, style: TypeRole.clock(context))),
+          Text(view.ringNote, style: TypeRole.title(context), textAlign: TextAlign.center),
+          const Spacer(),
+          // words on these two: whoever reads this was asleep a second ago
+          if (view.canSnooze) button(VrxSymbols.snooze, 'Snooze 9 min', onSnooze),
+          button(view.ringIsTimer ? VrxSymbols.timer_off : VrxSymbols.alarm_off, 'Stop', onStop, strong: true),
+        ]),
+      ),
     );
   }
 }

@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'host.dart';
 import 'input.dart';
 import 'scale.dart';
+import 'shell.dart';
 import 'store.dart';
 import 'theme.dart';
 
@@ -81,6 +82,7 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
       if (mounted) setState(() {});
     });
     _actions = widget.actions?.listen(_store.dispatch);
+    VrxShell.listen();
   }
 
   @override
@@ -101,15 +103,19 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
         debugShowCheckedModeBanner: false,
         theme: vrxThemeData(palette),
         scrollBehavior: const VrxScrollBehavior(),
-        // dialogs too: the input root wraps the navigator
-        builder: (context, child) => VrxInputRoot(child: child ?? const SizedBox.shrink()),
-        home: VrxScale.install(
-          child: VrxInput.install(
-            child: AppletScope<A>(
-              onAction: _store.dispatch,
-              child: Builder(
-                builder: (context) => widget.applet.build(context, _store.view),
-              ),
+        // dialogs too: the input root wraps the navigator, and the
+        // navigator sits below the shell's strip; the scale is the
+        // display's, read before the strip takes its share
+        builder: (context, child) => VrxScale.install(
+          child: VrxInsets(
+            child: VrxInputRoot(child: child ?? const SizedBox.shrink()),
+          ),
+        ),
+        home: VrxInput.install(
+          child: AppletScope<A>(
+            onAction: _store.dispatch,
+            child: Builder(
+              builder: (context) => widget.applet.build(context, _store.view),
             ),
           ),
         ),

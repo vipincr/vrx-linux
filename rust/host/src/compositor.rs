@@ -1,7 +1,8 @@
 // vrxhost's link to the compositor (flutter-vrx --compositor, plan 0007
 // amendment C). vrxhost is the compositor's one controller: it connects
 // to the compositor's socket, says CONTROL, then names the focused app
-// by pid; the compositor reports each app that registers or leaves.
+// and the shell (plan 0008 D10) by pid; the compositor reports each app
+// that registers or leaves.
 //
 // The wire is flutter-vrx's src/vrx_ipc.h: SOCK_SEQPACKET (one send is
 // one message), a native-endian header {u32 type, u32 length} and a
@@ -22,6 +23,7 @@ pub const SOCKET: &str = "/run/vrx-ui/vrx.sock";
 pub const MSG_CONTROL: u32 = 9;
 pub const MSG_SET_FOCUS: u32 = 10;
 pub const MSG_APP_STATE: u32 = 11;
+pub const MSG_SET_SHELL: u32 = 12;
 
 const ID_LEN: usize = 64;
 const HEADER_LEN: usize = 8;
@@ -67,12 +69,24 @@ pub fn encode(kind: u32, payload: &[u8]) -> Vec<u8> {
     out
 }
 
-/// SET_FOCUS for a pid (0 = none).
-pub fn set_focus(pid: u32) -> Vec<u8> {
-    encode(
-        MSG_SET_FOCUS,
-        &i32::try_from(pid).unwrap_or(0).to_ne_bytes(),
-    )
+/// What vrxhost tells the compositor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Control {
+    /// Focus the app with this pid (0 = none).
+    Focus(u32),
+    /// The app with this pid is the shell (0 = none).
+    Shell(u32),
+}
+
+impl Control {
+    /// The message on the wire.
+    pub fn encode(self) -> Vec<u8> {
+        let (kind, pid) = match self {
+            Control::Focus(pid) => (MSG_SET_FOCUS, pid),
+            Control::Shell(pid) => (MSG_SET_SHELL, pid),
+        };
+        encode(kind, &i32::try_from(pid).unwrap_or(0).to_ne_bytes())
+    }
 }
 
 /// Decode one received message into an event; anything that is not an
@@ -103,11 +117,12 @@ pub fn decode(msg: &[u8]) -> Option<LinkEvent> {
 }
 
 /// Run the link forever: connect (retrying), declare control, then
-/// forward focus orders from `focus` and report events on `events`.
+/// forward focus and shell orders from `control` and report events on
+/// `events`.
 /// Returns only when vrxhost drops either channel.
 pub async fn run(
     socket: PathBuf,
-    mut focus: mpsc::UnboundedReceiver<u32>,
+    mut control: mpsc::UnboundedReceiver<Control>,
     events: mpsc::UnboundedSender<LinkEvent>,
 ) {
     let mut announced_wait = false;
@@ -132,7 +147,7 @@ pub async fn run(
         if events.send(LinkEvent::Connected).is_err() {
             return;
         }
-        let ended = serve(&fd, &mut focus, &events).await;
+        let ended = serve(&fd, &mut control, &events).await;
         if events.send(LinkEvent::Lost).is_err() {
             return;
         }
@@ -153,15 +168,15 @@ enum Served {
 
 async fn serve(
     fd: &AsyncFd<Socket>,
-    focus: &mut mpsc::UnboundedReceiver<u32>,
+    control: &mut mpsc::UnboundedReceiver<Control>,
     events: &mpsc::UnboundedSender<LinkEvent>,
 ) -> Served {
     let mut buf = [0u8; 512];
     loop {
         tokio::select! {
-            pid = focus.recv() => {
-                let Some(pid) = pid else { return Served::ChannelClosed };
-                if let Err(err) = send(fd, &set_focus(pid)).await {
+            order = control.recv() => {
+                let Some(order) = order else { return Served::ChannelClosed };
+                if let Err(err) = send(fd, &order.encode()).await {
                     return Served::Disconnected(err);
                 }
             }
@@ -223,11 +238,16 @@ mod tests {
     #[test]
     fn the_wire_matches_vrx_ipc_h() {
         // struct vrx_msg_header {u32 type; u32 length} + int32_t pid
-        let msg = set_focus(412);
+        let msg = Control::Focus(412).encode();
         assert_eq!(msg.len(), 12);
         assert_eq!(&msg[0..4], &10u32.to_ne_bytes());
         assert_eq!(&msg[4..8], &4u32.to_ne_bytes());
         assert_eq!(&msg[8..12], &412i32.to_ne_bytes());
+        // struct vrx_msg_set_shell {int32_t pid}
+        let msg = Control::Shell(77).encode();
+        assert_eq!(&msg[0..4], &12u32.to_ne_bytes());
+        assert_eq!(&msg[4..8], &4u32.to_ne_bytes());
+        assert_eq!(&msg[8..12], &77i32.to_ne_bytes());
         // struct vrx_msg_app_state {int32 pid; u32 state; char id[64]}
         assert_eq!(app_state(1, 1, "x").len(), HEADER_LEN + 72);
         let control = encode(MSG_CONTROL, &[]);

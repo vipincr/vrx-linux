@@ -37,8 +37,6 @@ class LauncherApplet
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // one row, the touch minimum tall: the apps are the screen
-            const _Now(),
             Expanded(
               child: view.tiles.isEmpty
                   ? _NoApps()
@@ -69,63 +67,6 @@ class LauncherApplet
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// The home screen's time and date, following the wall clock.
-class _Now extends StatefulWidget {
-  const _Now();
-
-  @override
-  State<_Now> createState() => _NowState();
-}
-
-class _NowState extends State<_Now> {
-  late Timer _timer;
-  DateTime _now = DateTime.now();
-
-  @override
-  void initState() {
-    super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      final now = DateTime.now();
-      if (now.minute != _now.minute) setState(() => _now = now);
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer.cancel();
-    super.dispose();
-  }
-
-  static const _days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  static const _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = VrxTheme.of(context);
-    final space = ScaledSpacing.of(context);
-    String two(int n) => n.toString().padLeft(2, '0');
-    return Container(
-      height: space.touch,
-      padding: EdgeInsets.symmetric(horizontal: space.inset),
-      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: palette.line, width: Strokes.hairline))),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Text(
-            '${two(_now.hour)}:${two(_now.minute)}',
-            style: TypeRole.title(context).copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
-          ),
-          const Spacer(),
-          Text(
-            '${_days[_now.weekday - 1]} ${_now.day} ${_months[_now.month - 1]}',
-            style: TypeRole.subtext(context).copyWith(color: palette.secondary),
-          ),
-        ],
       ),
     );
   }

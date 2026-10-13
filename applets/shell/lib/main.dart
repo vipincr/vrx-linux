@@ -33,12 +33,20 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
       showBack: view.canGoBack,
       onBack: Nav.pop,
       clockText: view.facts.clockText,
+      dateText: view.facts.dateText,
       wifiUp: view.wifiUp,
     );
-    final strip = VrxPress(onTap: _toggle, child: VrxStatusStrip(facts: facts));
+    // the compositor routes input by the strip's height, and gives the
+    // shell all of it while the drawer is open
+    final strip = VrxShellRegion(
+      full: view.drawer,
+      child: VrxPress(onTap: _toggle, child: VrxStatusStrip(facts: facts)),
+    );
     // the drawer is an overlay of its own (a scrim and a panel) over the
-    // strip and the screen below it
+    // strip and the screen below it. Below the strip the shell is clear:
+    // its plane sits above the focused app, which shows through.
     return Scaffold(
+      backgroundColor: const Color(0x00000000),
       body: SafeArea(
         child: Column(children: [
           strip,

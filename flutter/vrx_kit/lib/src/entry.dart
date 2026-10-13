@@ -9,7 +9,9 @@ import 'input.dart';
 import 'keyboard.dart';
 import 'metrics.dart';
 import 'symbols.dart';
+import 'chrome.dart';
 import 'scale.dart';
+import 'shell.dart';
 import 'theme.dart';
 
 /// A line of text: a header, the field, and the on-screen keyboard under
@@ -88,6 +90,18 @@ class _VrxTextEntryState extends State<VrxTextEntry> {
 
   @override
   Widget build(BuildContext context) {
+    final space = ScaledSpacing.of(context);
+    // a display too short for the field, the keyboard and the shell's
+    // strip (the 58mm disp28a) gives the entry the whole screen; decided
+    // on the display, so having it cannot change the decision
+    final view = View.of(context);
+    final screen = view.physicalSize.height / view.devicePixelRatio;
+    final least = VrxKeyboard.heightOf(context) + space.touch + Strokes.hairline;
+    final entry = _layout(context);
+    return screen - VrxStatusStrip.heightOf(context) < least ? VrxNoChrome(child: entry) : entry;
+  }
+
+  Widget _layout(BuildContext context) {
     final space = ScaledSpacing.of(context);
     final palette = VrxTheme.of(context);
     return LayoutBuilder(builder: (context, box) {

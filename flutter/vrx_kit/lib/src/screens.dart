@@ -185,26 +185,44 @@ class VrxSetupStep extends StatelessWidget {
     return SafeArea(
       child: Column(
         children: [
-          SizedBox(height: s.xl),
-          Text(
-            'Step $step of $of',
-            style: TypeRole.of(context, VrxTypeRole.caption),
+          // the step's words and its control: spaced out on a screen with
+          // room, scrolled on one without (the 58mm disp28a under the
+          // shell's strip); Next stays put under them
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, box) => SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: box.maxHeight),
+                  child: IntrinsicHeight(
+                    child: Column(
+                      children: [
+                        SizedBox(height: s.md),
+                        Text(
+                          'Step $step of $of',
+                          style: TypeRole.of(context, VrxTypeRole.caption),
+                        ),
+                        SizedBox(height: s.sm),
+                        Text(
+                          title,
+                          textAlign: TextAlign.center,
+                          style: TypeRole.of(context, VrxTypeRole.title),
+                        ),
+                        SizedBox(height: s.md),
+                        Text(
+                          intro,
+                          textAlign: TextAlign.center,
+                          style: TypeRole.of(context, VrxTypeRole.caption),
+                        ),
+                        const Spacer(),
+                        control,
+                        const Spacer(),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ),
-          SizedBox(height: s.sm),
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: TypeRole.of(context, VrxTypeRole.title),
-          ),
-          SizedBox(height: s.md),
-          Text(
-            intro,
-            textAlign: TextAlign.center,
-            style: TypeRole.of(context, VrxTypeRole.caption),
-          ),
-          const Spacer(),
-          control,
-          const Spacer(),
           if (banner != null) ...[
             VrxBanner(text: banner),
             SizedBox(height: s.sm),
