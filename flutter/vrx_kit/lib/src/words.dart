@@ -92,6 +92,18 @@ abstract final class VrxWords {
     return failed;
   }
 
+  /// What ALSA's tools (arecord, aplay) said on stderr, for a person.
+  static String audio(String toolMessage) {
+    final m = toolMessage.toLowerCase();
+    if (m.contains('no space left')) return 'There is no room left. The recording stops there.';
+    if (m.contains('no such device') || m.contains('audio open error') || m.contains('unable to install hw params')) {
+      return 'The microphone or speaker is not answering.';
+    }
+    if (m.contains('device or resource busy')) return 'Another applet is using the sound device.';
+    if (m.contains('input/output error')) return 'The sound device stopped. The recording may end early.';
+    return failed;
+  }
+
   /// Any error, in one sentence; the details go to the log.
   static String of(Object err, {String? context}) {
     debugPrint('vrx: ${context == null ? '' : '$context: '}$err');

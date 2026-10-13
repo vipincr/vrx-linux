@@ -10,7 +10,9 @@ final _events = StreamController<RecorderAction>();
 
 String get recordingsDir => '${Platform.environment['HOME'] ?? '/var/lib/vrx/recorder'}/recordings';
 
-/// Recorder: WAV recordings through ALSA's arecord, played with aplay.
+/// Recorder: WAV recordings through ALSA's arecord, played with aplay
+/// (plan 0011 D11). arecord writes the file, header and length included,
+/// and its VU meter (`-V mono`) on stderr is the level bar.
 class RecorderApplet extends Applet<RecorderState, RecorderAction, RecorderView> {
   RecorderApplet(this.model);
 
@@ -49,18 +51,31 @@ class RecorderApplet extends Applet<RecorderState, RecorderAction, RecorderView>
     });
   }
 
-  Future<void> _run(List<String> cmd, {required void Function() onEnd}) async {
+  Future<void> _run(List<String> cmd, {required void Function() onEnd, bool meter = false}) async {
     try {
       final p = await Process.start(cmd.first, cmd.sublist(1));
       _process = p;
       final err = StringBuffer();
-      p.stderr.listen((d) => err.write(String.fromCharCodes(d)));
+      p.stderr.listen((d) {
+        final chunk = String.fromCharCodes(d);
+        final level = meter ? meterPercent(chunk) : null;
+        if (level != null) {
+          if (level != model.level) {
+            model.level = level;
+            _events.add(RecorderAction.level);
+          }
+          return;
+        }
+        err.write(chunk);
+      });
       unawaited(p.stdout.drain<void>());
       final code = await p.exitCode;
       // a stop is SIGINT: arecord closes the file properly on it
       if (code != 0 && code != -2 && code != 130 && err.isNotEmpty) {
         debugPrint('recorder: ${cmd.first}: ${err.toString().trim()}');
-        model.error = VrxWords.failed;
+        model.error = VrxWords.audio(err.toString());
+      } else if (meter && model.elapsed >= takeLimitSeconds - 1) {
+        model.error = 'Recordings stop at one hour.';
       }
     } on Object catch (e) {
       model.error = VrxWords.of(e, context: 'recorder: ${cmd.first}');
@@ -82,10 +97,15 @@ class RecorderApplet extends Applet<RecorderState, RecorderAction, RecorderView>
       ..elapsed = 0;
     _tick(true);
     _events.add(RecorderAction.recording);
-    await _run(['arecord', '-q', '-f', 'S16_LE', '-r', '44100', '-c', '1', '-t', 'wav', '$recordingsDir/$name'], onEnd: () {
-      model.recording = false;
-      _events.add(RecorderAction.stopped);
-    });
+    model.level = 0;
+    await _run(
+      ['arecord', '-f', 'S16_LE', '-r', '44100', '-c', '1', '-t', 'wav', '-V', 'mono', '-d', '$takeLimitSeconds', '$recordingsDir/$name'],
+      meter: true,
+      onEnd: () {
+        model.recording = false;
+        _events.add(RecorderAction.stopped);
+      },
+    );
     model.recordings = await listRecordings();
     _events.add(RecorderAction.listed);
   }
@@ -110,16 +130,43 @@ class RecorderApplet extends Applet<RecorderState, RecorderAction, RecorderView>
     try {
       await File('$recordingsDir/$name').delete();
     } on FileSystemException catch (e) {
-      model.error = e.message;
+      model.error = VrxWords.of(e, context: 'recorder: delete');
     }
     model.recordings = await listRecordings();
     _events.add(RecorderAction.listed);
+  }
+
+  void _open(String? name) {
+    model.opened = name;
+    _events.add(RecorderAction.opened);
   }
 
   @override
   Widget build(BuildContext context, RecorderView view) {
     final busy = view.recording || view.playing != null;
     final d = view.devices;
+    final take = view.opened;
+    if (take != null) {
+      return Scaffold(
+        body: SafeArea(
+          child: Column(children: [
+            Expanded(
+              child: _Take(
+                take: take,
+                playing: view.playing == take.name,
+                elapsed: view.elapsed,
+                canPlay: d.playback && (!busy || view.playing == take.name),
+                onBack: () => _open(null),
+                onPlay: () => unawaited(play(take.name)),
+                onStop: stop,
+                onDelete: busy ? null : () => unawaited(_confirmDelete(context, take.name)),
+              ),
+            ),
+            if (view.error != null) VrxBanner(text: view.error),
+          ]),
+        ),
+      );
+    }
     return Scaffold(
       body: SafeArea(
         child: Column(children: [
@@ -135,17 +182,20 @@ class RecorderApplet extends Applet<RecorderState, RecorderAction, RecorderView>
             VrxRow(glyph: VrxSymbols.mic, label: 'Record', onTap: () => unawaited(record()))
           else
             const VrxRow(glyph: VrxSymbols.mic_off, label: 'No microphone on this device'),
+          // the input level, as arecord's meter reads it
+          if (view.recording) _Meter(level: view.level),
           if (!d.playback) const VrxRow(glyph: VrxSymbols.volume_off, label: 'No sound output on this device'),
           Expanded(
             child: ListView.builder(
               itemCount: view.recordings.length,
               itemBuilder: (context, i) {
                 final r = view.recordings[i];
+                // a tap opens the take; its hold deletes it (after asking)
                 return VrxRow(
-                  glyph: VrxSymbols.play_arrow,
+                  glyph: VrxSymbols.graphic_eq,
                   label: r.name.replaceAll('.wav', ''),
                   value: mmss(r.seconds),
-                  onTap: busy || !d.playback ? null : () => unawaited(play(r.name)),
+                  onTap: () => _open(r.name),
                   onLongPress: busy ? null : () => unawaited(_confirmDelete(context, r.name)),
                 );
               },
@@ -164,6 +214,68 @@ class RecorderApplet extends Applet<RecorderState, RecorderAction, RecorderView>
   }
 }
 
+/// The level bar: how loud the input is, as arecord's meter says.
+class _Meter extends StatelessWidget {
+  const _Meter({required this.level});
+
+  final int level;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = VrxTheme.of(context);
+    final s = ScaledSpacing.of(context);
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: s.inset, vertical: s.sm),
+      child: Semantics(
+        label: 'Input level',
+        value: '$level %',
+        child: Container(
+          height: s.sm,
+          alignment: Alignment.centerLeft,
+          decoration: BoxDecoration(color: colors.surfaceHigh, border: Border.all(color: colors.outline, width: Strokes.hairline)),
+          child: FractionallySizedBox(widthFactor: level / 100, child: ColoredBox(color: colors.primary)),
+        ),
+      ),
+    );
+  }
+}
+
+/// One take: what it is, and what can be done with it.
+class _Take extends StatelessWidget {
+  const _Take({
+    required this.take,
+    required this.playing,
+    required this.elapsed,
+    required this.canPlay,
+    required this.onBack,
+    required this.onPlay,
+    required this.onStop,
+    required this.onDelete,
+  });
+
+  final Recording take;
+  final bool playing;
+  final double elapsed;
+  final bool canPlay;
+  final VoidCallback onBack, onPlay, onStop;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return VrxList(children: [
+      VrxHeader(title: take.name.replaceAll('.wav', ''), onBack: onBack),
+      if (playing)
+        VrxRow(glyph: VrxSymbols.stop, label: 'Playing ${mmss(elapsed)}', value: 'Stop', onTap: onStop)
+      else
+        VrxRow(glyph: VrxSymbols.play_arrow, label: 'Play', onTap: canPlay ? onPlay : null),
+      VrxRow(label: 'Length', value: mmss(take.seconds)),
+      if (take.bytes > 0) VrxRow(label: 'Size', value: sizeText(take.bytes)),
+      if (take.format.isNotEmpty) VrxRow(label: 'Format', value: take.format),
+      VrxRow(glyph: VrxSymbols.delete, label: 'Delete', onTap: onDelete),
+    ]);
+  }
+}
+
 Future<List<Recording>> listRecordings() async {
   final dir = Directory(recordingsDir);
   if (!await dir.exists()) return const [];
@@ -173,7 +285,8 @@ Future<List<Recording>> listRecordings() async {
     final raf = await f.open();
     final head = await raf.read(44);
     await raf.close();
-    out.add(Recording(name: f.uri.pathSegments.last, seconds: wavSeconds(head, await f.length())));
+    final size = await f.length();
+    out.add(Recording(name: f.uri.pathSegments.last, seconds: wavSeconds(head, size), bytes: size, format: wavFormat(head)));
   }
   // newest first: the names carry the time
   out.sort((a, b) => b.name.compareTo(a.name));
