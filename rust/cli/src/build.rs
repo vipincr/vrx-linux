@@ -4,6 +4,10 @@
 // - the manifest parses and all keys are known
 // - intents sent in code are declared in the `emits` list
 // - intents handled in code are declared in the `handles` list
+// - a Flutter applet's layout holds on every display vrx drives: its
+//   test/layout_test.dart (vrx_check) runs before the compile, so text
+//   that overlaps, is cut, or breaks inside a word fails the build
+//   (AGENTS.md rule 11), not a bench session
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -46,6 +50,21 @@ pub fn run(args: &[String]) -> ExitCode {
     let manifest_dir = dir;
     match manifest.applet.runtime {
         vrx_protocol::manifest::Runtime::Flutter => {
+            let layout = manifest_dir.join("test").join("layout_test.dart");
+            if !layout.is_file() {
+                eprintln!(
+                    "vrx build: {} has no test/layout_test.dart: every screen must be laid out on \
+                     every display (vrx_check, AGENTS.md rule 11)",
+                    manifest.applet.id
+                );
+                return ExitCode::from(65);
+            }
+            println!("layout: test/layout_test.dart on every display");
+            let checked =
+                delegate("flutter", &["test", "test/layout_test.dart"], &manifest_dir);
+            if checked != ExitCode::SUCCESS {
+                return checked;
+            }
             delegate("flutter", &["build"], &manifest_dir)
         }
         _ => delegate("cargo", &["build"], &manifest_dir),

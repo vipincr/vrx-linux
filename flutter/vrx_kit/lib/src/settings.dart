@@ -112,7 +112,11 @@ class AppletSettings {
         if (!await d.exists() || out.isClosed) return;
         // the directory, not the file: a write is a new file renamed over it
         events = d.watch().listen((ev) async {
-          if (ev.path.endsWith('/$applet.conf') && !out.isClosed) out.add(await read(applet));
+          // a write is a rename: on Linux a move event whose path is the
+          // temporary name and whose destination is the file
+          final name = '/$applet.conf';
+          final hit = ev.path.endsWith(name) || (ev is FileSystemMoveEvent && (ev.destination ?? '').endsWith(name));
+          if (hit && !out.isClosed) out.add(await read(applet));
         });
       },
       onCancel: () async {

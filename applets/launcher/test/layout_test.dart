@@ -22,7 +22,17 @@ void main() {
       ].indexed)
         t.$1: Tile(id: t.$1, name: t.$2, position: i, icon: t.$3),
     });
+  // every applet in the repo as Home shows it: its manifest's name and
+  // icon on a tile, so a new applet's name is measured with no new test
+  LauncherApplet repoHome() => LauncherApplet()
+    ..replaceRegistry({
+      for (final m in repoManifests())
+        if (m.tile) m.id: Tile(id: m.id, name: m.name, position: m.position, icon: m.icon),
+    });
   for (final display in allDisplays) {
+    testWidgets('home with every repo applet on ${display.name}', (tester) async {
+      await expectCleanLayout(tester, repoHome(), display: display);
+    });
     testWidgets('home on ${display.name}', (tester) async {
       await expectCleanLayout(tester, home(), display: display);
     });

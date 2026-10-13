@@ -52,6 +52,19 @@ void main() {
       ..open = SettingsCategory.time
       ..pickingZone = true,
   };
+  // every setting every repo applet declares, as Settings > Applets shows
+  // it: a new applet's labels are measured with no new test
+  final repoDeclared = [
+    for (final m in repoManifests())
+      if (m.settings.isNotEmpty)
+        AppletSettingsDecl(id: m.id, name: m.name, settings: [
+          for (final s in m.settings)
+            SettingDecl(key: s.key, label: s.label, category: m.name, type: s.type, defaultValue: s.defaultValue, options: s.options),
+        ]),
+  ];
+  screens['applets in the repo'] = () => model()
+    ..declared = repoDeclared
+    ..open = SettingsCategory.applets;
   for (final display in allDisplays) {
     for (final s in screens.entries) {
       testWidgets('settings ${s.key} on ${display.name}', (tester) async {

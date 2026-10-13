@@ -11,4 +11,5 @@ library;
 export 'src/displays.dart';
 export 'src/fonts.dart';
 export 'src/layout.dart';
+export 'src/manifests.dart';
 export 'shots.dart';

@@ -315,7 +315,35 @@ fn scaffold_flutter(dir: &Path, id: &str, sdk: &Path) -> std::io::Result<()> {
         dir.join("test").join("store_test.dart"),
         &flutter_test_dart(&pkg),
     )?;
+    write(
+        dir.join("test").join("layout_test.dart"),
+        &flutter_layout_test_dart(&pkg),
+    )?;
     Ok(())
+}
+
+/// The layout check `vrx build` runs before compiling: every screen on
+/// every display vrx drives (vrx_check).
+fn flutter_layout_test_dart(pkg: &str) -> String {
+    format!(
+        r#"import 'package:flutter_test/flutter_test.dart';
+import 'package:vrx_check/vrx_check.dart';
+
+import 'package:{pkg}/main.dart';
+
+/// Every screen of the applet on every display vrx drives: no overlap,
+/// no cut or broken text, controls 9mm and 1mm apart on touch panels,
+/// nothing off the screen. Add each new screen here (AGENTS.md rule 11).
+void main() {{
+  for (final display in allDisplays) {{
+    testWidgets('home screen on ${{display.name}}', (tester) async {{
+      await expectCleanLayout(tester, {Pkg}Applet(), display: display);
+    }});
+  }}
+}}
+"#,
+        Pkg = camel(pkg)
+    )
 }
 
 fn flutter_pubspec(pkg: &str, sdk: &Path) -> String {
@@ -335,13 +363,16 @@ dependencies:
     path: {path:?}
 
 dev_dependencies:
+  vrx_check:
+    path: {check:?}
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
 
 flutter:
 "#,
-        path = sdk.join("flutter").join("vrx_kit")
+        path = sdk.join("flutter").join("vrx_kit"),
+        check = sdk.join("flutter").join("vrx_check")
     )
 }
 
@@ -424,21 +455,15 @@ class {Pkg}Applet extends Applet<int, {Pkg}Action, {Pkg}View> {{
 
   @override
   Widget build(BuildContext context, {Pkg}View view) {{
+    // the kit's own controls: 9mm rows, focus, hover and keys included,
+    // so the layout check (test/layout_test.dart) passes from the start
     return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text('{pkg}', style: TypeRole.title(context)),
-            SizedBox(height: Spacing.md),
-            Text('taps: ${{view.taps}}', style: TypeRole.body(context)),
-            SizedBox(height: Spacing.md),
-            ElevatedButton(
-              onPressed: () => Intent.send('{pkg}.tap'),
-              child: const Text('Tap'),
-            ),
-          ],
-        ),
+      body: SafeArea(
+        child: VrxList(children: [
+          const VrxHeader(title: '{pkg}', onBack: Nav.pop),
+          VrxRow(label: 'Taps', value: '${{view.taps}}'),
+          VrxRow(glyph: VrxSymbols.touch_app, label: 'Tap', onTap: () => AppletScope.dispatch(context, {Pkg}Action.tap)),
+        ]),
       ),
     );
   }}
