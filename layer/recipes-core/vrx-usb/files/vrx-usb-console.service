@@ -1,0 +1,18 @@
+# vrx's USB gadget (plan 0008 D11): the serial console, ttyGS0, on the
+# board's UDC. At shutdown it stops after the getty on ttyGS0: freeing
+# the ACM function waits for every opener to let go.
+[Unit]
+Description=vrx USB: the console
+Requires=sys-kernel-config.mount
+After=sys-kernel-config.mount
+Before=serial-getty@ttyGS0.service
+ConditionPathExistsGlob=/sys/class/udc/*
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/vrx/vrx-usb-gadget up
+ExecStop=/usr/libexec/vrx/vrx-usb-gadget down
+
+[Install]
+WantedBy=multi-user.target

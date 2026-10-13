@@ -253,25 +253,7 @@ async fn dispatch(host: &Host, method: &str, params: &Value) -> Result<Value, Fa
             let payload = params.get("payload").cloned().unwrap_or(Value::Null);
             let intent =
                 Intent::new(name, payload).map_err(|_| Failure::invalid("name"))?;
-            match route(&host.registry, &intent) {
-                Outcome::Opened { applet, route } => {
-                    navigate(
-                        host,
-                        NavOp::Push {
-                            applet: applet.clone(),
-                            route,
-                        },
-                    )
-                    .await?;
-                    Ok(
-                        json!({ "verdict": "opened", "handled_by": applet, "route": route }),
-                    )
-                }
-                Outcome::PassAll => Ok(json!({ "verdict": "pass" })),
-                Outcome::NotFound => {
-                    Err(Failure::host("NoHandler", json!({ "name": name })))
-                }
-            }
+            deliver(host, &intent).await
         }
         "io.vrx.Host.Applets" => Ok(json!({ "applets": tiles(&host.registry) })),
         "io.vrx.Host.Settings" => {
@@ -300,6 +282,38 @@ async fn dispatch(host: &Host, method: &str, params: &Value) -> Result<Value, Fa
             "org.varlink.service.MethodNotFound",
             json!({ "method": other }),
         )),
+    }
+}
+
+/// Route an intent and carry out an opened verdict. The Varlink `Intent`
+/// call and vrxhost's own sources (the USB watcher) share it.
+async fn deliver(host: &Host, intent: &Intent) -> Result<Value, Failure> {
+    match route(&host.registry, intent) {
+        Outcome::Opened { applet, route } => {
+            navigate(
+                host,
+                NavOp::Push {
+                    applet: applet.clone(),
+                    route,
+                },
+            )
+            .await?;
+            Ok(json!({ "verdict": "opened", "handled_by": applet, "route": route }))
+        }
+        Outcome::PassAll => Ok(json!({ "verdict": "pass" })),
+        Outcome::NotFound => {
+            Err(Failure::host("NoHandler", json!({ "name": intent.name })))
+        }
+    }
+}
+
+/// An intent vrxhost raises itself; the outcome is logged.
+pub async fn raise(host: &Host, intent: Intent) {
+    match deliver(host, &intent).await {
+        Ok(verdict) => tracing::info!(intent = %intent.name, %verdict, "raised"),
+        Err(failure) => {
+            tracing::warn!(intent = %intent.name, error = %failure.error, "raised; not handled")
+        }
     }
 }
 

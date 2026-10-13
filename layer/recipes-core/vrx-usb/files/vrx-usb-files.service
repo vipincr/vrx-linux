@@ -1,0 +1,15 @@
+# vrx's file sharing over USB (plan 0008 D11): a disk, the file
+# /data/usb/files.img, beside the console on the same gadget. Started and
+# stopped by the USB applet through the usb grant (polkit, 50-vrx.rules),
+# never at boot.
+[Unit]
+Description=vrx USB: share files
+BindsTo=vrx-usb-console.service
+After=vrx-usb-console.service
+RequiresMountsFor=/data
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/vrx/vrx-usb-gadget share on
+ExecStop=/usr/libexec/vrx/vrx-usb-gadget share off

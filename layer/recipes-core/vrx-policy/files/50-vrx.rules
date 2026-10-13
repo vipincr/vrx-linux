@@ -28,8 +28,8 @@ polkit.addRule(function (action, subject) {
         var unit = action.lookup("unit") || "";
         var verb = action.lookup("verb") || "";
         var startStop = (verb === "start" || verb === "stop");
-        if (subject.isInGroup("vrx-usb") && startStop &&
-            (unit === "vrx-usb-console.service" || unit === "vrx-usb-files.service")) {
+        /* sharing files over USB; the console under it is the system's */
+        if (subject.isInGroup("vrx-usb") && startStop && unit === "vrx-usb-files.service") {
             return polkit.Result.YES;
         }
         if (subject.isInGroup("vrx-serve") && startStop && unit === "vrx-manage.socket") {

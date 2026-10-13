@@ -409,6 +409,30 @@ class _ConnmanAgent extends DBusObject {
   }
 }
 
+// ── USB ───────────────────────────────────────────────────────────────
+
+/// The board's USB device port (plan 0008 D11): the console is always on
+/// it; files are shared beside it on request.
+class UsbState {
+  const UsbState({required this.present, required this.connected, required this.sharing});
+
+  /// The board has a device port (a UDC).
+  final bool present;
+
+  /// A computer has enumerated the device.
+  final bool connected;
+
+  /// The disk image is offered to that computer.
+  final bool sharing;
+}
+
+/// Share files over USB. Needs the `usb` grant (it starts and stops
+/// vrx-usb-files.service through polkit).
+abstract class UsbService {
+  Stream<UsbState> watch();
+  Future<void> share(bool on);
+}
+
 // ── the installed set ─────────────────────────────────────────────────
 
 /// The system services an applet uses. On a device they are the D-Bus
@@ -420,6 +444,7 @@ abstract final class VrxSystem {
   static DeviceService? _device;
   static PowerService? _power;
   static NetworkService? _network;
+  static UsbService? _usb;
 
   static DBusClient get _system => _bus ??= DBusClient.system();
 
@@ -427,6 +452,7 @@ abstract final class VrxSystem {
   static DeviceService get device => _device ??= DBusDeviceService(_system);
   static PowerService get power => _power ??= LinuxPowerService(_system);
   static NetworkService get network => _network ??= ConnmanNetworkService(_system);
+  static UsbService get usb => _usb ??= LinuxUsbService(_system);
 
   /// Replace any of the services (tests, a desktop `flutter run`).
   static void install({
@@ -434,7 +460,9 @@ abstract final class VrxSystem {
     DeviceService? device,
     PowerService? power,
     NetworkService? network,
+    UsbService? usb,
   }) {
+    _usb = usb ?? _usb;
     _network = network ?? _network;
     _time = time ?? _time;
     _device = device ?? _device;
@@ -694,4 +722,48 @@ class LinuxPowerService implements PowerService {
       throw SystemError('vrx.AccessDenied', 'the light needs the display grant: ${err.message}');
     }
   }
+}
+
+/// The UDC's state and the gadget in configfs (vrx-usb's vrx-usb-gadget);
+/// sharing through systemd. Neither sysfs nor configfs raises inotify
+/// events, so a small read every second, as for the light.
+class LinuxUsbService implements UsbService {
+  LinuxUsbService(DBusClient bus, {this.udcRoot = '/sys/class/udc', this.gadget = '/sys/kernel/config/usb_gadget/vrx'})
+      : _systemd = DBusRemoteObject(bus,
+            name: 'org.freedesktop.systemd1',
+            path: DBusObjectPath('/org/freedesktop/systemd1'));
+
+  static const _manager = 'org.freedesktop.systemd1.Manager';
+  static const _unit = 'vrx-usb-files.service';
+  final DBusRemoteObject _systemd;
+  final String udcRoot;
+  final String gadget;
+
+  Future<UsbState> _read() async {
+    final root = Directory(udcRoot);
+    if (!await root.exists()) return const UsbState(present: false, connected: false, sharing: false);
+    final udcs = await root.list().toList();
+    if (udcs.isEmpty) return const UsbState(present: false, connected: false, sharing: false);
+    final state = File('${udcs.first.path}/state');
+    final connected = await state.exists() && (await state.readAsString()).trim() == 'configured';
+    final sharing = await Directory('$gadget/functions/mass_storage.0').exists();
+    return UsbState(present: true, connected: connected, sharing: sharing);
+  }
+
+  @override
+  Stream<UsbState> watch() async* {
+    var last = await _read();
+    yield last;
+    await for (final _ in Stream<void>.periodic(const Duration(seconds: 1))) {
+      final now = await _read();
+      if (now.present != last.present || now.connected != last.connected || now.sharing != last.sharing) {
+        yield last = now;
+      }
+    }
+  }
+
+  @override
+  Future<void> share(bool on) => _call(() => _systemd.callMethod(
+      _manager, on ? 'StartUnit' : 'StopUnit', [const DBusString(_unit), const DBusString('replace')],
+      replySignature: DBusSignature('o')));
 }

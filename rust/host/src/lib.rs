@@ -17,4 +17,5 @@ pub mod paths;
 pub mod registry;
 pub mod session;
 pub mod trail;
+pub mod usb;
 pub mod varlink;

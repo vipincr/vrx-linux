@@ -1,0 +1,102 @@
+#!/bin/sh
+# vrx's USB modes (plan 0008 D11), built in configfs:
+#
+#   vrx-usb-gadget up           the gadget with its ACM function: the
+#                               serial console, ttyGS0
+#   vrx-usb-gadget share on     add a mass-storage disk, the file
+#                               /data/usb/files.img (never a mounted
+#                               partition), made on first use
+#   vrx-usb-gadget share off    take the disk out again
+#   vrx-usb-gadget down         unbind and take the gadget apart
+#
+# Sharing never touches the ACM function. Freeing it waits for every
+# opener of ttyGS0 to let go, and its getty lets go only when the device
+# is gone, which is after that wait (bench 2026-10-13: rmmod g_serial hung
+# in gserial_free_port). Only `down` frees it, at shutdown, after systemd
+# has stopped the getty (vrx-usb-console.service orders before it).
+#
+# Runtime values a static gadget schema cannot hold: the board's serial
+# number and the image on /data.
+set -eu
+
+G=/sys/kernel/config/usb_gadget/vrx
+MS="$G/functions/mass_storage.0"
+IMG=/data/usb/files.img
+IMG_MB=1024
+
+udc() {
+    for u in /sys/class/udc/*; do [ -e "$u" ] && echo "${u##*/}" && return; done
+    echo "vrx-usb-gadget: no UDC" >&2
+    exit 1
+}
+
+unbind() { [ -s "$G/UDC" ] && echo "" > "$G/UDC" || true; }
+bind() { udc > "$G/UDC"; }
+
+up() {
+    [ -d "$G" ] && return 0
+    modprobe libcomposite
+    mkdir "$G"
+    # the Linux Foundation's multifunction composite gadget id, with the
+    # IAD class triple a composite device needs on Windows
+    echo 0x1d6b > "$G/idVendor"
+    echo 0x0104 > "$G/idProduct"
+    echo 0x0200 > "$G/bcdUSB"
+    echo 0xef > "$G/bDeviceClass"
+    echo 0x02 > "$G/bDeviceSubClass"
+    echo 0x01 > "$G/bDeviceProtocol"
+    mkdir "$G/strings/0x409"
+    serial=$(tr -d '\0' < /proc/device-tree/serial-number 2>/dev/null || true)
+    echo "${serial:-0}" > "$G/strings/0x409/serialnumber"
+    echo vrx > "$G/strings/0x409/manufacturer"
+    hostname > "$G/strings/0x409/product"
+    mkdir -p "$G/configs/c.1/strings/0x409"
+    echo vrx > "$G/configs/c.1/strings/0x409/configuration"
+    echo 250 > "$G/configs/c.1/MaxPower"
+    mkdir "$G/functions/acm.GS0"
+    ln -s "$G/functions/acm.GS0" "$G/configs/c.1/"
+    bind
+}
+
+share_on() {
+    [ -d "$G" ] || { echo "vrx-usb-gadget: no gadget (vrx-usb-console)" >&2; exit 1; }
+    [ -d "$MS" ] && return 0
+    if [ ! -e "$IMG" ]; then
+        mkdir -p "${IMG%/*}"
+        # sparse: blocks are spent as files are written
+        dd if=/dev/zero of="$IMG.new" bs=1M count=0 seek="$IMG_MB" 2>/dev/null
+        mkfs.vfat -n VRX "$IMG.new" >/dev/null
+        mv "$IMG.new" "$IMG"
+    fi
+    unbind
+    mkdir "$MS"
+    echo 1 > "$MS/lun.0/removable"
+    echo "$IMG" > "$MS/lun.0/file"
+    ln -s "$MS" "$G/configs/c.1/"
+    bind
+}
+
+share_off() {
+    [ -d "$MS" ] || return 0
+    unbind
+    rm -f "$G/configs/c.1/mass_storage.0"
+    rmdir "$MS"
+    bind
+}
+
+down() {
+    [ -d "$G" ] || return 0
+    unbind
+    for l in "$G"/configs/c.1/*.*; do [ -L "$l" ] && rm "$l"; done
+    rmdir "$G/configs/c.1/strings/0x409" "$G/configs/c.1"
+    for f in "$G"/functions/*; do [ -d "$f" ] && rmdir "$f"; done
+    rmdir "$G/strings/0x409" "$G"
+}
+
+case "${1:-} ${2:-}" in
+    "up ") up ;;
+    "share on") share_on ;;
+    "share off") share_off ;;
+    "down ") down ;;
+    *) echo "usage: vrx-usb-gadget up | share on|off | down" >&2; exit 2 ;;
+esac

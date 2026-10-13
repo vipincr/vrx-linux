@@ -13,7 +13,8 @@ use vrx_host::applets::{Applets, Event};
 use vrx_host::compositor::{self, Control, LinkEvent};
 use vrx_host::session::{NavOp, Order, Session};
 use vrx_host::varlink::{self, Front, NavRequest};
-use vrx_host::{paths, registry};
+use vrx_host::{paths, registry, usb};
+use vrx_protocol::Intent;
 use vrx_protocol::Registry;
 
 #[tokio::main]
@@ -82,6 +83,26 @@ async fn main() -> ExitCode {
         nav: nav_tx,
         front: front_rx,
     };
+    // a computer on the USB device port (plan 0008 D11), on boards with one
+    if let Some(state) = usb::state_file(std::path::Path::new(usb::UDC_ROOT)) {
+        let raiser = host.clone();
+        tokio::spawn(async move {
+            let ended = usb::watch(state, move || {
+                let host = raiser.clone();
+                tokio::spawn(async move {
+                    if let Ok(intent) =
+                        Intent::new(usb::CONNECTED, serde_json::Value::Null)
+                    {
+                        varlink::raise(&host, intent).await;
+                    }
+                });
+            })
+            .await;
+            if let Err(err) = ended {
+                tracing::warn!(error = %err, "USB device port: not watched");
+            }
+        });
+    }
     if let Err(err) = varlink::serve(&socket, host).await {
         tracing::error!(socket = %socket.display(), error = %err, "io.vrx.Host stopped");
         return ExitCode::FAILURE;
