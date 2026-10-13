@@ -411,10 +411,8 @@ flutter:
     )
 }
 
-const FLUTTER_ANALYSIS: &str = r#"include: package:flutter_lints/flutter.yaml
-
-# vrx-specific rules (banned raw Navigator/Colors/font sizes/spacing)
-# arrive with the vrx_lints package.
+const FLUTTER_ANALYSIS: &str = r#"# The vrx applet lint set (plan 0008 D19): errors fail the gate.
+include: package:vrx_kit/analysis_options.yaml
 "#;
 
 fn flutter_state_dart(pkg: &str) -> String {
@@ -504,20 +502,9 @@ class {Pkg}Applet extends Applet<int, {Pkg}Action, {Pkg}View> {{
   }}
 }}
 
-void main() {{
-  // The flutter-vrx runtime hosts applets; this entry point exists so
-  // the applet also runs under `flutter run` during development.
-  runApp(const _Host());
-}}
-
-class _Host extends StatelessWidget {{
-  const _Host();
-
-  @override
-  Widget build(BuildContext context) {{
-    return const MaterialApp(home: Scaffold(body: SizedBox.shrink()));
-  }}
-}}
+// flutter-vrx runs the bundle's main: runApplet mounts the store and the
+// view (an empty runApp here was a blank screen on the board)
+void main() => runApplet({Pkg}Applet());
 "#,
         Pkg = camel(pkg)
     )
