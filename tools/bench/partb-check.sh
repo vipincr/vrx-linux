@@ -15,6 +15,17 @@ fails=0
 ok()   { echo "  ok    $*"; }
 bad()  { echo "  FAIL  $*"; fails=$((fails + 1)); }
 check() { desc=$1; shift; if "$@" >/dev/null 2>&1; then ok "$desc"; else bad "$desc"; fi; }
+# run as an applet runs: its unit's user and its unit's supplementary
+# groups (the grants live in the unit, not in /etc/group, so su would
+# test the wrong thing)
+as_unit() {
+    a=$1; shift
+    systemd-run --quiet --wait --pipe -p User=vrx-$a \
+        -p "SupplementaryGroups=$(systemctl show -p SupplementaryGroups --value vrx-applet@$a)" -- "$@"
+}
+refused() { ! as_unit "$@"; }
+says_yes() { as_unit "$@" | grep -q '"yes"'; }
+says_not_yes() { ! says_yes "$@"; }
 
 echo "== persistence (D4)"
 check "/etc is an overlay"            awk '$2=="/etc" && $3=="overlay" {f=1} END {exit !f}' /proc/mounts
@@ -34,23 +45,25 @@ check "polkit active"                 systemctl is-active polkit
 
 echo "== grants, enforced by the services (G017)"
 # launcher holds apps only: every system write refused
-check "no grant: connman refused"     sh -c '! su -s /bin/sh vrx-launcher -c "busctl call net.connman / net.connman.Manager GetServices"'
-check "no grant: BlueZ refused"       sh -c '! su -s /bin/sh vrx-launcher -c "busctl set-property org.bluez /org/bluez/hci0 org.bluez.Adapter1 Pairable b false"'
-check "no grant: zone refused"        sh -c '! su -s /bin/sh vrx-launcher -c "busctl call org.freedesktop.timedate1 /org/freedesktop/timedate1 org.freedesktop.timedate1 SetTimezone sb UTC false"'
-check "no grant: hostname refused"    sh -c '! su -s /bin/sh vrx-launcher -c "busctl call org.freedesktop.hostname1 /org/freedesktop/hostname1 org.freedesktop.hostname1 SetPrettyHostname sb x false"'
-check "no grant: power-off denied"    sh -c 'su -s /bin/sh vrx-launcher -c "busctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager CanPowerOff" | grep -qv "\"yes\""'
+check "no grant: connman refused"     refused launcher busctl call net.connman / net.connman.Manager GetServices
+check "no grant: BlueZ refused"       refused launcher busctl set-property org.bluez /org/bluez/hci0 org.bluez.Adapter1 Pairable b false
+# a zone nobody has set: timedated answers success for an unchanged zone
+# before it asks polkit, which would make the refusal look like a pass
+check "no grant: zone refused"        refused launcher busctl call org.freedesktop.timedate1 /org/freedesktop/timedate1 org.freedesktop.timedate1 SetTimezone sb Antarctica/Troll false
+check "no grant: hostname refused"    refused launcher busctl call org.freedesktop.hostname1 /org/freedesktop/hostname1 org.freedesktop.hostname1 SetPrettyHostname sb x false
+check "no grant: power-off denied"    says_not_yes launcher busctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager CanPowerOff
 # settings holds network, bluetooth, time, hostname, power
-check "network grant: connman"        su -s /bin/sh vrx-settings -c "busctl call net.connman / net.connman.Manager GetServices"
-check "bluetooth grant: BlueZ"        su -s /bin/sh vrx-settings -c "busctl get-property org.bluez /org/bluez/hci0 org.bluez.Adapter1 Powered"
-check "power grant: power-off yes"    sh -c 'su -s /bin/sh vrx-settings -c "busctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager CanPowerOff" | grep -q "\"yes\""'
+check "network grant: connman"        as_unit settings busctl call net.connman / net.connman.Manager GetServices
+check "bluetooth grant: BlueZ"        as_unit settings busctl get-property org.bluez /org/bluez/hci0 org.bluez.Adapter1 Powered
+check "power grant: power-off yes"    says_yes settings busctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager CanPowerOff
 if [ "$PHASE" = first ]; then
-    check "time grant: set zone"      su -s /bin/sh vrx-settings -c "busctl call org.freedesktop.timedate1 /org/freedesktop/timedate1 org.freedesktop.timedate1 SetTimezone sb Asia/Kolkata false"
-    check "hostname grant: set name"  su -s /bin/sh vrx-settings -c "busctl call org.freedesktop.hostname1 /org/freedesktop/hostname1 org.freedesktop.hostname1 SetPrettyHostname sb vrx-bench false"
+    check "time grant: set zone"      as_unit settings busctl call org.freedesktop.timedate1 /org/freedesktop/timedate1 org.freedesktop.timedate1 SetTimezone sb Asia/Kolkata false
+    check "hostname grant: set name"  as_unit settings busctl call org.freedesktop.hostname1 /org/freedesktop/hostname1 org.freedesktop.hostname1 SetPrettyHostname sb vrx-bench false
     echo "   (reboot, then run again with: after-reboot)"
 else
     check "zone survived the reboot"  sh -c 'readlink /etc/localtime | grep -q Asia/Kolkata'
     check "name survived the reboot"  sh -c 'hostnamectl | grep -q vrx-bench'
-    check "zone change landed in /data" test -e /data/overlay-etc/upper/localtime
+    check "zone change landed in /data" test -L /data/overlay-etc/upper/localtime
     timedatectl set-timezone UTC; hostnamectl set-hostname --pretty ""
 fi
 
