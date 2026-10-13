@@ -12,8 +12,12 @@ with Flutter as the UI framework. The plan of record is
 cargo xtask gate   # from the repo root (the workspace root)
 ```
 
-fmt + clippy -D warnings + tests + cargo-deny, all blocking. A change
-is not done until the gate is green.
+fmt + clippy -D warnings + tests + cargo-deny, all blocking, chosen by
+impact: a check whose inputs (its tree, its path dependencies, the
+lockfiles, the fonts, the Flutter SDK) are unchanged since it last
+passed is skipped (records in target/gate/). `cargo xtask gate --all`
+runs every check; say why before using it. A change is not done until
+the gate is green.
 
 ## Layout
 

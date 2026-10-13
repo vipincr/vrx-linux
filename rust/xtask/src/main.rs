@@ -1,20 +1,23 @@
 // The gate (octiva discipline, plan 0007 part K).
 //
 // `cargo xtask gate` runs, in order, all blocking:
-//   1. cargo fmt --check
-//   2. cargo clippy --workspace --all-targets -- -D warnings
-//   3. cargo test --workspace
-//   4. the crates manifest, the responsiveness scan, the image's fonts
-//   5. per Flutter package: pub get, analyze, test (layout checks too)
-//   6. cargo deny check bans licenses sources
+//   1. per workspace crate: cargo fmt --check, clippy -D warnings, test
+//   2. the crates manifest, the responsiveness scan, the image's fonts
+//   3. per Flutter package: pub get, analyze, test (layout checks too)
+//   4. per Rust applet: fmt, clippy, test (its layout check too)
+//   5. cargo deny check bans licenses sources
+// Checks are chosen by impact (impact.rs): one whose inputs are unchanged
+// since it last passed is skipped; `cargo xtask gate --all` runs all.
 // A change is not done until the gate is green. The gate is a build
 // tool: it reports to stdout and spawns cargo; the applet print and
 // spawn lints do not apply here.
 
 #![allow(clippy::print_stdout, clippy::print_stderr)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 mod crates_inc;
 mod fonts;
+mod impact;
 
 use std::process::{Command, ExitCode, Stdio};
 
@@ -23,7 +26,7 @@ fn main() -> ExitCode {
     let task = args.next().unwrap_or_default();
     let args: Vec<String> = args.collect();
     match task.as_str() {
-        "gate" => gate(),
+        "gate" => gate(args.iter().any(|a| a == "--all")),
         "crates-inc" => crates_inc::run(&args),
         "fonts" => match fonts::ensure() {
             Ok(()) => {
@@ -36,7 +39,7 @@ fn main() -> ExitCode {
             }
         },
         _ => {
-            eprintln!("usage: cargo xtask gate | crates-inc | fonts");
+            eprintln!("usage: cargo xtask gate [--all] | crates-inc | fonts");
             ExitCode::from(64)
         }
     }
@@ -46,7 +49,7 @@ fn main() -> ExitCode {
 /// workspace): fmt, clippy -D warnings and their tests, which include the
 /// layout check every applet carries (tests/layout.rs, AGENTS.md rule 11),
 /// the same steps `vrx build` runs before it compiles one.
-fn rust_applets_gate(repo: &std::path::Path) -> bool {
+fn rust_applets_gate(repo: &std::path::Path, stamps: &impact::Stamps) -> bool {
     let Ok(entries) = std::fs::read_dir(repo.join("applets")) else {
         return true;
     };
@@ -63,6 +66,14 @@ fn rust_applets_gate(repo: &std::path::Path) -> bool {
                 "gate: FAILED — {shown} has no tests/layout.rs (AGENTS.md rule 11)"
             );
             return false;
+        }
+        let mut inputs = vec![dir.clone(), repo.join(DISPLAYS)];
+        inputs.extend(impact::path_deps(&dir));
+        let hash = impact::hash(repo, &inputs);
+        let check = format!("rust {shown}");
+        if stamps.fresh(&check, hash) {
+            println!("gate: {shown}: unchanged since it passed");
+            continue;
         }
         let steps: [&[&str]; 3] = [
             &["fmt", "--check"],
@@ -82,14 +93,33 @@ fn rust_applets_gate(repo: &std::path::Path) -> bool {
                 return false;
             }
         }
+        stamps.record(&check, hash);
     }
     true
+}
+
+/// The display table both layout checks read (Dart through vrx_check,
+/// Rust through rust/sdk's include_str!, which is no path dependency).
+const DISPLAYS: &str = "flutter/vrx_check/lib/displays.json";
+
+/// The Flutter SDK's version file: an SDK upgrade changes every package's
+/// analysis and tests.
+fn flutter_version_file() -> Option<std::path::PathBuf> {
+    let out = Command::new("sh")
+        .args(["-c", "command -v flutter"])
+        .output()
+        .ok()?;
+    let bin = std::path::PathBuf::from(String::from_utf8_lossy(&out.stdout).trim())
+        .canonicalize()
+        .ok()?;
+    let version = bin.parent()?.parent()?.join("version");
+    version.is_file().then_some(version)
 }
 
 /// flutter analyze (the vrx lint set, errors fail) and flutter test, in
 /// every package with a pubspec: the SDK and tools under flutter/, then
 /// the applets. Refuses to pass silently without a flutter binary.
-fn flutter_gate(repo: &std::path::Path) -> bool {
+fn flutter_gate(repo: &std::path::Path, stamps: &impact::Stamps) -> bool {
     let mut dirs = Vec::new();
     for root in ["flutter", "applets"] {
         if let Ok(entries) = std::fs::read_dir(repo.join(root)) {
@@ -102,11 +132,22 @@ fn flutter_gate(repo: &std::path::Path) -> bool {
             dirs.extend(found);
         }
     }
+    let mut shared = vec![fonts::dir()];
+    shared.extend(flutter_version_file());
     for dir in dirs {
+        let shown = dir.strip_prefix(repo).unwrap_or(&dir).display().to_string();
+        let mut inputs = vec![dir.clone()];
+        inputs.extend(impact::path_deps(&dir));
+        inputs.extend(shared.iter().cloned());
+        let hash = impact::hash(repo, &inputs);
+        let check = format!("flutter {shown}");
+        if stamps.fresh(&check, hash) {
+            println!("gate: {shown}: unchanged since it passed");
+            continue;
+        }
         // the lockfile must already resolve the package (the Yocto build
         // resolves offline with --enforce-lockfile): a stale lockfile fails
         // here, not in the image build
-        let shown = dir.strip_prefix(repo).unwrap_or(&dir).display().to_string();
         println!("gate: flutter pub get --enforce-lockfile ({shown})");
         let resolved = Command::new("flutter")
             .args(["pub", "get", "--enforce-lockfile"])
@@ -137,36 +178,95 @@ fn flutter_gate(repo: &std::path::Path) -> bool {
                 }
             }
         }
+        stamps.record(&check, hash);
     }
     true
 }
 
-fn gate() -> ExitCode {
-    let steps: [(&str, Vec<&str>); 3] = [
-        ("cargo", vec!["fmt", "--check"]),
-        (
-            "cargo",
-            vec![
-                "clippy",
-                "--workspace",
-                "--all-targets",
-                "--",
-                "-D",
-                "warnings",
-            ],
-        ),
-        ("cargo", vec!["test", "--workspace"]),
-    ];
-    for (program, args) in steps {
-        println!("gate: {program} {}", args.join(" "));
-        let ok = Command::new(program)
-            .args(&args)
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        if !ok {
-            eprintln!("gate: FAILED at {program} {}", args.join(" "));
+/// The workspace members, from the root Cargo.toml: (directory, package).
+fn workspace_crates(repo: &std::path::Path) -> Vec<(std::path::PathBuf, String)> {
+    let text = std::fs::read_to_string(repo.join("Cargo.toml")).unwrap_or_default();
+    let Some(list) = text
+        .split("members = [")
+        .nth(1)
+        .and_then(|t| t.split(']').next())
+    else {
+        return Vec::new();
+    };
+    list.split(',')
+        .filter_map(|m| {
+            let dir = repo.join(m.trim().trim_matches('"'));
+            let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).ok()?;
+            let name = manifest.lines().find_map(|l| {
+                l.trim()
+                    .strip_prefix("name = \"")?
+                    .strip_suffix('"')
+                    .map(str::to_owned)
+            })?;
+            Some((dir, name))
+        })
+        .collect()
+}
+
+fn run(program: &str, args: &[&str]) -> bool {
+    println!("gate: {program} {}", args.join(" "));
+    let ok = Command::new(program)
+        .args(args)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !ok {
+        eprintln!("gate: FAILED at {program} {}", args.join(" "));
+    }
+    ok
+}
+
+fn gate(all: bool) -> ExitCode {
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap_or_else(|_| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+        });
+    let stamps = impact::Stamps::new(&repo, all);
+
+    // the workspace: each crate checked when it, a crate it builds
+    // against, the lockfile or the workspace manifest changed
+    let mut stale = Vec::new();
+    for (dir, name) in workspace_crates(&repo) {
+        let mut inputs = vec![
+            dir.clone(),
+            repo.join("Cargo.lock"),
+            repo.join("Cargo.toml"),
+            repo.join(DISPLAYS),
+        ];
+        inputs.extend(impact::path_deps(&dir));
+        let hash = impact::hash(&repo, &inputs);
+        let check = format!("crate {name}");
+        if stamps.fresh(&check, hash) {
+            println!("gate: {name}: unchanged since it passed");
+        } else {
+            stale.push((name, check, hash));
+        }
+    }
+    if !stale.is_empty() {
+        let mut picked: Vec<&str> = Vec::new();
+        for (name, _, _) in &stale {
+            picked.extend(["-p", name.as_str()]);
+        }
+        let fmt = [&["fmt", "--check"][..], &picked].concat();
+        let clippy = [
+            &["clippy"][..],
+            &picked,
+            &["--all-targets", "--", "-D", "warnings"],
+        ]
+        .concat();
+        let test = [&["test"][..], &picked].concat();
+        if !run("cargo", &fmt) || !run("cargo", &clippy) || !run("cargo", &test) {
             return ExitCode::FAILURE;
+        }
+        for (_, check, hash) in &stale {
+            stamps.record(check, *hash);
         }
     }
 
@@ -186,7 +286,6 @@ fn gate() -> ExitCode {
     }
 
     // the responsiveness scan and the Flutter half (plan 0008 D19)
-    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     println!("gate: responsiveness scan (applet and SDK sources)");
     // the trees whose code runs inside applets: the Flutter SDK, the Rust
     // SDK and every applet
@@ -214,10 +313,10 @@ fn gate() -> ExitCode {
         eprintln!("gate: FAILED fetching the fonts: {err}");
         return ExitCode::FAILURE;
     }
-    if !flutter_gate(&repo) {
+    if !flutter_gate(&repo, &stamps) {
         return ExitCode::FAILURE;
     }
-    if !rust_applets_gate(&repo) {
+    if !rust_applets_gate(&repo, &stamps) {
         return ExitCode::FAILURE;
     }
 
@@ -230,14 +329,18 @@ fn gate() -> ExitCode {
         .status()
     {
         Ok(status) if status.success() => {
-            println!("gate: cargo deny check bans licenses sources");
-            let ok = Command::new("cargo")
-                .args(["deny", "check", "bans", "licenses", "sources"])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-            if !ok {
-                eprintln!("gate: FAILED at cargo deny");
+            // what crates and licences the lockfile pins, judged by deny.toml
+            let inputs = [
+                repo.join("Cargo.lock"),
+                repo.join("deny.toml"),
+                repo.join("Cargo.toml"),
+            ];
+            let hash = impact::hash(&repo, &inputs);
+            if stamps.fresh("deny", hash) {
+                println!("gate: cargo deny: the lockfile is unchanged since it passed");
+            } else if run("cargo", &["deny", "check", "bans", "licenses", "sources"]) {
+                stamps.record("deny", hash);
+            } else {
                 return ExitCode::FAILURE;
             }
         }
