@@ -27,7 +27,8 @@ PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
-RestrictAddressFamilies=AF_UNIX
+# AF_NETLINK: the kernel's uevents, for power-supply changes (plan 0011 D12)
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
 # vrxhost connects to the compositor's socket (/run/vrx-ui/vrx.sock) as
 # its controller and retries until it is up, so no ordering against
 # vrx-ui.service is needed.
