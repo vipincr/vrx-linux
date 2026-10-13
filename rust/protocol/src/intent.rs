@@ -4,13 +4,26 @@
 // Names are dotted lower-case, at least two segments, each segment
 // starting with a letter (`sys.alarm.ring`, `vrx.ping.hello`), max 24
 // bytes total. The bound exists so a name always fits a fixed-size log
-// line; payloads are unbounded but should stay small — send an
-// identifier, not a document.
+// line. A payload is at most 4 KiB of JSON (plan 0011 D9): an intent
+// says what happened and carries an identifier, never a document; bulk
+// data moves over a channel (plan 0008 D15). Names under `sys.` are the
+// system's: only vrxhost and built-in applets may send them.
 
 use serde::{Deserialize, Serialize};
 
 /// The maximum length of an intent name, in bytes.
 pub const NAME_MAX_BYTES: usize = 24;
+
+/// The maximum size of an intent's payload, as compact JSON, in bytes.
+pub const PAYLOAD_MAX_BYTES: usize = 4096;
+
+/// The namespace only vrxhost and built-in applets may send in.
+pub const RESERVED_PREFIX: &str = "sys.";
+
+/// The name is in the system's namespace.
+pub fn is_reserved(name: &str) -> bool {
+    name.starts_with(RESERVED_PREFIX)
+}
 
 /// One JSON value carried by an intent.
 pub type IntentPayload = serde_json::Value;
@@ -22,6 +35,20 @@ pub enum IntentError {
     BadName { name: String },
     #[error("intent name {name:?}: longer than {NAME_MAX_BYTES} bytes")]
     NameTooLong { name: String },
+    #[error("intent {name:?}: payload is {bytes} bytes, more than {PAYLOAD_MAX_BYTES}; send an identifier, not the data")]
+    PayloadTooLarge { name: String, bytes: usize },
+}
+
+/// Check a payload against [`PAYLOAD_MAX_BYTES`]: its compact JSON size.
+pub fn validate_payload(name: &str, payload: &IntentPayload) -> Result<(), IntentError> {
+    let bytes = serde_json::to_vec(payload).map_or(usize::MAX, |v| v.len());
+    if bytes > PAYLOAD_MAX_BYTES {
+        return Err(IntentError::PayloadTooLarge {
+            name: name.to_owned(),
+            bytes,
+        });
+    }
+    Ok(())
 }
 
 /// Validate an intent name against the naming rule.
@@ -62,13 +89,14 @@ pub struct Intent {
 }
 
 impl Intent {
-    /// Construct an intent, validating the name.
+    /// Construct an intent, validating the name and the payload's size.
     pub fn new(
         name: impl Into<String>,
         payload: IntentPayload,
     ) -> Result<Self, IntentError> {
         let name = name.into();
         validate_name(&name)?;
+        validate_payload(&name, &payload)?;
         Ok(Self { name, payload })
     }
 }
@@ -126,6 +154,25 @@ mod tests {
             validate_name(&name),
             Err(IntentError::NameTooLong { name: name.clone() })
         );
+    }
+
+    #[test]
+    fn a_payload_over_the_bound_is_refused_and_one_at_it_passes() {
+        // {"d":"…"}: 8 bytes of framing
+        let at = serde_json::json!({ "d": "x".repeat(PAYLOAD_MAX_BYTES - 8) });
+        assert!(Intent::new("a.b", at).is_ok());
+        let over = serde_json::json!({ "d": "x".repeat(PAYLOAD_MAX_BYTES - 7) });
+        assert!(matches!(
+            Intent::new("a.b", over),
+            Err(IntentError::PayloadTooLarge { bytes, .. }) if bytes == PAYLOAD_MAX_BYTES + 1
+        ));
+    }
+
+    #[test]
+    fn only_sys_names_are_reserved() {
+        assert!(is_reserved("sys.alarm.ring"));
+        assert!(!is_reserved("system.x"));
+        assert!(!is_reserved("app.finished"));
     }
 
     #[test]

@@ -13,7 +13,7 @@ use vrx_host::applets::{Applets, Event};
 use vrx_host::compositor::{self, Control, LinkEvent};
 use vrx_host::session::{NavOp, Order, Session};
 use vrx_host::varlink::{self, Front, NavRequest};
-use vrx_host::{paths, registry, usb};
+use vrx_host::{paths, power, registry, usb};
 use vrx_protocol::Intent;
 use vrx_protocol::Registry;
 
@@ -74,6 +74,7 @@ async fn main() -> ExitCode {
         events: events_tx,
         focus: focus_tx,
         front: front_tx,
+        stopped: None,
     };
     tokio::spawn(host.run(Session::new(home, shell), events_rx, link_rx, nav_rx));
 
@@ -104,6 +105,25 @@ async fn main() -> ExitCode {
             }
         });
     }
+    // the kernel's power supplies (plan 0011 D12): a change is relayed
+    // as sys.power.changed; a board with none never sends one
+    let raiser = host.clone();
+    tokio::spawn(async move {
+        let ended = power::watch(move |supply| {
+            let host = raiser.clone();
+            tokio::spawn(async move {
+                if let Ok(intent) =
+                    Intent::new(power::CHANGED, serde_json::json!({ "supply": supply }))
+                {
+                    varlink::raise(&host, intent).await;
+                }
+            });
+        })
+        .await;
+        if let Err(err) = ended {
+            tracing::warn!(error = %err, "power supplies: not watched");
+        }
+    });
     if let Err(err) = varlink::serve(&socket, host).await {
         tracing::error!(socket = %socket.display(), error = %err, "io.vrx.Host stopped");
         return ExitCode::FAILURE;
@@ -122,11 +142,14 @@ struct Host {
     events: mpsc::UnboundedSender<Event>,
     focus: mpsc::UnboundedSender<Control>,
     front: watch::Sender<Front>,
+    /// An applet that crashed, by name, until the next navigation (plan
+    /// 0011 D2: the shell says "X stopped." once).
+    stopped: Option<String>,
 }
 
 impl Host {
     async fn run(
-        self,
+        mut self,
         mut session: Session,
         mut events: mpsc::UnboundedReceiver<Event>,
         mut link: mpsc::UnboundedReceiver<LinkEvent>,
@@ -153,6 +176,13 @@ impl Host {
             let orders = tokio::select! {
                 Some(event) = events.recv() => {
                     tracing::info!(?event, "applet");
+                    if let Event::Restarting { applet, .. } | Event::Disabled { applet, .. } = &event {
+                        self.stopped = Some(
+                            self.registry
+                                .find(applet)
+                                .map_or_else(|| applet.clone(), |e| e.manifest.applet.name.clone()),
+                        );
+                    }
                     session.supervision(&event)
                 }
                 Some(event) = link.recv() => {
@@ -161,6 +191,7 @@ impl Host {
                 }
                 Some((op, reply)) = nav.recv() => {
                     tracing::info!(?op, "nav");
+                    self.stopped = None;
                     match session.nav(&self.registry, op) {
                         Ok(orders) => {
                             let _ = reply.send(Ok(session.top().unwrap_or_default().to_owned()));
@@ -208,6 +239,7 @@ impl Host {
         let front = Front {
             front: session.top().unwrap_or_default().to_owned(),
             depth: u32::try_from(session.depth()).unwrap_or(u32::MAX),
+            stopped: self.stopped.clone(),
         };
         self.front.send_if_modified(|now| {
             let changed = *now != front;

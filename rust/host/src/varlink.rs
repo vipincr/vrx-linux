@@ -32,7 +32,8 @@ type Setting (key: string, label: string, category: string, type: string, defaul
 
 type AppletSettings (id: string, name: string, settings: []Setting)
 
-# Push an applet onto the back trail at a named route; it starts if it is not running.
+# Push an applet onto the back trail at a named route; it starts if it is
+# not running. A route it does not declare opens its root (plan 0011 D5).
 method Push(applet: string, route: ?string) -> (top: string)
 
 # Pop one trail entry; an empty trail goes Home.
@@ -44,13 +45,22 @@ method Home() -> (top: string)
 # Route an intent: handlers in priority order; an opened one is pushed at
 # its route (and, running, told over its Listen); a told one is asked over
 # its Listen and has 100 ms to Answer. verdict: opened, handled or pass.
+# An applet may send only what its manifest emits (NotDeclared), a sys.
+# name only if it is built in (Reserved), and at most 4 KiB of payload
+# (PayloadTooLarge) (plan 0011 D9).
 method Intent(name: string, payload: ?object) -> (verdict: string, handled_by: ?string, route: ?int)
 
+# Where the calling applet was last opened: an empty route is its root; payload
+# and intent when an intent opened it there (plan 0011 D5).
+method Route() -> (route: string, payload: ?object, intent: ?string)
+
 # Held with \"more\" by a running applet (plan 0008 D15): each reply is an
-# intent it handles (kind \"intent\"; with an id, Answer it) or a channel
-# another applet opened on it (kind \"channel\"; the stream's end rides as
-# a file descriptor). The newest Listen of an applet wins.
-method Listen() -> (kind: string, id: ?int, name: ?string, payload: ?object, from: ?string, channel: ?string)
+# intent it handles (kind \"intent\"; with an id, Answer it), the route it
+# was opened at (kind \"route\"; name is the intent that opened it there,
+# if one did), or a channel another applet opened on it (kind \"channel\";
+# the stream's end rides as a file descriptor). The newest Listen of an
+# applet wins.
+method Listen() -> (kind: string, id: ?int, name: ?string, payload: ?object, route: ?string, from: ?string, channel: ?string)
 
 # The answer to an intent a Listen asked about: handled or pass.
 method Answer(id: int, verdict: string) -> ()
@@ -69,15 +79,18 @@ method Applets() -> (applets: []Applet)
 # Every applet that declares settings, and what it declares (D5).
 method Settings() -> (applets: []AppletSettings)
 
-# The front applet and the trail depth; with \"more\", again on every change.
-method Watch() -> (front: string, depth: int)
+# The front applet and the trail depth; with \"more\", again on every
+# change. stopped names an applet that crashed (systemd restarted it, or
+# gave up), until the next navigation (plan 0011 D2).
+method Watch() -> (front: string, depth: int, stopped: ?string)
 
 error NoSuchApplet (applet: string)
-error NoSuchRoute (applet: string, route: string)
 error NotOpenable (applet: string)
 error Disabled (applet: string)
 error NoHandler (name: string)
-error NotDeclared (channel: string)
+error NotDeclared (channel: ?string, intent: ?string)
+error Reserved (intent: string)
+error PayloadTooLarge (intent: string, bytes: int, limit: int)
 error NotOffered (applet: string, channel: string)
 error NotListening (applet: string)
 error NotShareable (channel: string)
@@ -109,6 +122,8 @@ pub type NavRequest = (NavOp, oneshot::Sender<Result<String, NavError>>);
 pub struct Front {
     pub front: String,
     pub depth: u32,
+    /// The name of an applet that just crashed, until the next navigation.
+    pub stopped: Option<String>,
 }
 
 /// Any call: the method name and its parameters, dispatched by name.
@@ -236,7 +251,8 @@ async fn handle(mut conn: zlink::tokio::unix::Connection, host: Host) {
             }
             continue;
         }
-        let answer = dispatch(&host, &method, &call.method().parameters).await;
+        let answer =
+            dispatch(&host, applet.as_deref(), &method, &call.method().parameters).await;
         if call.oneway() {
             continue;
         }
@@ -270,6 +286,10 @@ async fn listen(conn: zlink::tokio::unix::Connection, bridge: &Bridge, applet: &
                 let (body, fds) = match delivery {
                     Delivery::Intent { id, name, payload } => (
                         json!({ "kind": "intent", "id": id, "name": name, "payload": payload }),
+                        Vec::new(),
+                    ),
+                    Delivery::Route { route, payload, intent } => (
+                        json!({ "kind": "route", "route": route, "name": intent, "payload": payload }),
                         Vec::new(),
                     ),
                     Delivery::Channel { from, channel, fd } => (
@@ -311,7 +331,10 @@ fn open(
         .find(caller)
         .is_some_and(|e| e.manifest.applet.channels.opens.contains(&wanted));
     if !declared {
-        return Err(Failure::host("NotDeclared", json!({ "channel": wanted })));
+        return Err(Failure::host(
+            "NotDeclared",
+            json!({ "channel": wanted, "intent": null }),
+        ));
     }
     let offered = host.registry.find(to).is_some_and(|e| {
         e.manifest
@@ -370,27 +393,30 @@ async fn watch_front(
     }
 }
 
-async fn dispatch(host: &Host, method: &str, params: &Value) -> Result<Value, Failure> {
+async fn dispatch(
+    host: &Host,
+    caller: Option<&str>,
+    method: &str,
+    params: &Value,
+) -> Result<Value, Failure> {
     let str_param = |name: &str| params.get(name).and_then(Value::as_str);
     match method {
         "io.vrx.Host.Push" => {
             let applet = str_param("applet").ok_or_else(|| Failure::invalid("applet"))?;
-            let route = match str_param("route") {
-                None | Some("") => 0,
-                Some(name) => host
-                    .registry
-                    .find(applet)
-                    .and_then(|e| e.manifest.route_number(name))
-                    .ok_or_else(|| {
-                        if host.registry.find(applet).is_none() {
-                            Failure::host("NoSuchApplet", json!({ "applet": applet }))
-                        } else {
-                            Failure::host(
-                                "NoSuchRoute",
-                                json!({ "applet": applet, "route": name }),
-                            )
-                        }
-                    })?,
+            let entry = host.registry.find(applet).ok_or_else(|| {
+                Failure::host("NoSuchApplet", json!({ "applet": applet }))
+            })?;
+            // a deep link is a hint (plan 0011 D5): a route the applet does
+            // not declare (renamed, or never there) opens its root
+            let (route, name) = match str_param("route") {
+                None | Some("") => (0, ""),
+                Some(name) => match entry.manifest.route_number(name) {
+                    Some(number) => (number, name),
+                    None => {
+                        tracing::warn!(%applet, route = %name, "no such route; opening the root");
+                        (0, "")
+                    }
+                },
             };
             let top = navigate(
                 host,
@@ -400,15 +426,20 @@ async fn dispatch(host: &Host, method: &str, params: &Value) -> Result<Value, Fa
                 },
             )
             .await?;
+            host.bridge.open_at(applet, name, &Value::Null, None);
             Ok(json!({ "top": top }))
+        }
+        "io.vrx.Host.Route" => {
+            let applet = caller.ok_or_else(|| Failure::host("NotAnApplet", json!({})))?;
+            let (route, payload, intent) = host.bridge.route(applet);
+            Ok(json!({ "route": route, "payload": payload, "intent": intent }))
         }
         "io.vrx.Host.Pop" => Ok(json!({ "top": navigate(host, NavOp::Pop).await? })),
         "io.vrx.Host.Home" => Ok(json!({ "top": navigate(host, NavOp::Home).await? })),
         "io.vrx.Host.Intent" => {
             let name = str_param("name").ok_or_else(|| Failure::invalid("name"))?;
             let payload = params.get("payload").cloned().unwrap_or(Value::Null);
-            let intent =
-                Intent::new(name, payload).map_err(|_| Failure::invalid("name"))?;
+            let intent = admit_intent(&host.registry, caller, name, payload)?;
             deliver(host, &intent).await
         }
         "io.vrx.Host.Answer" => {
@@ -455,6 +486,45 @@ async fn dispatch(host: &Host, method: &str, params: &Value) -> Result<Value, Fa
     }
 }
 
+/// The intent contract at the socket (plan 0011 D9, G022): the name well
+/// formed, the payload at most 4 KiB, and from an applet only what its
+/// manifest emits, a `sys.` name only from a built-in. A caller that is
+/// no applet (vrxhost's own sources, a root tool on the bench) is the
+/// system and may send any well-formed intent.
+fn admit_intent(
+    registry: &Registry,
+    caller: Option<&str>,
+    name: &str,
+    payload: Value,
+) -> Result<Intent, Failure> {
+    use vrx_protocol::intent::{is_reserved, IntentError, PAYLOAD_MAX_BYTES};
+    let intent = Intent::new(name, payload).map_err(|err| match err {
+        IntentError::PayloadTooLarge { bytes, .. } => Failure::host(
+            "PayloadTooLarge",
+            json!({ "intent": name, "bytes": bytes, "limit": PAYLOAD_MAX_BYTES }),
+        ),
+        IntentError::BadName { .. } | IntentError::NameTooLong { .. } => {
+            Failure::invalid("name")
+        }
+    })?;
+    let Some(applet) = caller else {
+        return Ok(intent);
+    };
+    let entry = registry.find(applet);
+    if is_reserved(name) && !entry.is_some_and(|e| e.builtin) {
+        tracing::warn!(%applet, intent = %name, "refused: sys. is the system's");
+        return Err(Failure::host("Reserved", json!({ "intent": name })));
+    }
+    if !entry.is_some_and(|e| e.manifest.applet.intents.emits.iter().any(|n| n == name)) {
+        tracing::warn!(%applet, intent = %name, "refused: not in its manifest's emits");
+        return Err(Failure::host(
+            "NotDeclared",
+            json!({ "channel": null, "intent": name }),
+        ));
+    }
+    Ok(intent)
+}
+
 /// Route an intent through its handlers in order (intent.rs): an opened
 /// one is pushed (and told over its Listen when running); a told one is
 /// asked and has the answer budget. The Varlink `Intent` call and
@@ -475,7 +545,14 @@ async fn deliver(host: &Host, intent: &Intent) -> Result<Value, Failure> {
                     },
                 )
                 .await?;
-                host.bridge.tell(&applet, &intent.name, &intent.payload);
+                let name = host
+                    .registry
+                    .find(&applet)
+                    .and_then(|e| e.manifest.route_name(route))
+                    .unwrap_or("")
+                    .to_owned();
+                host.bridge
+                    .open_at(&applet, &name, &intent.payload, Some(&intent.name));
                 return Ok(
                     json!({ "verdict": "opened", "handled_by": applet, "route": route }),
                 );
@@ -637,6 +714,7 @@ mod tests {
         let (front_tx, front_rx) = watch::channel(Front {
             front: "launcher".into(),
             depth: 1,
+            stopped: None,
         });
         let host = Host {
             registry: Arc::new(registry()),
@@ -663,8 +741,9 @@ mod tests {
         let r = call(&mut s, json!({"method": "io.vrx.Host.Push", "parameters": {"applet": "clock", "route": "alarms"}})).await;
         assert_eq!(r[0]["parameters"]["top"], "clock", "{r:?}");
 
+        // an undeclared route opens the root (plan 0011 D5)
         let r = call(&mut s, json!({"method": "io.vrx.Host.Push", "parameters": {"applet": "clock", "route": "nope"}})).await;
-        assert_eq!(r[0]["error"], "io.vrx.Host.NoSuchRoute", "{r:?}");
+        assert_eq!(r[0]["parameters"]["top"], "clock", "{r:?}");
 
         let r = call(
             &mut s,
@@ -747,10 +826,94 @@ mod tests {
             .send(Front {
                 front: "clock".into(),
                 depth: 2,
+                stopped: Some("Clock".into()),
             })
             .unwrap();
         let second = read_one().await;
         assert_eq!(second["parameters"]["front"], "clock", "{second}");
         assert_eq!(second["parameters"]["depth"], 2, "{second}");
+        assert_eq!(second["parameters"]["stopped"], "Clock", "{second}");
+    }
+
+    fn builtin_and_installed() -> Registry {
+        let mut r = registry();
+        for (id, builtin, extra) in [
+            ("web", true, "[applet.intents]\nemits = [\"web.done\"]\n"),
+            (
+                "notes",
+                false,
+                "[applet.intents]\nemits = [\"notes.saved\"]\n",
+            ),
+        ] {
+            let text = format!(
+                "[applet]\nid = \"{id}\"\nname = \"N\"\nversion = \"1.0.0\"\nruntime = \"flutter\"\n{extra}"
+            );
+            r.admit(RegistryEntry {
+                manifest: text.parse().unwrap(),
+                path: PathBuf::from("/x").join(id),
+                builtin,
+            })
+            .unwrap();
+        }
+        r
+    }
+
+    fn refusal(r: Result<Intent, Failure>) -> String {
+        r.map(|_| "admitted".to_owned()).unwrap_or_else(|f| f.error)
+    }
+
+    /// G022: each refusal of the intent contract fires, and what an
+    /// applet declares goes through.
+    #[test]
+    fn the_intent_contract_refuses_by_name_g022() {
+        let r = builtin_and_installed();
+        let null = Value::Null;
+        // clock is built in and emits nothing in this registry
+        assert_eq!(
+            refusal(admit_intent(&r, Some("web"), "web.done", null.clone())),
+            "admitted"
+        );
+        assert_eq!(
+            refusal(admit_intent(&r, Some("web"), "web.other", null.clone())),
+            "io.vrx.Host.NotDeclared"
+        );
+        assert_eq!(
+            refusal(admit_intent(
+                &r,
+                Some("web"),
+                "sys.alarm.ring",
+                null.clone()
+            )),
+            "io.vrx.Host.NotDeclared",
+            "a built-in still sends only what it declares"
+        );
+        assert_eq!(
+            refusal(admit_intent(
+                &r,
+                Some("notes"),
+                "sys.alarm.ring",
+                null.clone()
+            )),
+            "io.vrx.Host.Reserved"
+        );
+        assert_eq!(
+            refusal(admit_intent(&r, Some("notes"), "notes.saved", null.clone())),
+            "admitted"
+        );
+        let big = json!({ "d": "x".repeat(5000) });
+        assert_eq!(
+            refusal(admit_intent(&r, Some("web"), "web.done", big.clone())),
+            "io.vrx.Host.PayloadTooLarge"
+        );
+        assert_eq!(
+            refusal(admit_intent(&r, None, "web.done", big)),
+            "io.vrx.Host.PayloadTooLarge",
+            "the bound holds for the system too"
+        );
+        assert_eq!(
+            refusal(admit_intent(&r, None, "sys.usb.connected", null)),
+            "admitted",
+            "no applet: the system"
+        );
     }
 }

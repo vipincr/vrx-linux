@@ -348,6 +348,40 @@ pub struct SettingDecl {
     pub options: Option<Vec<String>>,
 }
 
+/// Trees no applet may be granted write access to (plan 0011 D10): the
+/// OS's own configuration, programs, boot files and kernel interfaces.
+pub const FS_REFUSED: &[&str] = &[
+    "/etc", "/usr", "/boot", "/proc", "/sys", "/dev", "/bin", "/sbin", "/lib",
+];
+
+/// A manifest fs path: absolute, normal (no `.`, `..` or doubled `/`),
+/// not the root, and outside [`FS_REFUSED`].
+pub fn fs_path_ok(path: &str) -> Result<(), &'static str> {
+    if !path.starts_with('/') {
+        return Err("must be an absolute path");
+    }
+    if path == "/" {
+        return Err("the whole filesystem cannot be granted");
+    }
+    let rest = path.strip_suffix('/').unwrap_or(path);
+    if rest[1..]
+        .split('/')
+        .any(|c| c.is_empty() || c == "." || c == "..")
+    {
+        return Err("must be a normal path (no ., .. or //)");
+    }
+    if rest.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err("must not contain spaces or control characters");
+    }
+    if FS_REFUSED
+        .iter()
+        .any(|t| rest == *t || rest.starts_with(&format!("{t}/")))
+    {
+        return Err("is the system's own (/etc, /usr, /boot, /proc, /sys, /dev and the program trees are refused)");
+    }
+    Ok(())
+}
+
 /// Built-in handlers hold priorities 500-999; installed applets 0-499.
 /// A card app can never be asked before a built-in.
 pub const PRIORITY_BUILTIN_MIN: u16 = 500;
@@ -438,6 +472,14 @@ impl Manifest {
             }
         }
 
+        // fs (plan 0011 D10): absolute directories an applet may write,
+        // never the system's own trees
+        for path in &a.permissions.fs {
+            if let Err(why) = fs_path_ok(path) {
+                return invalid(format!("permissions.fs {path:?}: {why}"));
+            }
+        }
+
         if a.settings.len() > SETTINGS_MAX {
             return invalid(format!(
                 "settings: {} declared, at most {SETTINGS_MAX} allowed",
@@ -451,15 +493,56 @@ impl Manifest {
                     setting.label
                 ));
             }
-            if let (SettingType::Enum, None) = (setting.r#type, &setting.options) {
+            if a.settings.iter().filter(|s| s.key == setting.key).count() > 1 {
+                return invalid(format!("setting {:?}: key declared twice", setting.key));
+            }
+            let fits = match (setting.r#type, &setting.default) {
+                (SettingType::Enum, serde_json::Value::String(v)) => {
+                    match &setting.options {
+                        Some(options) => options.contains(v),
+                        None => {
+                            return invalid(format!(
+                                "setting {:?}: type enum requires options",
+                                setting.key
+                            ))
+                        }
+                    }
+                }
+                (SettingType::Bool, serde_json::Value::Bool(_)) => true,
+                (SettingType::Int, serde_json::Value::Number(n)) => {
+                    n.is_i64() || n.is_u64()
+                }
+                (SettingType::Float, serde_json::Value::Number(_)) => true,
+                (SettingType::Text, serde_json::Value::String(_)) => true,
+                _ => false,
+            };
+            if !fits {
                 return invalid(format!(
-                    "setting {:?}: type enum requires options",
-                    setting.key
+                    "setting {:?}: default {} is not a {:?}{}",
+                    setting.key,
+                    setting.default,
+                    setting.r#type,
+                    if setting.r#type == SettingType::Enum {
+                        " among its options"
+                    } else {
+                        ""
+                    }
                 ));
             }
         }
 
         Ok(())
+    }
+
+    /// The name of route `number`: "" for the root, None past the declared.
+    pub fn route_name(&self, number: u32) -> Option<&str> {
+        if number == 0 {
+            return Some("");
+        }
+        self.applet
+            .routes
+            .get_index(number as usize - 1)
+            .map(|(name, _)| name.as_str())
     }
 
     /// The number of a declared route: 0 is the root (never declared),
@@ -476,6 +559,56 @@ impl Manifest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn with(extra: &str) -> Result<Manifest, ManifestError> {
+        format!("[applet]\nid = \"a\"\nname = \"A\"\nversion = \"1\"\nruntime = \"rust\"\n{extra}").parse()
+    }
+
+    #[test]
+    fn fs_paths_are_absolute_normal_and_outside_the_system_d10() {
+        for ok in ["/data/notes", "/var/lib/vrx/x/", "/media/sd"] {
+            assert_eq!(fs_path_ok(ok), Ok(()), "{ok}");
+        }
+        for bad in [
+            "data",
+            "/",
+            "/etc",
+            "/etc/vrx",
+            "/usr/bin",
+            "/boot",
+            "/proc/1",
+            "/sys/devices",
+            "/dev/mem",
+            "/data/../etc",
+            "/data//x",
+            "/data/./x",
+            "/data/a b",
+            "/lib/x",
+        ] {
+            assert!(fs_path_ok(bad).is_err(), "{bad} should be refused");
+        }
+        assert!(with("[applet.permissions]\nfs = [\"/usr/bin\"]\n").is_err());
+        assert!(with("[applet.permissions]\nfs = [\"/data/a\"]\n").is_ok());
+    }
+
+    #[test]
+    fn a_setting_default_fits_its_type_and_keys_are_unique() {
+        let decl = |ty: &str, default: &str, options: &str| {
+            with(&format!("[[applet.settings]]\nkey = \"k\"\nlabel = \"K\"\ncategory = \"C\"\ntype = \"{ty}\"\ndefault = {default}\n{options}"))
+        };
+        assert!(decl("enum", "\"b\"", "options = [\"a\", \"b\"]").is_ok());
+        assert!(decl("enum", "\"c\"", "options = [\"a\", \"b\"]").is_err());
+        assert!(decl("enum", "\"a\"", "").is_err());
+        assert!(decl("bool", "true", "").is_ok());
+        assert!(decl("bool", "\"yes\"", "").is_err());
+        assert!(decl("int", "3", "").is_ok());
+        assert!(decl("int", "3.5", "").is_err());
+        assert!(decl("float", "3", "").is_ok());
+        assert!(decl("text", "\"x\"", "").is_ok());
+        assert!(decl("text", "1", "").is_err());
+        let twice = "[[applet.settings]]\nkey = \"k\"\nlabel = \"K\"\ncategory = \"C\"\ntype = \"bool\"\ndefault = true\n";
+        assert!(with(&format!("{twice}{twice}")).is_err());
+    }
 
     /// The reference manifest: the clock example from the plan, verbatim.
     const CLOCK: &str = r#"
@@ -504,7 +637,7 @@ resident = false               # alive from boot to power-off, never evicted
 
 [applet.permissions]
 system = ["time", "audio"]     # system grants: groups the services check (plan 0008 D2)
-fs = ["/sys", "/run/ping.pong"] # explicit path grants (repeated)
+fs = ["/data/clock", "/run/ping.pong"] # writable paths (plan 0011 D10)
 
 [applet.intents]
 handles = [
@@ -540,7 +673,7 @@ options = ["12h", "24h"]
             .expect("reference manifest must parse");
         assert_eq!(m.applet.id, "clock");
         assert_eq!(m.applet.runtime, Runtime::Flutter);
-        assert_eq!(m.applet.permissions.fs, ["/sys", "/run/ping.pong"]);
+        assert_eq!(m.applet.permissions.fs, ["/data/clock", "/run/ping.pong"]);
         assert_eq!(m.applet.intents.handles.len(), 2);
         assert_eq!(
             m.applet.intents.handles[0],

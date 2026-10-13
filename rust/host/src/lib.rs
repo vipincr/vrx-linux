@@ -15,6 +15,7 @@ pub mod bridge;
 pub mod compositor;
 pub mod intent;
 pub mod paths;
+pub mod power;
 pub mod registry;
 pub mod session;
 pub mod trail;

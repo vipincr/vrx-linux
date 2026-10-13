@@ -47,6 +47,16 @@ cat >> $D/web/manifest.toml <<'M'
 [applet.channels]
 opens = ["scripts.echo", "scripts.frames"]
 M
+# web may send only what it emits (plan 0011 D9): the bench ping
+python3 - <<'P'
+p = "/system/defaults/web/manifest.toml"
+s = open(p).read()
+if "[applet.intents]" in s:
+    s = s.replace("[applet.intents]", '[applet.intents]\nemits = ["vrx.bench.ping"]', 1)
+else:
+    s += '\n[applet.intents]\nemits = ["vrx.bench.ping"]\n'
+open(p, "w").write(s)
+P
 systemctl restart vrxhost
 sleep 8
 
@@ -125,6 +135,14 @@ else:
     ch.settimeout(3)
     print("channel:", ch.recv(4096).decode().strip(), flush=True)
     s = conn(); send(s, "io.vrx.Host.Open", {"to": "scripts", "channel": "nope"}); print("undeclared:", json.dumps(recv(s)), flush=True)
+    # the intent contract (plan 0011 D9): only what web emits, no sys. it
+    # does not declare, at most 4 KiB
+    s = conn(); send(s, "io.vrx.Host.Intent", {"name": "vrx.bench.nope"}); print("intent undeclared:", json.dumps(recv(s)), flush=True)
+    s = conn(); send(s, "io.vrx.Host.Intent", {"name": "sys.alarm.ring"}); print("intent sys:", json.dumps(recv(s)), flush=True)
+    s = conn(); send(s, "io.vrx.Host.Intent", {"name": "vrx.bench.ping", "payload": {"d": "x" * 5000}}); print("intent big:", json.dumps(recv(s)), flush=True)
+    # a deep link to a route that is not there opens the root (D5)
+    s = conn(); send(s, "io.vrx.Host.Push", {"applet": "setup", "route": "renamed"}); print("push renamed:", json.dumps(recv(s)), flush=True)
+    s = conn(); send(s, "io.vrx.Host.Home", {}); recv(s)
     # a plain file is not a buffer another applet may map
     s = conn(); plain = os.open("/etc/hostname", os.O_RDONLY)
     s.sendmsg([json.dumps({"method": "io.vrx.Host.Open", "parameters": {"to": "scripts", "channel": "echo"}}).encode() + b"\0"],
@@ -168,6 +186,10 @@ grep -q '"verdict": "handled", "handled_by": "scripts"\|"handled_by": "scripts",
     && ok "a told handler answered inside the budget: handled by scripts" || bad "told intent not handled"
 grep -q 'channel: .*pong' /tmp/open.log && ok "web opened scripts.echo; the stream carried a record both ways" || bad "channel"
 grep -q 'undeclared: .*NotDeclared' /tmp/open.log && ok "an undeclared channel is refused by name" || bad "undeclared channel not refused"
+grep -q 'intent undeclared: .*NotDeclared' /tmp/open.log && ok "an intent web does not emit is refused NotDeclared" || bad "undeclared intent not refused"
+grep -q 'intent sys: .*NotDeclared' /tmp/open.log && ok "a sys. intent web does not declare is refused" || bad "sys. intent not refused"
+grep -q 'intent big: .*PayloadTooLarge' /tmp/open.log && ok "a 5 KiB payload is refused PayloadTooLarge" || bad "big payload not refused"
+grep -q 'push renamed: .*"top": "setup"' /tmp/open.log && ok "a push to an undeclared route opens the root" || bad "renamed route"
 grep -q 'plain fd: .*NotShareable' /tmp/open.log && ok "a plain file passed as a buffer is refused NotShareable" || bad "plain fd not refused"
 grep -q 'queue: 4 buffers of 4096 bytes, 1000 frames read from shared memory, contents right' /tmp/listen.log \
     && ok "a buffer queue: 4 buffers handed once, 1000 frames read from shared memory, indices only on the stream" || bad "buffer queue"

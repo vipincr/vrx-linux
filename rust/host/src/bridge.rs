@@ -1,9 +1,11 @@
 // The inter-applet bridge (plan 0008 D15): what vrxhost hands to running
 // applets over their `Listen` call. A listening applet receives the
 // intents it handles (asked, for a told handler, with a 100 ms budget for
-// its `Answer`; told, for an opened handler already running) and the
-// channels other applets open on it, each with the stream's end as a
-// file descriptor.
+// its `Answer`), the route it was opened at (plan 0011 D5: a push, or an
+// intent opening it there, with the payload), and the channels other
+// applets open on it, each with the stream's end as a file descriptor.
+// The route an applet was last opened at is kept, so one that starts
+// after the push asks for it (`Route`).
 
 use std::collections::HashMap;
 use std::os::fd::OwnedFd;
@@ -25,6 +27,13 @@ pub enum Delivery {
         name: String,
         payload: Value,
     },
+    /// It was opened at `route` ("" is the root), with the payload of the
+    /// intent that opened it there, if one did.
+    Route {
+        route: String,
+        payload: Value,
+        intent: Option<String>,
+    },
     /// Another applet opened one of its channels: the stream's end.
     Channel {
         from: String,
@@ -39,6 +48,8 @@ struct Inner {
     listeners: HashMap<String, (u64, mpsc::UnboundedSender<Delivery>)>,
     /// intent id -> who waits for the answer
     pending: HashMap<u64, oneshot::Sender<bool>>,
+    /// applet -> the route it was last opened at, its payload and intent
+    routes: HashMap<String, (String, Value, Option<String>)>,
     next: u64,
 }
 
@@ -125,16 +136,37 @@ impl Bridge {
         answer
     }
 
-    /// Tell an opened handler that is running: no answer wanted.
-    pub fn tell(&self, applet: &str, name: &str, payload: &Value) {
+    /// `applet` was opened at `route`: kept for its `Route` call, and told
+    /// over its Listen when it is running.
+    pub fn open_at(
+        &self,
+        applet: &str,
+        route: &str,
+        payload: &Value,
+        intent: Option<&str>,
+    ) {
+        self.lock().routes.insert(
+            applet.to_owned(),
+            (route.to_owned(), payload.clone(), intent.map(str::to_owned)),
+        );
         let _ = self.send(
             applet,
-            Delivery::Intent {
-                id: None,
-                name: name.to_owned(),
+            Delivery::Route {
+                route: route.to_owned(),
                 payload: payload.clone(),
+                intent: intent.map(str::to_owned),
             },
         );
+    }
+
+    /// Where `applet` was last opened: the root, with no payload, when it
+    /// never was.
+    pub fn route(&self, applet: &str) -> (String, Value, Option<String>) {
+        self.lock().routes.get(applet).cloned().unwrap_or((
+            String::new(),
+            Value::Null,
+            None,
+        ))
     }
 
     /// An Answer arrived; false when nobody waits for it (late, or never
@@ -260,11 +292,22 @@ mod tests {
         let (_new, mut b) = bridge.listen("clock");
         bridge.unlisten("clock", old);
         assert!(bridge.listening("clock"));
-        bridge.tell("clock", "sys.alarm.ring", &json!({"id": 1}));
+        bridge.open_at("clock", "ring", &json!({"id": 1}), Some("sys.alarm.ring"));
         assert!(matches!(
             b.try_recv(),
-            Ok(Delivery::Intent { id: None, .. })
+            Ok(Delivery::Route { route, .. }) if route == "ring"
         ));
+    }
+
+    #[test]
+    fn the_route_an_applet_was_opened_at_is_kept_for_its_start() {
+        let bridge = Bridge::default();
+        assert_eq!(bridge.route("setup"), (String::new(), Value::Null, None));
+        // not running yet: nothing to tell, but the route is kept
+        bridge.open_at("setup", "again", &Value::Null, None);
+        assert_eq!(bridge.route("setup").0, "again");
+        bridge.open_at("setup", "", &Value::Null, None);
+        assert_eq!(bridge.route("setup").0, "");
     }
 
     #[test]

@@ -28,6 +28,10 @@ pub enum RegistryError {
     RoleOnInstalled(String),
     #[error("applet id {0:?}: system grants are held by built-ins only (permissions.system declared on an installed applet)")]
     SystemOnInstalled(String),
+    #[error("applet id {0:?}: fs paths are granted to built-ins only (permissions.fs declared on an installed applet)")]
+    FsOnInstalled(String),
+    #[error("applet id {id:?}: {name:?} is in the system's sys. namespace, which an installed applet may not emit")]
+    ReservedEmit { id: String, name: String },
     #[error("applet id {id:?}: installed applets hold handler priorities 0-{below}, got {got}")]
     PriorityBand { id: String, below: u16, got: u16 },
     #[error("applet id {0:?}: manifest invalid: {1}")]
@@ -63,6 +67,22 @@ impl Registry {
             }
             if !entry.manifest.applet.permissions.system.is_empty() {
                 return Err(RegistryError::SystemOnInstalled(id));
+            }
+            if !entry.manifest.applet.permissions.fs.is_empty() {
+                return Err(RegistryError::FsOnInstalled(id));
+            }
+            if let Some(name) = entry
+                .manifest
+                .applet
+                .intents
+                .emits
+                .iter()
+                .find(|n| crate::intent::is_reserved(n))
+            {
+                return Err(RegistryError::ReservedEmit {
+                    id,
+                    name: name.clone(),
+                });
             }
             for handle in &entry.manifest.applet.intents.handles {
                 if handle.priority >= PRIORITY_BUILTIN_MIN {
@@ -210,6 +230,30 @@ mod tests {
         assert_eq!(
             r_admit(e.clone()),
             Err(RegistryError::SystemOnInstalled("wifi".into()))
+        );
+        e.builtin = true;
+        assert_eq!(r_admit(e), Ok(()));
+    }
+
+    /// G023: an installed applet gets no fs paths and cannot speak in the
+    /// system's namespace.
+    #[test]
+    fn installed_applets_hold_no_fs_and_emit_no_sys_names_g023() {
+        let mut e = entry("notes", false);
+        e.manifest.applet.permissions.fs = vec!["/data/notes".into()];
+        assert_eq!(
+            r_admit(e),
+            Err(RegistryError::FsOnInstalled("notes".into()))
+        );
+        let mut e = entry("notes", false);
+        e.manifest.applet.intents.emits =
+            vec!["app.done".into(), "sys.alarm.ring".into()];
+        assert_eq!(
+            r_admit(e.clone()),
+            Err(RegistryError::ReservedEmit {
+                id: "notes".into(),
+                name: "sys.alarm.ring".into()
+            })
         );
         e.builtin = true;
         assert_eq!(r_admit(e), Ok(()));
