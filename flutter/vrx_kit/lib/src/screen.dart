@@ -27,6 +27,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 
+import 'file.dart';
 import 'settings.dart';
 import 'store.dart';
 import 'system.dart';
@@ -191,6 +192,10 @@ class ScreenSettings {
   /// one write in [dragInterval], the last position always written; on
   /// release ([settled] true) at once.
   Future<void> setBrightness(int value, {bool settled = true}) {
+    if (!_flushes) {
+      _flushes = true;
+      VrxFile.flushOnStop(_flushBrightness);
+    }
     _pendingBrightness = value.clamp(0, 100);
     // a write still waiting is superseded by this one: its caller is done
     _trailing?.cancel();
@@ -208,6 +213,7 @@ class ScreenSettings {
   }
 
   int? _pendingBrightness;
+  bool _flushes = false;
   DateTime? _lastBrightnessWrite;
   Timer? _trailing;
   Completer<void>? _trailingDone;

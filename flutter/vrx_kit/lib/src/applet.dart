@@ -8,8 +8,11 @@ import 'dart:io' show File, FileSystemException;
 
 import 'package:flutter/material.dart';
 
+import 'channel.dart';
+import 'components.dart';
 import 'host.dart';
 import 'input.dart';
+import 'nav.dart';
 import 'scale.dart';
 import 'screen.dart';
 import 'shell.dart';
@@ -29,6 +32,18 @@ abstract class Applet<S, A, V> extends StoreModel<S, A, V> {
   /// constrained by vrx_kit: type roles by meaning from the theme,
   /// Spacing from the scale, colour from the scheme — never literals.
   Widget build(BuildContext context, V view);
+
+  /// The action for being opened at [route] ('' is the root) with
+  /// [payload] (plan 0011 D5), or null to stay where it is. A route the
+  /// manifest does not declare arrives as '': a renamed screen opens the
+  /// root, never nothing. Asked once at start, and on every open while
+  /// running when [followsRoutes].
+  A? onRoute(String route, Object? payload) => null;
+
+  /// The manifest declares routes and this applet may be opened at one
+  /// while it runs (a warm tile, a resident): the kit follows vrxhost's
+  /// route events for it.
+  bool get followsRoutes => false;
 }
 
 /// Run an applet: the entry point of every applet's `main`.
@@ -111,10 +126,32 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
     });
     _actions = widget.actions?.listen(_store.dispatch);
     VrxShell.listen();
+    _followRoutes();
+  }
+
+  StreamSubscription<VrxDelivery>? _routes;
+
+  void _followRoutes() {
+    final host = AppletsService.installed;
+    if (host == null) return;
+    unawaited(host.route().then((r) => _routed(r.route, r.payload), onError: (Object err) {
+      debugPrint('vrx: no route from vrxhost: $err');
+    }));
+    if (!widget.applet.followsRoutes) return;
+    _routes = VrxBridge.listen().listen((d) {
+      if (d is VrxRouteDelivery) _routed(d.route, d.payload);
+    }, onError: (Object _) {});
+  }
+
+  void _routed(String route, Object? payload) {
+    if (!mounted) return;
+    final action = widget.applet.onRoute(route, payload);
+    if (action != null) _store.dispatch(action);
   }
 
   @override
   void dispose() {
+    unawaited(_routes?.cancel());
     // dispose cannot wait; the cancels finish on their own
     unawaited(_actions?.cancel());
     unawaited(_views?.cancel());
@@ -133,7 +170,7 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
       // display's, read before the strip takes its share
       builder: (context, child) => VrxScale.install(
         child: VrxInsets(
-          child: VrxInputRoot(child: child ?? const SizedBox.shrink()),
+          child: VrxInputRoot(child: _RefusalBand(child: child ?? const SizedBox.shrink())),
         ),
       ),
       home: VrxInput.install(
@@ -145,6 +182,33 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
         ),
       ),
     );
+  }
+}
+
+/// A refused navigation, said over whatever screen is up (plan 0011 D2):
+/// the sentence stays until the next navigation succeeds or a tap.
+class _RefusalBand extends StatelessWidget {
+  const _RefusalBand({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(children: [
+      Positioned.fill(child: child),
+      Positioned(
+        left: 0,
+        right: 0,
+        bottom: 0,
+        child: ValueListenableBuilder<String?>(
+          valueListenable: Nav.refusal,
+          builder: (context, sentence, _) => Material(
+            type: MaterialType.transparency,
+            child: VrxBanner(text: sentence, onTap: Nav.dismiss),
+          ),
+        ),
+      ),
+    ]);
   }
 }
 

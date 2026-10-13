@@ -8,6 +8,8 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:vrx_kit/vrx_kit.dart';
+
 import 'tz.dart';
 
 /// Limits, as evrx-rt's clock holds them: what one screen lists.
@@ -118,14 +120,9 @@ class ClockBook {
     }
   }
 
-  /// Write the book whole: a new file renamed over the old, so a power
-  /// cut leaves one book or the other, never half of one.
-  Future<void> save(String path) async {
-    final tmp = File('$path.new');
-    await tmp.parent.create(recursive: true);
-    await tmp.writeAsString(jsonEncode(toJson()), flush: true);
-    await tmp.rename(path);
-  }
+  /// Write the book whole (the kit's atomic write), so a power cut
+  /// leaves one book or the other, never half of one.
+  Future<void> save(String path) => VrxFile.writeAtomic(path, jsonEncode(toJson()));
 }
 
 /// What is due: an alarm (its index) or the timer.

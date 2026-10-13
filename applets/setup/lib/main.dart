@@ -32,6 +32,15 @@ class SetupApplet extends Applet<SetupState, SetupAction, SetupView> {
   @override
   SetupState get snapshot => model.snapshot;
 
+  @override
+  bool get followsRoutes => true;
+
+  @override
+  SetupAction? onRoute(String route, Object? payload) {
+    model.openedAt(route);
+    return SetupAction.again;
+  }
+
   void _move(void Function() change) {
     change();
     _events.add(SetupAction.moved);
@@ -44,11 +53,12 @@ class SetupApplet extends Applet<SetupState, SetupAction, SetupView> {
       if (model.zone.isNotEmpty) await VrxSystem.time.setZone(model.zone);
       await File(_done).writeAsString('${DateTime.now().toIso8601String()}\n');
       model.finishing = false;
-      Nav.home();
+      // set up again from Settings: back there; the first boot: Home
+      unawaited(model.again ? Nav.pop() : Nav.home());
     } on Object catch (err) {
       model
         ..finishing = false
-        ..error = err is SystemError ? err.message : '$err';
+        ..error = VrxWords.of(err, context: 'setup: finish');
       _events.add(SetupAction.failed);
     }
   }
@@ -104,12 +114,12 @@ class SetupApplet extends Applet<SetupState, SetupAction, SetupView> {
       SetupStep.done => VrxSetupStep(
           step: 5,
           of: 5,
-          title: 'Ready',
+          title: view.again ? 'Save your changes' : 'Ready',
           intro: '${view.name.trim()}${view.zone.isEmpty ? '' : ' · ${view.zone}'}',
           control: const SizedBox.shrink(),
           banner: view.error,
           onNext: view.finishing ? null : () => unawaited(_finish()),
-          nextLabel: view.finishing ? 'Saving…' : 'Start',
+          nextLabel: view.finishing ? 'Saving…' : (view.again ? 'Save' : 'Start'),
         ),
     };
     return Scaffold(body: SafeArea(child: body));
@@ -134,7 +144,7 @@ Future<void> main() async {
     model.zones = await VrxSystem.time.zones();
     _events.add(SetupAction.zonesLoaded);
   } on Object catch (err) {
-    model.error = '$err';
+    model.error = VrxWords.of(err, context: 'setup: zones');
     _events.add(SetupAction.failed);
   }
 }

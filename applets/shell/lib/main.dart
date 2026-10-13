@@ -96,7 +96,7 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
                     bleUp: false,
                     onWifi: () {
                       _toggle();
-                      Nav.push('wifi');
+                      unawaited(Nav.push('wifi'));
                     },
                     onPower: () => _events.add(ShellAction.powerAsked),
                     onDismiss: _toggle,
@@ -151,7 +151,8 @@ Future<void> main() async {
   // the strip's clock changes once a minute: a check every 10 s, a
   // repaint only when the minute turned
   var shown = '';
-  Timer.periodic(const Duration(seconds: 10), (_) {
+  // the shell is hidden only with the screen, so this rests while it is off
+  VrxTicker(const Duration(seconds: 10), () {
     if (model.clockText != shown) {
       shown = model.clockText;
       _events.add(ShellAction.factsChanged);

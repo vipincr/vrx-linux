@@ -54,7 +54,8 @@ class TerminalApplet extends Applet<TerminalState, TerminalAction, TermView> {
             },
           );
     } on Object catch (err) {
-      terminal.write('cannot start the shell: $err\r\n');
+      debugPrint('terminal: cannot start the shell: $err');
+      terminal.write('The shell did not start. The details are in the log.\r\n');
     }
   }
 

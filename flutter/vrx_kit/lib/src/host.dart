@@ -9,11 +9,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
-
 import 'intent.dart';
 import 'nav.dart';
 import 'settings.dart';
+import 'words.dart';
 
 /// One tile's worth of registry: an applet the launcher shows.
 class RegistryApplet {
@@ -68,6 +67,11 @@ abstract class AppletsService implements IntentTransport, NavDelegate {
 
   /// Every applet's declared settings (plan 0008 D5).
   Future<List<AppletSettingsDecl>> settings();
+
+  /// Where this applet was last opened (plan 0011 D5): the route ('' is
+  /// the root; one it does not declare arrives as ''), and the payload of
+  /// the intent that opened it there.
+  Future<({String route, Object? payload})> route();
 }
 
 /// A `more` call that outlives vrxhost: when its connection ends (vrxhost
@@ -208,6 +212,12 @@ class VarlinkAppletsService extends AppletsService {
   }
 
   @override
+  Future<({String route, Object? payload})> route() async {
+    final reply = await _client.call('io.vrx.Host.Route');
+    return (route: reply['route'] as String? ?? '', payload: reply['payload']);
+  }
+
+  @override
   Stream<FrontApplet> watch() => resubscribed(
       () => _client.stream('io.vrx.Host.Watch').map(
             (p) => FrontApplet(
@@ -236,20 +246,23 @@ class VarlinkAppletsService extends AppletsService {
   }
 
   @override
-  void push(String applet, {String route = ''}) => _nav('io.vrx.Host.Push',
+  Future<NavOutcome> push(String applet, {String route = ''}) => _nav('io.vrx.Host.Push',
       {'applet': applet, if (route.isNotEmpty) 'route': route});
 
   @override
-  void pop() => _nav('io.vrx.Host.Pop');
+  Future<NavOutcome> pop() => _nav('io.vrx.Host.Pop');
 
   @override
-  void home() => _nav('io.vrx.Host.Home');
+  Future<NavOutcome> home() => _nav('io.vrx.Host.Home');
 
-  // Nav is fire-and-forget for the applet (the trail is vrxhost's); a
-  // refusal is still said, never swallowed.
-  void _nav(String method, [Map<String, dynamic>? parameters]) {
-    unawaited(_client.call(method, parameters).then<void>((_) {}, onError: (Object err) {
-      debugPrint('vrx: $method refused: $err');
-    }));
+  // The trail is vrxhost's; its answer is the outcome, and a refusal is
+  // said in a sentence (plan 0011 D2), never swallowed.
+  Future<NavOutcome> _nav(String method, [Map<String, dynamic>? parameters]) async {
+    try {
+      await _client.call(method, parameters);
+      return const NavOutcome.done();
+    } on Object catch (err) {
+      return NavOutcome.refused(VrxWords.of(err, context: '$method refused'));
+    }
   }
 }

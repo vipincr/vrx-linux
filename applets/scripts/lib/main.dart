@@ -51,7 +51,7 @@ class ScriptsApplet extends Applet<ScriptsState, ScriptsAction, ScriptsView> {
     } on Object catch (err) {
       model
         ..running = false
-        ..error = 'Cannot run python3: $err';
+        ..error = VrxWords.of(err, context: 'scripts: python3');
     }
     _process = null;
     _events.add(ScriptsAction.ended);
@@ -165,7 +165,7 @@ Future<void> main() async {
     await seedSamples(Directory('/system/defaults/scripts/samples'));
     model.scripts = await listScripts();
   } on Object catch (err) {
-    model.error = '$err';
+    model.error = VrxWords.of(err, context: 'scripts: list');
   }
   _events.add(ScriptsAction.listed);
 }

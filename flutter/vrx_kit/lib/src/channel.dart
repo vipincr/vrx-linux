@@ -47,6 +47,18 @@ class VrxIntentDelivery extends VrxDelivery {
   final Object? payload;
 }
 
+/// This applet was opened at [route] ('' is the root), with the payload
+/// of the intent that opened it there, if one did (plan 0011 D5).
+class VrxRouteDelivery extends VrxDelivery {
+  const VrxRouteDelivery({required this.route, this.payload, this.intent});
+
+  final String route;
+  final Object? payload;
+
+  /// The intent that opened it there, or null for a plain push.
+  final String? intent;
+}
+
 /// Another applet opened one of this applet's channels: the stream's end,
 /// to read as records ([asChannel]) or as a buffer queue ([asBufferQueue]),
 /// whichever the channel carries (the manifests agree on it).
@@ -163,6 +175,8 @@ VrxDelivery? deliveryOf(Map<String, dynamic> reply, ResourceHandle? Function() s
   switch (p['kind']) {
     case 'intent':
       return VrxIntentDelivery(id: (p['id'] as num?)?.toInt(), name: p['name'] as String? ?? '', payload: p['payload']);
+    case 'route':
+      return VrxRouteDelivery(route: p['route'] as String? ?? '', payload: p['payload'], intent: p['name'] as String?);
     case 'channel':
       final handle = stream();
       if (handle == null) return null;
@@ -222,10 +236,13 @@ abstract final class VrxBridge {
     }
   }
 
-  /// This applet's Listen: the intents it handles and the channels opened
-  /// on it (the newest Listen of an applet wins), held again whenever
-  /// vrxhost restarts.
-  static Stream<VrxDelivery> listen() => resubscribed(_listenOnce);
+  /// This applet's Listen: the intents it handles, the routes it is opened
+  /// at while running, and the channels opened on it, held again whenever
+  /// vrxhost restarts. The newest Listen of an applet wins, so there is one
+  /// per process, shared by every listener here.
+  static Stream<VrxDelivery> listen() => _listen ??= resubscribed(_listenOnce).asBroadcastStream();
+
+  static Stream<VrxDelivery>? _listen;
 
   static Stream<VrxDelivery> _listenOnce() async* {
     final socket = await _connect('io.vrx.Host.Listen', const {}, more: true);

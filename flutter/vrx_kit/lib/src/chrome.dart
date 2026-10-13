@@ -6,11 +6,13 @@
 /// warning triangle here — that glyph belongs to whoever owns the
 /// policy).
 ///
-/// Left to right: back (offered, not asserted), the clock and the day
-/// (all the width the rest leaves), then at the end wifi, ble (hidden
-/// when down: an always-present glyph says nothing) and the battery cell
-/// (glyph and percent, `~` while estimated). Hairline under; edge insets;
-/// the height is heightOf's.
+/// Left to right: back (offered, not asserted; its slot is kept when it
+/// is not offered, so the clock never moves), the clock and the day (all
+/// the width the rest leaves; a notice takes the day's place), then at
+/// the end wifi (its own glyph when down: a state is never colour alone),
+/// ble (hidden when down: an always-present glyph says nothing) and the
+/// battery cell (glyph and percent, `~` while estimated). Hairline under;
+/// edge insets; the height is heightOf's.
 library;
 
 import 'package:flutter/material.dart';
@@ -33,6 +35,7 @@ class VrxStatusFacts {
     this.batteryLevel,
     this.batteryCharging = false,
     this.batteryEstimated = false,
+    this.notice,
   });
 
   /// The Back affordance is offered (there is somewhere to go).
@@ -55,6 +58,10 @@ class VrxStatusFacts {
 
   /// The reading is an estimate: the percent renders with `~`.
   final bool batteryEstimated;
+
+  /// A sentence that takes the day's place until its owner clears it
+  /// ("Recorder stopped.", plan 0011 D2).
+  final String? notice;
 }
 
 class VrxStatusStrip extends StatelessWidget {
@@ -94,21 +101,22 @@ class VrxStatusStrip extends StatelessWidget {
           // full height and half again the touch minimum wide, so a
           // finger near the arrow goes back instead of falling through
           // to whatever the rest of the strip does (the drawer)
+          // the slot stays when Back is not offered: the clock does not
+          // jump by its width every time Home is left (evrx-rt docs/13)
           if (facts.showBack)
             VrxPress(
               onTap: facts.onBack,
               child: SizedBox(
-                width: 1.5 *
-                    (ScaledSpacing.minInteractive(context) > Chrome.iconButton * VrxScale.of(context)
-                        ? ScaledSpacing.minInteractive(context)
-                        : Chrome.iconButton * VrxScale.of(context)),
+                width: _backWidth(context),
                 height: double.infinity,
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Icon(VrxSymbols.arrow_back, size: Chrome.iconButton * VrxScale.of(context), color: colors.text),
                 ),
               ),
-            ),
+            )
+          else
+            SizedBox(width: _backWidth(context)),
           // the clock, and the day while there is room: all the width the
           // glyphs at the end leave (a fixed share cut "Tue 13 Oct" to
           // "Tue…" on the 43mm panel, beside an empty battery slot)
@@ -118,12 +126,12 @@ class VrxStatusStrip extends StatelessWidget {
                 facts.clockText ?? '--:--',
                 style: TypeRole.of(context, VrxTypeRole.value),
               ),
-              if (facts.dateText != null) ...[
+              if ((facts.notice ?? facts.dateText) != null) ...[
                 SizedBox(width: s.sm),
                 Flexible(
                   child: VrxTruncates(
                     child: Text(
-                      facts.dateText!,
+                      (facts.notice ?? facts.dateText)!,
                       maxLines: 1,
                       softWrap: false,
                       overflow: TextOverflow.ellipsis,
@@ -134,11 +142,11 @@ class VrxStatusStrip extends StatelessWidget {
               ],
             ]),
           ),
-          // slot 3: wifi
+          // slot 3: wifi, a glyph for each state, never a fainter ink
           Icon(
-            VrxSymbols.wifi,
+            facts.wifiUp ? VrxSymbols.wifi : VrxSymbols.wifi_off,
             size: Chrome.statusButton,
-            color: facts.wifiUp ? colors.text : colors.outlineFaint,
+            color: colors.text,
           ),
           // slot 4: ble — hidden when down, never a dead glyph
           if (facts.bleUp)
@@ -170,6 +178,14 @@ class VrxStatusStrip extends StatelessWidget {
       ),
     );
   }
+
+  /// Back's slot: the strip's full height and half again the touch
+  /// minimum wide.
+  static double _backWidth(BuildContext context) =>
+      1.5 *
+      (ScaledSpacing.minInteractive(context) > Chrome.iconButton * VrxScale.of(context)
+          ? ScaledSpacing.minInteractive(context)
+          : Chrome.iconButton * VrxScale.of(context));
 
   /// Five levels: ≥88 full, ≥63, ≥38, ≥13, else empty.
   IconData _batteryGlyph(int level) {

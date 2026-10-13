@@ -88,9 +88,8 @@ class _Tile extends StatelessWidget {
     final space = ScaledSpacing.of(context);
     final glyph = VrxSymbols.named(tile.icon);
     final radius = BorderRadius.circular(Radii.md * 1.5);
-    return InkWell(
+    return VrxPress(
       onTap: () => Nav.push(tile.id),
-      borderRadius: radius,
       child: Column(
         children: [
           Expanded(
@@ -162,7 +161,7 @@ class _NoApps extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Text(
-        'no apps',
+        'No apps are installed.',
         style: TypeRole.body(context),
       ),
     );

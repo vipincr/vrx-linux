@@ -326,7 +326,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
           if (d.hostname.isNotEmpty && d.hostname != d.name)
             SettingRow(key: 'hostname', label: 'Network name', value: d.hostname, kind: RowKind.info),
           if (d.model.isNotEmpty) SettingRow(key: 'model', label: 'Board', value: d.model, kind: RowKind.info),
-          if (d.version.isNotEmpty) SettingRow(key: 'version', label: 'vrx', value: d.version, kind: RowKind.info),
+          if (d.version.isNotEmpty) SettingRow(key: 'version', label: 'Software version', value: d.version, kind: RowKind.info),
           if (d.memoryMb > 0)
             SettingRow(key: 'memory', label: 'Memory', value: '${(d.memoryMb / 1024).toStringAsFixed(1)} GB', kind: RowKind.info),
           if (d.serial.isNotEmpty) SettingRow(key: 'serial', label: 'Serial', value: d.serial, kind: RowKind.info),

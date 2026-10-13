@@ -31,5 +31,9 @@ export 'src/store.dart';
 export 'src/symbols.dart';
 export 'src/system.dart';
 export 'src/theme.dart';
-// the slot and class names applets may say; the tables stay the kit's
-export 'src/ui_standard.g.dart' show VrxSlot, VrxDisplayClass;
+export 'src/ticker.dart';
+export 'src/words.dart';
+// the slot names applets may say; the display class and the tables stay
+// the kit's (an applet never knows what panel it is on: plan 0009 D4,
+// evrx-rt docs/13)
+export 'src/ui_standard.g.dart' show VrxSlot;

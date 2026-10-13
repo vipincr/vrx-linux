@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vrx_kit/src/ui_standard.g.dart';
 import 'package:vrx_kit/vrx_kit.dart';
 
 /// The kit answers a press, and shows a signal, the way the display class

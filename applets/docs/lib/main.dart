@@ -45,7 +45,8 @@ class DocsApplet extends Applet<DocsState, DocsAction, DocsView> {
       }
       model.text = texts.isEmpty ? 'Licence: ${p.licence}' : texts.join('\n\n');
     } on FileSystemException catch (err) {
-      model.text = 'Licence: ${p.licence}\n\n(${err.message})';
+      debugPrint('docs: ${err.message}');
+      model.text = 'Licence: ${p.licence}\n\nThe licence text is not in this image.';
     }
     _events.add(DocsAction.opened);
   }
@@ -105,7 +106,8 @@ Future<void> main() async {
     model.packages = parseManifest(await File('$_root/license.manifest').readAsString());
     _events.add(DocsAction.loaded);
   } on FileSystemException catch (err) {
-    model.error = 'No licence manifest in this image (${err.message})';
+    debugPrint('docs: ${err.message}');
+    model.error = 'This image carries no list of its licences.';
     _events.add(DocsAction.failed);
   }
 }

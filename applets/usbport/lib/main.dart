@@ -26,7 +26,7 @@ class UsbApplet extends Applet<UsbState, UsbAction, UsbView> {
   UsbState get snapshot => model.snapshot;
 
   void _share(bool on) => unawaited(VrxSystem.usb.share(on).catchError((Object err) {
-        model.error = err is SystemError && err.denied ? 'This applet may not share files (the usb grant)' : '$err';
+        model.error = VrxWords.of(err, context: 'usbport: share');
         _events.add(UsbAction.failed);
       }));
 
@@ -71,7 +71,7 @@ void main() {
     model.usb = u;
     _events.add(UsbAction.factsChanged);
   }, onError: (Object err) {
-    model.error = '$err';
+    model.error = VrxWords.of(err, context: 'usbport: watch');
     _events.add(UsbAction.failed);
   });
 }

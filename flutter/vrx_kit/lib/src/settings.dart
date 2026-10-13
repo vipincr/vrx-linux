@@ -10,6 +10,8 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'file.dart';
+
 /// Where the settings files live.
 const settingsDir = '/etc/vrx/settings';
 
@@ -140,12 +142,6 @@ Stream<Map<String, String>> watchSettingsFile(String dir, String name, Future<Ma
 /// Replace [dir]/[name] with [text]: a new file renamed over the old, so
 /// a reader never sees half of one. The one way vrx writes a settings
 /// file.
-Future<void> replaceSettingsFile(String dir, String name, String text) async {
-  final tmp = File('$dir/.$name.new');
-  await tmp.writeAsString(text, flush: true);
-  // an applet's unit has UMask=0077: the file must stay readable by
-  // whoever reads it (0664, the directory's group by setgid)
-  final chmod = await Process.run('chmod', ['0664', tmp.path]);
-  if (chmod.exitCode != 0) throw FileSystemException('chmod: ${chmod.stderr}'.trim(), tmp.path);
-  await tmp.rename('$dir/$name');
-}
+// readable by whoever reads it: 0664, the directory's group by setgid
+Future<void> replaceSettingsFile(String dir, String name, String text) =>
+    VrxFile.writeAtomic('$dir/$name', text, mode: '0664');

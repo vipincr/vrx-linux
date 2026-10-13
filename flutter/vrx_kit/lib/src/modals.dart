@@ -8,14 +8,67 @@
 ///   alarm will be deleted."), not "Are you sure?"
 /// - a modal owns the screen until answered; nothing behind it
 ///   answers while it is open
+/// - Back (the strip's, Escape, the mouse's back button) answers Cancel
+///   and closes the modal, never the screen under it (plan 0011 D1)
+///
+/// [vrxConfirm] and [vrxAsk] are the only way an applet opens one: a
+/// Flutter `DialogRoute` whose Back is Cancel.
 library;
 
 import 'package:flutter/material.dart';
 
 import 'components.dart';
+import 'input.dart';
 import 'metrics.dart';
 import 'scale.dart';
 import 'theme.dart';
+
+/// Ask [title] with one act, [act], beside Cancel. True when the act
+/// was chosen; false on Cancel, Back, or a tap outside.
+Future<bool> vrxConfirm(
+  BuildContext context, {
+  required String title,
+  required String message,
+  required String act,
+  String cancelLabel = 'Cancel',
+}) async =>
+    await vrxAsk(context, title: title, message: message, acts: [act], cancelLabel: cancelLabel) == 0;
+
+/// Ask [title] with up to two [acts] under Cancel (the last is filled).
+/// The index of the act chosen, or null on Cancel, Back, or a tap
+/// outside.
+Future<int?> vrxAsk(
+  BuildContext context, {
+  required String title,
+  required String message,
+  required List<String> acts,
+  String cancelLabel = 'Cancel',
+}) {
+  assert(acts.length <= 2, 'three acts is a menu, and a menu is a screen');
+  // the dialog's own route, not the trail: a modal is the kit's to open
+  // and close, so an applet never touches a Navigator
+  final navigator = Navigator.of(context); // vrx-allow: the modal's own route
+  return navigator.push<int>(DialogRoute<int>(
+    context: context,
+    // the page dimmed, as the drawer's scrim; a tap on it is Cancel
+    barrierColor: VrxTheme.of(context).page.withValues(alpha: 0.6),
+    builder: (dialog) {
+      void answer(int? index) => Navigator.of(dialog).pop(index); // vrx-allow: the modal's own route
+      return VrxBackOffer(
+        onBack: () => answer(null),
+        child: VrxAsk(
+          title: title,
+          message: message,
+          cancelLabel: cancelLabel,
+          onCancel: () => answer(null),
+          actions: [
+            for (var i = 0; i < acts.length; i++) VrxModalAction(label: acts[i], onTap: () => answer(i)),
+          ],
+        ),
+      );
+    },
+  ));
+}
 
 /// One named act in a modal.
 class VrxModalAction {

@@ -66,7 +66,7 @@ class VrxShell {
           top.value = _read(call.arguments);
         case 'back':
           // the screen on top goes back; at the app's first, the app leaves
-          if (!VrxBack.invoke()) Nav.pop();
+          if (!VrxBack.invoke()) unawaited(Nav.pop());
       }
     });
     // a push that lands before the answer is newer than it

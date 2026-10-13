@@ -18,5 +18,13 @@ void main() {
         await expectCleanLayout(tester, SetupApplet(model), display: display);
       });
     }
+    testWidgets('setup again, its end, on ${display.name}', (tester) async {
+      final model = SetupModel()
+        ..again = true
+        ..step = SetupStep.done
+        ..name = 'Kitchen display'
+        ..zone = 'Asia/Kolkata';
+      await expectCleanLayout(tester, SetupApplet(model), display: display);
+    });
   }
 }

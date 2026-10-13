@@ -15,6 +15,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'input.dart';
 import 'metrics.dart';
@@ -265,11 +266,13 @@ class VrxRow extends StatelessWidget {
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   VrxFitText(label, style: labelStyle),
                   if (second != null && second.isNotEmpty)
-                    Text(
+                    VrxRevealText(
                       vrxBreakable(second),
                       style: detail != null ? TypeRole.of(context, VrxTypeRole.caption) : valueStyle,
                       maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                      // a row that does something keeps its tap; an inert
+                      // one shows the rest of a cut value on a tap
+                      reveals: onTap == null && onLongPress == null,
                     ),
                 ]),
               ),
@@ -286,59 +289,138 @@ class VrxRow extends StatelessWidget {
   }
 }
 
-/// Mutually exclusive choices; the current one fills (inversion).
-/// Selection state is the feedback — no press flash here.
-class VrxSegmented extends StatelessWidget {
+/// One choice of a few, side by side (evrx-rt docs/13 §Segmented): the
+/// chosen cell is filled AND framed (never the colour alone, which a grey
+/// panel cannot show); choosing does not also flash (a flash would claim
+/// both cells for a refresh); every cell is as wide as the widest label
+/// needs, and a row too narrow shrinks every label alike, never cuts one.
+/// It takes focus: the arrows move the choice, as a finger would. With
+/// [glyphs] the cells show those instead, the labels naming them for a
+/// screen reader.
+class VrxSegmented extends StatefulWidget {
   const VrxSegmented({
     super.key,
     required this.labels,
     required this.selected,
     this.onSelected,
-  });
+    this.glyphs,
+  }) : assert(glyphs == null || glyphs.length == labels.length);
 
   final List<String> labels;
+  final List<IconData>? glyphs;
   final int selected;
   final ValueChanged<int>? onSelected;
 
   @override
+  State<VrxSegmented> createState() => _VrxSegmentedState();
+}
+
+class _VrxSegmentedState extends State<VrxSegmented> {
+  bool _focused = false;
+
+  void _step(int by) {
+    final next = (widget.selected + by).clamp(0, widget.labels.length - 1);
+    if (next != widget.selected) widget.onSelected?.call(next);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final colors = VrxTheme.of(context);
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: ScaledSpacing.of(context).inset),
-      child: Row(
-        children: [
-          for (var i = 0; i < labels.length; i++)
-            Expanded(
-              child: GestureDetector(
-                onTap: onSelected == null ? null : () => onSelected!(i),
-                child: Container(
-                  margin: EdgeInsets.only(
-                    right: i + 1 < labels.length ? ScaledSpacing.of(context).xs : 0,
-                  ),
-                  padding: EdgeInsets.symmetric(vertical: ScaledSpacing.of(context).sm),
-                  decoration: BoxDecoration(
-                    // segments rest on the secondary container; the chosen one is the primary
-                    color: i == selected ? colors.primary : colors.secondaryContainer,
-                  ),
-                  child: Text(
-                    labels[i],
-                    textAlign: TextAlign.center,
-                    style: TypeRole.of(context, VrxTypeRole.list).copyWith(
-                      color: i == selected ? colors.onPrimary : colors.onSecondaryContainer,
+    final s = ScaledSpacing.of(context);
+    final style = TypeRole.of(context, VrxTypeRole.list);
+    final enabled = widget.onSelected != null;
+    return FocusableActionDetector(
+      enabled: enabled,
+      onShowFocusHighlight: (v) => setState(() => _focused = v),
+      shortcuts: const {
+        SingleActivator(LogicalKeyboardKey.arrowLeft): _StepIntent(-1),
+        SingleActivator(LogicalKeyboardKey.arrowRight): _StepIntent(1),
+      },
+      actions: {
+        _StepIntent: CallbackAction<_StepIntent>(onInvoke: (i) {
+          _step(i.by);
+          return null;
+        }),
+      },
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: s.inset),
+        child: LayoutBuilder(builder: (context, box) {
+          final gaps = s.xs * (widget.labels.length - 1);
+          final cell = (box.maxWidth - gaps) / widget.labels.length - 2 * s.sm;
+          final scaler = MediaQuery.textScalerOf(context);
+          var widest = 0.0;
+          for (final l in widget.labels) {
+            final tp = TextPainter(
+              text: TextSpan(text: l, style: style),
+              textDirection: TextDirection.ltr,
+              textScaler: scaler,
+              maxLines: 1,
+            )..layout();
+            if (tp.width > widest) widest = tp.width;
+          }
+          // one scale for every label: the widest decides
+          final fit = widest > cell && widest > 0 ? cell / widest : 1.0;
+          return Row(children: [
+            for (var i = 0; i < widget.labels.length; i++)
+              Expanded(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: enabled ? () => widget.onSelected!(i) : null,
+                  child: Container(
+                    margin: EdgeInsets.only(right: i + 1 < widget.labels.length ? s.xs : 0),
+                    constraints: BoxConstraints(minHeight: ScaledSpacing.minInteractive(context)),
+                    alignment: Alignment.center,
+                    padding: EdgeInsets.symmetric(horizontal: s.sm, vertical: s.sm),
+                    decoration: BoxDecoration(
+                      // segments rest on the secondary container; the chosen
+                      // one is the primary, and framed
+                      color: i == widget.selected ? colors.primary : colors.secondaryContainer,
+                      border: Border.all(
+                        color: i == widget.selected
+                            ? (_focused ? colors.focus : colors.outline)
+                            : (colors.secondaryContainer == colors.page ? colors.outlineFaint : colors.secondaryContainer),
+                        width: i == widget.selected ? Strokes.border : Strokes.hairline,
+                      ),
                     ),
+                    child: widget.glyphs != null
+                        ? Icon(
+                            widget.glyphs![i],
+                            semanticLabel: widget.labels[i],
+                            size: ScaledSpacing.of(context).touch * 0.5,
+                            color: i == widget.selected ? colors.onPrimary : colors.onSecondaryContainer,
+                          )
+                        : Text(
+                            widget.labels[i],
+                            maxLines: 1,
+                            softWrap: false,
+                            textAlign: TextAlign.center,
+                            style: style.copyWith(
+                              fontSize: (style.fontSize ?? 14) * fit,
+                              color: i == widget.selected ? colors.onPrimary : colors.onSecondaryContainer,
+                            ),
+                          ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ]);
+        }),
       ),
     );
   }
 }
 
+class _StepIntent extends Intent {
+  const _StepIntent(this.by);
+
+  final int by;
+}
+
 /// A word to tap: filled in the primary for the screen's action, resting on
 /// the secondary container otherwise (evrx-rt's chip); on a grey panel the
-/// container is the page and the chip keeps its frame.
+/// container is the page and the chip keeps its frame. With no [onTap] it
+/// is disabled: it loses its fill and frame and keeps its word in the
+/// ink (evrx-rt docs/13: never grey text, which a first e-paper pass and
+/// a dim panel both lose).
 class VrxChip extends StatelessWidget {
   const VrxChip({super.key, required this.label, this.filled = false, this.onTap});
 
@@ -352,23 +434,26 @@ class VrxChip extends StatelessWidget {
     final s = ScaledSpacing.of(context);
     return VrxPress(
       onTap: onTap,
+      onFill: filled,
       child: Container(
         // a control: the touch minimum tall on a touch display
         constraints: BoxConstraints(minHeight: ScaledSpacing.minInteractive(context)),
         alignment: Alignment.centerLeft,
         padding: EdgeInsets.symmetric(horizontal: s.sm, vertical: s.xs),
-        decoration: BoxDecoration(
-          color: filled ? colors.primary : colors.secondaryContainer,
-          // a container the page's own grey needs a frame to be seen
-          border: colors.secondaryContainer == colors.page
-              ? Border.all(color: colors.outline, width: Strokes.hairline)
-              : null,
-          borderRadius: BorderRadius.circular(Radii.sm),
-        ),
+        decoration: onTap == null
+            ? null
+            : BoxDecoration(
+                color: filled ? colors.primary : colors.secondaryContainer,
+                // a container the page's own grey needs a frame to be seen
+                border: colors.secondaryContainer == colors.page
+                    ? Border.all(color: colors.outline, width: Strokes.hairline)
+                    : null,
+                borderRadius: BorderRadius.circular(Radii.sm),
+              ),
         child: Text(
           label,
           style: TypeRole.of(context, VrxTypeRole.list).copyWith(
-            color: filled ? colors.onPrimary : colors.onSecondaryContainer,
+            color: onTap == null ? colors.text : (filled ? colors.onPrimary : colors.onSecondaryContainer),
           ),
         ),
       ),
@@ -377,11 +462,13 @@ class VrxChip extends StatelessWidget {
 }
 
 /// A persistent message band across the bottom — deliberately NOT a
-/// toast: nothing transient. NULL text slides it away.
+/// toast: nothing transient. NULL text slides it away; with [onTap], a
+/// tap on it does too (the person read it).
 class VrxBanner extends StatelessWidget {
-  const VrxBanner({super.key, required this.text, this.signal = VrxSignal.error});
+  const VrxBanner({super.key, required this.text, this.signal = VrxSignal.error, this.onTap});
 
   final String? text;
+  final VoidCallback? onTap;
 
   /// What it means: its colour and its glyph, never the colour alone.
   final VrxSignal signal;
@@ -390,7 +477,7 @@ class VrxBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = VrxTheme.of(context);
     if (text == null) return const SizedBox.shrink();
-    return Container(
+    final band = Container(
       width: double.infinity,
       constraints: BoxConstraints(
         minHeight: ScaledSpacing.minInteractive(context),
@@ -411,6 +498,7 @@ class VrxBanner extends StatelessWidget {
         ),
       ]),
     );
+    return onTap == null ? band : GestureDetector(onTap: onTap, child: band);
   }
 }
 
@@ -418,12 +506,24 @@ class VrxBanner extends StatelessWidget {
 /// D8): a state layer of the primary on a lit panel, the inversion on a
 /// grey one, AT ONCE (never faded), and the control sinks to 0.97 scale
 /// back on the spatial-fast spring. Wraps any child; press is never eased.
+///
+/// A control that is already filled with the primary says so ([onFill]):
+/// a primary layer over the primary changes nothing a person can see, so
+/// its press is drawn in the primary's own ink instead (evrx-rt docs/15
+/// §7: feedback must change what is drawn).
+///
+/// What a hold does, a keyboard does with Shift+Enter or the Menu key,
+/// and a mouse with a right click: every control is reachable without a
+/// finger (evrx-rt AGENTS.md 2.1.2a).
 class VrxPress extends StatefulWidget {
-  const VrxPress({super.key, required this.child, this.onTap, this.onLongPress});
+  const VrxPress({super.key, required this.child, this.onTap, this.onLongPress, this.onFill = false});
 
   final Widget child;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
+
+  /// The child is filled with the primary.
+  final bool onFill;
 
   @override
   State<VrxPress> createState() => _VrxPressState();
@@ -464,22 +564,26 @@ class _VrxPressState extends State<VrxPress> with SingleTickerProviderStateMixin
     final enabled = widget.onTap != null || widget.onLongPress != null;
     Widget child = widget.child;
     final layer = colors.classRow.pressedLayerPermille;
+    // on a filled control the layer and the inversion use the ink the
+    // fill is read with, or nothing would change
+    final fill = widget.onFill ? colors.onPrimary : colors.primary;
+    final ink = widget.onFill ? colors.primary : colors.onPrimary;
     if (_held && layer > 0) {
       // a lit panel: the primary laid over the control at the class's
       // strength, its words as they were (a whole control turning to its
       // ink for a tap read as a flicker on evrx-rt's first colour board)
       child = DecoratedBox(
         position: DecorationPosition.foreground,
-        decoration: BoxDecoration(color: colors.primary.withValues(alpha: layer / 1000)),
+        decoration: BoxDecoration(color: fill.withValues(alpha: (widget.onFill ? 2 : 1) * layer / 1000)),
         child: child,
       );
     } else if (_held) {
       // a grey or one-bit panel: the inversion, one partial refresh
       child = ColoredBox(
-        color: colors.primary,
+        color: fill,
         child: DefaultTextStyle(
-          style: TextStyle(color: colors.onPrimary),
-          child: IconTheme(data: IconThemeData(color: colors.onPrimary), child: child),
+          style: TextStyle(color: ink),
+          child: IconTheme(data: IconThemeData(color: ink), child: child),
         ),
       );
     } else if (_hovered) {
@@ -501,9 +605,19 @@ class _VrxPressState extends State<VrxPress> with SingleTickerProviderStateMixin
       mouseCursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
       onShowFocusHighlight: (v) => setState(() => _focused = v),
       onShowHoverHighlight: (v) => setState(() => _hovered = v),
+      shortcuts: widget.onLongPress == null
+          ? null
+          : const {
+              SingleActivator(LogicalKeyboardKey.enter, shift: true): _HoldIntent(),
+              SingleActivator(LogicalKeyboardKey.contextMenu): _HoldIntent(),
+            },
       actions: {
         ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: (_) {
           widget.onTap?.call();
+          return null;
+        }),
+        _HoldIntent: CallbackAction<_HoldIntent>(onInvoke: (_) {
+          widget.onLongPress?.call();
           return null;
         }),
       },
@@ -526,6 +640,11 @@ class _VrxPressState extends State<VrxPress> with SingleTickerProviderStateMixin
   }
 }
 
+/// What a hold does, from the keyboard.
+class _HoldIntent extends Intent {
+  const _HoldIntent();
+}
+
 /// [text] with break opportunities after its punctuation (- _ / . &),
 /// so an identifier longer than a line wraps between its parts rather
 /// than inside a word.
@@ -536,9 +655,15 @@ String vrxBreakable(String text) => text.replaceAllMapped(RegExp(r'([-_/.&])'), 
 /// [maxLines] lines, breaking at punctuation. A long network name or
 /// package name in a header reads whole instead of ending in "...".
 class VrxFitText extends StatelessWidget {
-  const VrxFitText(this.text, {super.key, required this.style, this.floor = 0.7, this.maxLines = 2, this.textAlign});
+  const VrxFitText(this.text,
+      {super.key, required this.style, this.floor = 0.7, this.maxLines = 2, this.textAlign, this.widest});
 
   final String text;
+
+  /// The widest text this slot will ever hold ("88:88" for a clock): the
+  /// size is fitted to it, so the text does not change size as its value
+  /// changes (evrx-rt docs/13 §Text that did not fit).
+  final String? widest;
   final TextStyle style;
   final double floor;
   final int maxLines;
@@ -549,7 +674,7 @@ class VrxFitText extends StatelessWidget {
     return LayoutBuilder(builder: (context, box) {
       final scaler = MediaQuery.textScalerOf(context);
       final tp = TextPainter(
-        text: TextSpan(text: text, style: style),
+        text: TextSpan(text: widest ?? text, style: style),
         textDirection: TextDirection.ltr,
         textScaler: scaler,
         maxLines: 1,
@@ -562,12 +687,60 @@ class VrxFitText extends StatelessWidget {
       if (scale >= floor) {
         return Text(text, style: style.copyWith(fontSize: base * scale * 0.99), maxLines: 1, textAlign: textAlign);
       }
-      return Text(
+      // still too long: the lines it has, and a tap shows the rest
+      return VrxRevealText(
         vrxBreakable(text),
         style: style.copyWith(fontSize: base * floor),
         maxLines: maxLines,
-        overflow: TextOverflow.ellipsis,
         textAlign: textAlign,
+      );
+    });
+  }
+}
+
+/// Text cut to [maxLines] that a tap shows whole, and a second tap cuts
+/// again (evrx-rt docs/13 §Cut text: an ellipsis is a promise that the
+/// rest can be seen). Text that fits is plain text; with [reveals] false
+/// it only cuts (its parent's tap does something else).
+class VrxRevealText extends StatefulWidget {
+  const VrxRevealText(this.text, {super.key, required this.style, this.maxLines = 2, this.textAlign, this.reveals = true});
+
+  final String text;
+  final TextStyle style;
+  final int maxLines;
+  final TextAlign? textAlign;
+  final bool reveals;
+
+  @override
+  State<VrxRevealText> createState() => _VrxRevealTextState();
+}
+
+class _VrxRevealTextState extends State<VrxRevealText> {
+  bool _whole = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, box) {
+      final tp = TextPainter(
+        text: TextSpan(text: widget.text, style: widget.style),
+        textDirection: TextDirection.ltr,
+        textScaler: MediaQuery.textScalerOf(context),
+        maxLines: widget.maxLines,
+      )..layout(maxWidth: box.maxWidth);
+      final cut = tp.didExceedMaxLines;
+      tp.dispose();
+      final text = Text(
+        widget.text,
+        style: widget.style,
+        maxLines: _whole ? null : widget.maxLines,
+        overflow: _whole ? null : TextOverflow.ellipsis,
+        textAlign: widget.textAlign,
+      );
+      if (!cut || !widget.reveals) return text;
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => setState(() => _whole = !_whole),
+        child: text,
       );
     });
   }

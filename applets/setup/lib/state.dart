@@ -3,7 +3,7 @@ import 'package:vrx_kit/vrx_kit.dart';
 /// The walk, in evrx-rt's order. Nothing is written until the last step.
 enum SetupStep { licence, name, wifi, zone, done }
 
-enum SetupAction { init, moved, zonesLoaded, factsChanged, failed }
+enum SetupAction { init, moved, zonesLoaded, factsChanged, failed, again }
 
 class SetupView {
   const SetupView({
@@ -14,6 +14,7 @@ class SetupView {
     required this.network,
     required this.error,
     required this.finishing,
+    this.again = false,
   });
 
   final SetupStep step;
@@ -27,6 +28,10 @@ class SetupView {
 
   /// The last step is writing.
   final bool finishing;
+
+  /// Opened from Settings to set the device up again (the `again` route):
+  /// the end saves and goes back, instead of starting the device.
+  final bool again;
 }
 
 class SetupModel extends StoreModel<SetupState, SetupAction, SetupView> {
@@ -37,6 +42,16 @@ class SetupModel extends StoreModel<SetupState, SetupAction, SetupView> {
   String network = '';
   String? error;
   bool finishing = false;
+
+  /// Set up again, from Settings (the `again` route).
+  bool again = false;
+
+  /// Opened at [route]: `again` from Settings, anything else the first
+  /// boot (an unknown route arrives as the root).
+  void openedAt(String route) {
+    again = route == 'again';
+    if (again) step = SetupStep.licence;
+  }
 
   /// Steps in order; the walk only moves forward and back by one.
   void next() {
@@ -67,6 +82,7 @@ class SetupModel extends StoreModel<SetupState, SetupAction, SetupView> {
       network: network,
       error: error,
       finishing: finishing,
+      again: again,
     );
   }
 

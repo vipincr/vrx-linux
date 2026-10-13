@@ -24,4 +24,17 @@ void main() {
     model.name = 'Kitchen';
     expect(model.canLeaveName, isTrue);
   });
+
+  // plan 0011 D5: the again route reaches the applet; any other route,
+  // and an unknown one (it arrives as the root), is the first boot
+  test('opened at again, the walk restarts and its end saves; anything else is the first boot', () {
+    final model = SetupModel()..step = SetupStep.zone;
+    final harness = StoreHarness(model);
+    model.openedAt('again');
+    harness.dispatch(SetupAction.again);
+    harness.assertView((v) => v.again && v.step == SetupStep.licence);
+    model.openedAt('');
+    harness.dispatch(SetupAction.again);
+    harness.assertView((v) => !v.again);
+  });
 }

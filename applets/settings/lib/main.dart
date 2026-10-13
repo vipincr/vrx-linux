@@ -49,11 +49,8 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
   Future<void> _ask(BuildContext context, Future<void> Function() call) async {
     try {
       await call();
-    } on SystemError catch (err) {
-      model.error = err.denied ? 'Not allowed: ${err.message}' : err.message;
-      _facts.add(SettingsAction.failed);
     } on Object catch (err) {
-      model.error = '$err';
+      model.error = VrxWords.of(err, context: 'settings');
       _facts.add(SettingsAction.failed);
     }
   }
@@ -138,7 +135,7 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
     try {
       await _settings.set(applet, key, value);
     } on FileSystemException catch (err) {
-      model.error = 'Cannot save: ${err.osError?.message ?? err.message}';
+      model.error = VrxWords.of(err, context: 'settings: save');
       _facts.add(SettingsAction.failed);
     }
   }
@@ -161,13 +158,15 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
     }
     switch (row.key) {
       case 'wifi':
-      case 'setup':
       case 'usbport':
       case 'manage':
         // their own applets (no tile): a trail push, vrxhost starts them
-        Nav.push(row.key);
+        unawaited(Nav.push(row.key));
+      // at the route that says why it was opened (plan 0011 D5)
+      case 'setup':
+        unawaited(Nav.push('setup', route: 'again'));
       case 'licences':
-        Nav.push('docs');
+        unawaited(Nav.push('docs', route: 'licences'));
       case 'name':
         _go(context, () => model.renaming = true);
       case 'light_off':
@@ -189,24 +188,17 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
       case 'restart':
       case 'power_off':
         final off = row.key == 'power_off';
-        unawaited(showDialog<void>(
-          context: context,
-          builder: (dialog) => VrxConfirm(
+        unawaited(() async {
+          final yes = await vrxConfirm(
+            context,
             title: off ? 'Power off?' : 'Restart?',
             message: off
                 ? 'The device turns off. It starts again when its power button or supply says so.'
                 : 'Every applet closes and the device starts again.',
-            cancelLabel: 'Cancel',
-            onCancel: () => Navigator.of(dialog).pop(), // vrx-allow: a dialog's own route, not the trail
-            act: VrxModalAction(
-              label: off ? 'Power off' : 'Restart',
-              onTap: () {
-                Navigator.of(dialog).pop(); // vrx-allow: a dialog's own route, not the trail
-                unawaited(_ask(context, off ? VrxSystem.power.powerOff : VrxSystem.power.reboot));
-              },
-            ),
-          ),
-        ));
+            act: off ? 'Power off' : 'Restart',
+          );
+          if (yes && context.mounted) unawaited(_ask(context, off ? VrxSystem.power.powerOff : VrxSystem.power.reboot));
+        }());
     }
   }
 }
@@ -299,7 +291,7 @@ Future<void> main() async {
   }
 
   void failed(Object err) {
-    model.error = '$err';
+    model.error = VrxWords.of(err, context: 'settings');
     _facts.add(SettingsAction.failed);
   }
 

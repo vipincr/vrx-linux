@@ -75,4 +75,26 @@ void main() {
     expect(await glyphAt(14), VrxSymbols.battery_2_bar);
     expect(await glyphAt(5), VrxSymbols.battery_0_bar);
   });
+
+  // plan 0011 D8: fixed slots, and no state in colour alone
+  testWidgets('the clock does not move when Back appears', (tester) async {
+    await pumpFacts(tester, const VrxStatusFacts(clockText: '13:05'));
+    final without = tester.getTopLeft(find.text('13:05'));
+    await pumpFacts(tester, VrxStatusFacts(clockText: '13:05', showBack: true, onBack: () {}));
+    expect(tester.getTopLeft(find.text('13:05')), without);
+  });
+
+  testWidgets('Wi-Fi down is its own glyph, not a fainter one', (tester) async {
+    await pumpFacts(tester, const VrxStatusFacts(wifiUp: true));
+    expect(find.byIcon(VrxSymbols.wifi), findsOneWidget);
+    await pumpFacts(tester, const VrxStatusFacts());
+    expect(find.byIcon(VrxSymbols.wifi_off), findsOneWidget);
+    expect(find.byIcon(VrxSymbols.wifi), findsNothing);
+  });
+
+  testWidgets('a notice takes the day\'s place', (tester) async {
+    await pumpFacts(tester, const VrxStatusFacts(clockText: '13:05', dateText: 'Tue 13 Oct', notice: 'Recorder stopped.'));
+    expect(find.text('Recorder stopped.'), findsOneWidget);
+    expect(find.text('Tue 13 Oct'), findsNothing);
+  });
 }

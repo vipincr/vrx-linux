@@ -69,7 +69,7 @@ class WebApplet extends Applet<WebState, WebAction, WebView> {
       );
       _events.add(WebAction.answered);
     } on Object catch (err) {
-      model.error = err is SocketException ? 'Cannot reach it: ${err.message}' : '$err';
+      model.error = VrxWords.of(err, context: 'web');
       _events.add(WebAction.failed);
     } finally {
       model.busy = false;

@@ -16,7 +16,7 @@ class RecorderApplet extends Applet<RecorderState, RecorderAction, RecorderView>
 
   final RecorderModel model;
   Process? _process;
-  Timer? _clock;
+  VrxTicker? _clock;
   final _watch = Stopwatch();
 
   @override
@@ -43,7 +43,7 @@ class RecorderApplet extends Applet<RecorderState, RecorderAction, RecorderView>
       ..reset()
       ..start();
     // the elapsed time is whole seconds: once a second is the most it changes
-    _clock = Timer.periodic(const Duration(seconds: 1), (_) {
+    _clock = VrxTicker(const Duration(seconds: 1), () {
       model.elapsed = _watch.elapsedMilliseconds / 1000;
       _events.add(RecorderAction.tick);
     });
@@ -58,9 +58,12 @@ class RecorderApplet extends Applet<RecorderState, RecorderAction, RecorderView>
       unawaited(p.stdout.drain<void>());
       final code = await p.exitCode;
       // a stop is SIGINT: arecord closes the file properly on it
-      if (code != 0 && code != -2 && code != 130 && err.isNotEmpty) model.error = err.toString().trim().split('\n').last;
+      if (code != 0 && code != -2 && code != 130 && err.isNotEmpty) {
+        debugPrint('recorder: ${cmd.first}: ${err.toString().trim()}');
+        model.error = VrxWords.failed;
+      }
     } on Object catch (e) {
-      model.error = '${cmd.first}: $e';
+      model.error = VrxWords.of(e, context: 'recorder: ${cmd.first}');
     }
     _process = null;
     _tick(false);
@@ -154,22 +157,11 @@ class RecorderApplet extends Applet<RecorderState, RecorderAction, RecorderView>
     );
   }
 
-  Future<void> _confirmDelete(BuildContext context, String name) => showDialog<void>(
-        context: context,
-        builder: (dialog) => VrxConfirm(
-          title: 'Delete this recording?',
-          message: '$name will be deleted.',
-          cancelLabel: 'Cancel',
-          onCancel: () => Navigator.of(dialog).pop(), // vrx-allow: a dialog's own route, not the trail
-          act: VrxModalAction(
-            label: 'Delete',
-            onTap: () {
-              Navigator.of(dialog).pop(); // vrx-allow: a dialog's own route, not the trail
-              unawaited(delete(name));
-            },
-          ),
-        ),
-      );
+  Future<void> _confirmDelete(BuildContext context, String name) async {
+    if (await vrxConfirm(context, title: 'Delete this recording?', message: '$name will be deleted.', act: 'Delete')) {
+      unawaited(delete(name));
+    }
+  }
 }
 
 Future<List<Recording>> listRecordings() async {
@@ -196,7 +188,7 @@ Future<void> main() async {
     model.devices = await pcm.exists() ? SoundDevices.parse(await pcm.readAsString()) : const SoundDevices(playback: false, capture: false);
     model.recordings = await listRecordings();
   } on Object catch (err) {
-    model.error = '$err';
+    model.error = VrxWords.of(err, context: 'recorder: list');
   }
   _events.add(RecorderAction.listed);
 }

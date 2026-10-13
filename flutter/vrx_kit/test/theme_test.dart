@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vrx_kit/src/ui_standard.g.dart';
 import 'package:vrx_kit/vrx_kit.dart';
 
 void main() {

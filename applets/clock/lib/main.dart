@@ -49,29 +49,15 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
 
   void _back() {
     if (!model.back()) {
-      Nav.pop();
+      unawaited(Nav.pop());
       return;
     }
     _events.add(ClockAction.changed);
   }
 
-  Future<void> _confirm(BuildContext context, String title, String message, String act, VoidCallback onYes) =>
-      showDialog<void>(
-        context: context,
-        builder: (dialog) => VrxConfirm(
-          title: title,
-          message: message,
-          cancelLabel: 'Cancel',
-          onCancel: () => Navigator.of(dialog).pop(), // vrx-allow: a dialog's own route, not the trail
-          act: VrxModalAction(
-            label: act,
-            onTap: () {
-              Navigator.of(dialog).pop(); // vrx-allow: a dialog's own route, not the trail
-              onYes();
-            },
-          ),
-        ),
-      );
+  Future<void> _confirm(BuildContext context, String title, String message, String act, VoidCallback onYes) async {
+    if (await vrxConfirm(context, title: title, message: message, act: act)) onYes();
+  }
 
   void _pickZone(String zone) {
     final home = model.pickHome;
@@ -225,7 +211,8 @@ class _Note extends StatelessWidget {
 }
 
 /// A face for the time, a globe for other places, a bell for alarms,
-/// an hourglass for a countdown.
+/// an hourglass for a countdown: the kit's segmented control, so the
+/// chosen tab is filled and framed and choosing one does not flash.
 class _TabBar extends StatelessWidget {
   const _TabBar({required this.tab, required this.onTab});
 
@@ -236,23 +223,15 @@ class _TabBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = VrxTheme.of(context);
-    final touch = ScaledSpacing.of(context).touch;
-    return Container(
-      decoration: BoxDecoration(border: Border(top: BorderSide(color: colors.outlineFaint, width: Strokes.hairline))),
-      child: Row(children: [
-        for (final t in ClockTab.values)
-          Expanded(
-            child: VrxPress(
-              onTap: () => onTab(t),
-              child: Container(
-                height: touch,
-                color: t == tab ? colors.secondaryContainer : null,
-                child: Icon(_glyphs[t.index], size: touch * 0.5),
-              ),
-            ),
-          ),
-      ]),
+    final space = ScaledSpacing.of(context);
+    return Padding(
+      padding: EdgeInsets.only(top: space.xs, bottom: space.xs),
+      child: VrxSegmented(
+        labels: const ['Clock', 'World', 'Alarms', 'Timer'],
+        glyphs: _glyphs,
+        selected: tab.index,
+        onSelected: (i) => onTab(ClockTab.values[i]),
+      ),
     );
   }
 }
@@ -388,8 +367,7 @@ class _TimePickerState extends State<_TimePicker> {
           physics: const FixedExtentScrollPhysics(),
           childDelegate: ListWheelChildLoopingListDelegate(children: [
             for (var i = 0; i < count; i++)
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
+              VrxPress(
                 onTap: () => _turnTo(c, count, i),
                 child: Center(child: Text(i.toString().padLeft(2, '0'), style: TypeRole.title(context))),
               ),
@@ -538,7 +516,9 @@ class _Dial extends StatelessWidget {
       },
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
-        child: GestureDetector(
+        // an instrument: where the finger lands is the value, and the ring
+        // it redraws at once is the press's acknowledgement
+        child: GestureDetector( // vrx-allow: the dial reads the touch's position
           onTapUp: (d) => _inCentre(d.localPosition, inner) ? onPress() : _set(d.localPosition),
           onLongPressStart: (d) {
             if (_inCentre(d.localPosition, inner)) onHold();
@@ -723,7 +703,7 @@ class _Scheduler {
   final ClockApplet applet;
   ClockModel get model => applet.model;
   Timer? _wake;
-  Timer? _flash;
+  VrxTicker? _flash;
   Future<void> _saving = Future.value();
   String _front = '';
 
@@ -774,7 +754,9 @@ class _Scheduler {
     }
     _flash?.cancel();
     // 2 Hz for the ring's bounded length: it gives up after ringSeconds
-    _flash = Timer.periodic(const Duration(milliseconds: 500), (_) {
+    // background: the ring must give up after ringSeconds even if nobody
+    // sees it (hidden behind a refused focus, or a screen that stayed off)
+    _flash = VrxTicker.background(const Duration(milliseconds: 500), () {
       if (model.ring != null && model.ringExpired) {
         model.stopRing();
         saveSoon();
@@ -797,6 +779,8 @@ class _Scheduler {
   }
 
   Future<void> start() async {
+    // a save still in flight finishes before the unit stops
+    VrxFile.flushOnStop(() => _saving);
     model.book = await ClockBook.load(_bookPath);
     await loadWorld();
     AppletsService.installed?.watch().listen((f) => _front = f.front, onError: (Object _) {});

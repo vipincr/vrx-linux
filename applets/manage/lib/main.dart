@@ -26,7 +26,7 @@ class ManageApplet extends Applet<bool, ManageAction, ManageView> {
   bool get snapshot => model.snapshot;
 
   void _serve(bool on) => unawaited(VrxSystem.manage.serve(on).catchError((Object err) {
-        model.error = err is SystemError && err.denied ? 'This applet may not serve the page (the serve grant)' : '$err';
+        model.error = VrxWords.of(err, context: 'manage: serve');
         _events.add(ManageAction.failed);
       }));
 
@@ -76,7 +76,7 @@ void main() {
   }
 
   void failed(Object err) {
-    model.error = '$err';
+    model.error = VrxWords.of(err, context: 'manage');
     _events.add(ManageAction.failed);
   }
 

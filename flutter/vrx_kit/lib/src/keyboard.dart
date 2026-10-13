@@ -13,6 +13,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'components.dart';
 import 'input.dart';
 import 'metrics.dart';
 import 'scale.dart';
@@ -25,7 +26,6 @@ enum _Mode { lower, upper, symbols, more }
 enum VrxTermKey { escape, tab, backspace, enter, left, up, down, right }
 
 /// A keyboard bound to [controller]; [onDone] fires on the done key.
-const double _edge = 4;
 
 class VrxKeyboard extends StatefulWidget {
   const VrxKeyboard({super.key, required TextEditingController this.controller, this.onDone})
@@ -54,9 +54,9 @@ class VrxKeyboard extends StatefulWidget {
   final VoidCallback? onBack;
 
   /// The text keyboard's height: four rows of touch-minimum keys 1mm
-  /// apart, and its edge.
+  /// apart, and a 1mm edge above and below.
   static double heightOf(BuildContext context) =>
-      4 * (ScaledSpacing.of(context).touch + Spacing.xs * VrxScale.of(context)) + 2 * _edge;
+      4 * (ScaledSpacing.of(context).touch + ScaledSpacing.of(context).xs) + 2 * ScaledSpacing.of(context).xs;
 
   @override
   State<VrxKeyboard> createState() => _VrxKeyboardState();
@@ -127,20 +127,28 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
         child: Padding(
           // half the 1mm gutter each side: keys stand 1mm apart
           padding: EdgeInsets.all(Spacing.xs / 2 * VrxScale.of(context)),
-          child: Material(
-            color: strong ? colors.secondaryContainer : colors.surfaceHigh,
-            borderRadius: BorderRadius.circular(6),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(6),
-              onTap: onTap,
-              child: SizedBox(
-                height: keyHeight,
-                child: Center(
-                  child: glyph != null
-                      ? Icon(glyph, size: keyHeight * 0.45)
-                      : Text(label, style: TextStyle(fontSize: keyHeight * 0.38, color: colors.text)),
-                ),
+          // the kit's press, as every control: acknowledged the same way
+          child: VrxPress(
+            onTap: onTap,
+            child: Container(
+              height: keyHeight,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: strong ? colors.secondaryContainer : colors.surfaceHigh,
+                borderRadius: BorderRadius.circular(Radii.sm * VrxScale.of(context)),
               ),
+              // a key is an instrument: its label is sized to the key, which
+              // is sized from the scale (the touch minimum, or 6mm on the
+              // terminal's row); the face is the value role's
+              child: glyph != null
+                  ? Icon(glyph, size: keyHeight * 0.45)
+                  // one line always: a narrow key shrinks its word, never wraps it
+                  : FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(label,
+                          maxLines: 1,
+                          style: TypeRole.of(context, VrxTypeRole.list).copyWith(fontSize: keyHeight * 0.38, color: colors.text)),
+                    ),
             ),
           ),
         ),
@@ -150,7 +158,7 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
     void term(VrxTermKey k) => widget.onKey!(k);
     return Container(
       color: colors.page,
-      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: _edge),
+      padding: EdgeInsets.symmetric(horizontal: ScaledSpacing.of(context).xs / 2, vertical: ScaledSpacing.of(context).xs),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

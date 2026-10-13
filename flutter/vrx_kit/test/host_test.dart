@@ -90,6 +90,29 @@ void main() {
     expect(VarlinkAppletsService.ifPresent(socketPath: '/nonexistent/io.vrx.Host'), isNull);
   });
 
+  // plan 0011 D2: a refused open is said, never swallowed
+  test('a refused push answers with a sentence and publishes it', () async {
+    final (server, asked, path) = await fakeHost((c) => c['parameters']['applet'] == 'recorder'
+        ? [
+            {'error': 'io.vrx.Host.Disabled', 'parameters': {'applet': 'recorder'}}
+          ]
+        : [
+            {'parameters': {'top': c['parameters']['applet']}}
+          ]);
+    Nav.install(VarlinkAppletsService(socketPath: path));
+    final refused = await Nav.push('recorder');
+    expect(refused.done, isFalse);
+    expect(refused.sentence, contains('turned off'));
+    expect(Nav.refusal.value, refused.sentence);
+    expect(refused.sentence, isNot(contains('io.vrx')), reason: 'never an error name on screen');
+    final opened = await Nav.push('clock', route: 'alarms');
+    expect(opened.done, isTrue);
+    expect(Nav.refusal.value, isNull, reason: 'the next navigation clears it');
+    expect(asked.last['parameters'], {'applet': 'clock', 'route': 'alarms'});
+    await server.close();
+  });
+
+
   testWidgets('the applet host renders the view and the view dispatches', (tester) async {
     await tester.pumpWidget(AppletHost(applet: _Counter()));
     expect(find.text('0'), findsOneWidget);
