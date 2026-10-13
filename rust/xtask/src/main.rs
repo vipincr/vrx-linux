@@ -4,7 +4,9 @@
 //   1. cargo fmt --check
 //   2. cargo clippy --workspace --all-targets -- -D warnings
 //   3. cargo test --workspace
-//   4. cargo deny check bans licenses sources
+//   4. the crates manifest, the responsiveness scan, the image's fonts
+//   5. per Flutter package: pub get, analyze, test (layout checks too)
+//   6. cargo deny check bans licenses sources
 // A change is not done until the gate is green. The gate is a build
 // tool: it reports to stdout and spawns cargo; the applet print and
 // spawn lints do not apply here.
@@ -12,6 +14,7 @@
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
 mod crates_inc;
+mod fonts;
 mod scan;
 
 use std::process::{Command, ExitCode, Stdio};
@@ -23,8 +26,18 @@ fn main() -> ExitCode {
     match task.as_str() {
         "gate" => gate(),
         "crates-inc" => crates_inc::run(&args),
+        "fonts" => match fonts::ensure() {
+            Ok(()) => {
+                println!("fonts: in {}", fonts::dir().display());
+                ExitCode::SUCCESS
+            }
+            Err(err) => {
+                eprintln!("fonts: {err}");
+                ExitCode::FAILURE
+            }
+        },
         _ => {
-            eprintln!("usage: cargo xtask gate | crates-inc");
+            eprintln!("usage: cargo xtask gate | crates-inc | fonts");
             ExitCode::from(64)
         }
     }
@@ -134,6 +147,12 @@ fn gate() -> ExitCode {
     println!("gate: responsiveness scan (applet and SDK sources)");
     if !scan::run(&repo) {
         eprintln!("gate: FAILED at the responsiveness scan");
+        return ExitCode::FAILURE;
+    }
+    // the layout tests measure text in the image's fonts (vrx_check)
+    println!("gate: the image's fonts for the layout check");
+    if let Err(err) = fonts::ensure() {
+        eprintln!("gate: FAILED fetching the fonts: {err}");
         return ExitCode::FAILURE;
     }
     if !flutter_gate(&repo) {

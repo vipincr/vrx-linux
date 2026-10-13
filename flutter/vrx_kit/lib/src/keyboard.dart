@@ -118,7 +118,8 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
       return Expanded(
         flex: flex,
         child: Padding(
-          padding: const EdgeInsets.all(2),
+          // half the 1mm gutter each side: keys stand 1mm apart
+          padding: EdgeInsets.all(Spacing.xs / 2 * VrxScale.of(context)),
           child: Material(
             color: strong ? palette.fill.withValues(alpha: 0.28) : palette.highlight,
             borderRadius: BorderRadius.circular(6),

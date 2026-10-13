@@ -71,6 +71,16 @@ change is not "done" until the gate is green.
     The vrx lint set (`package:vrx_kit/analysis_options.yaml`, errors not
     warnings) and the gate's responsiveness scan enforce these; a line
     that must break one says `vrx-allow: <reason>`.
+11. **Layout is computed, not eyeballed.** Every applet keeps a
+    `test/layout_test.dart` that mounts each of its screens, with real
+    facts in them, on every display in `vrx_check`'s `allDisplays` (the
+    2.8" panel, 7" DSI and HDMI panels, a 1080p monitor, a monitor with
+    no EDID size) and calls `expectCleanLayout`. It fails on a Flex
+    overflow, text cut or wrapped inside a word, text over text, a
+    control over a control or under 1mm from one (cells of a list or row
+    excepted), a control under 9mm on a touch display, and anything off
+    the screen. The gate runs it in the image's own fonts (`cargo xtask
+    fonts`). A new screen is not done until it is in that test.
 
 > ## Planning uses the plan skill
 

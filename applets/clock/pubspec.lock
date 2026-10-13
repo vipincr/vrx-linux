@@ -232,17 +232,17 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "15.3.0"
+  vrx_check:
+    dependency: "direct dev"
+    description:
+      path: "../../flutter/vrx_check"
+      relative: true
+    source: path
+    version: "0.1.0"
   vrx_kit:
     dependency: "direct main"
     description:
       path: "../../flutter/vrx_kit"
-      relative: true
-    source: path
-    version: "0.1.0"
-  vrx_shots:
-    dependency: "direct dev"
-    description:
-      path: "../../flutter/vrx_shots"
       relative: true
     source: path
     version: "0.1.0"

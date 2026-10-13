@@ -1,4 +1,4 @@
-name: vrx_shots
+name: vrx_check
 description: >-
   Screenshots of a vrx applet as a panel shows it: the real AppletHost at a
   display's pixel size and ratio, in the image's own fonts. A developer

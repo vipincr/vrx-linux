@@ -192,7 +192,7 @@ class _Category extends StatelessWidget {
       VrxHeader(title: _titles[category] ?? '', onBack: onBack),
       for (final row in view.rows)
         switch (row.kind) {
-          RowKind.toggle => VrxSettingRow(
+          RowKind.toggle => VrxRow(
               label: row.label,
               value: row.on ? 'On' : 'Off',
               onTap: () => onRow(row),

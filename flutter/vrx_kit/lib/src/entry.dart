@@ -5,7 +5,10 @@ library;
 import 'package:flutter/material.dart';
 
 import 'components.dart';
+import 'input.dart';
 import 'keyboard.dart';
+import 'metrics.dart';
+import 'symbols.dart';
 import 'scale.dart';
 import 'theme.dart';
 
@@ -56,42 +59,87 @@ class _VrxTextEntryState extends State<VrxTextEntry> {
 
   void _done() => widget.onDone(_controller.text);
 
+  Widget _field(BuildContext context, {required String? hint, required bool lines}) {
+    final palette = VrxTheme.of(context);
+    final space = ScaledSpacing.of(context);
+    return ListenableBuilder(
+      listenable: _controller,
+      builder: (context, _) => TextField(
+        controller: _controller,
+        showCursor: true,
+        autofocus: true,
+        obscureText: widget.obscure,
+        // the on-screen keyboard edits; selection handles would only be
+        // a stray control on the panel
+        enableInteractiveSelection: false,
+        onSubmitted: (_) => _done(),
+        style: TypeRole.body(context),
+        decoration: InputDecoration(
+          // the field is a control too: a touch minimum tall
+          constraints: BoxConstraints(minHeight: space.touch),
+          hintText: hint,
+          hintStyle: TypeRole.body(context).copyWith(color: palette.faint),
+          helperText: lines ? widget.helper?.call(_controller.text) : null,
+          errorText: lines ? widget.error : null,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final space = ScaledSpacing.of(context);
     final palette = VrxTheme.of(context);
-    // a 58mm-tall panel holds the header, one dense field and the four
-    // 9mm keyboard rows with nothing to spare: no floating label, no
-    // spacer (the bench cut the keyboard's last row off)
-    return Column(children: [
-      VrxHeader(title: widget.title, onBack: widget.onBack),
-      Expanded(
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: space.md),
-          child: Center(
-            child: ListenableBuilder(
-              listenable: _controller,
-              builder: (context, _) => TextField(
-                controller: _controller,
-                showCursor: true,
-                autofocus: true,
-                obscureText: widget.obscure,
-                onSubmitted: (_) => _done(),
-                style: TypeRole.body(context),
-                decoration: InputDecoration(
-                  isDense: true,
-                  hintText: widget.hint,
-                  hintStyle: TypeRole.body(context).copyWith(color: palette.faint),
-                  helperText: widget.helper?.call(_controller.text),
-                  errorText: widget.error,
-                ),
+    return LayoutBuilder(builder: (context, box) {
+      // a header, a field and the keyboard's four rows, each the touch
+      // minimum: on a panel too short for all of them (the 58mm
+      // disp28a) the field takes the header's place beside Back and the
+      // title (or an error) the line under it
+      final rows = 6 * (space.touch + space.xs);
+      if (box.maxHeight >= rows + space.touch) {
+        return Column(children: [
+          VrxHeader(title: widget.title, onBack: widget.onBack),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: space.md),
+              child: Center(child: _field(context, hint: widget.hint, lines: true)),
+            ),
+          ),
+          VrxKeyboard(controller: _controller, onDone: _done),
+        ]);
+      }
+      return VrxBackOffer(
+        onBack: widget.onBack,
+        child: Column(children: [
+          SizedBox(
+            height: space.touch,
+            child: Row(children: [
+              VrxIconButton(glyph: VrxSymbols.arrow_back, onTap: widget.onBack),
+              SizedBox(width: space.xs),
+              Expanded(child: _field(context, hint: widget.hint ?? widget.title, lines: false)),
+              SizedBox(width: space.inset),
+            ]),
+          ),
+          Divider(height: Strokes.hairline, thickness: Strokes.hairline, color: palette.line),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: space.inset),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                // an error, else what the field is for
+                child: widget.error != null
+                    ? VrxFitText(
+                        widget.error!,
+                        style: TypeRole.caption(context).copyWith(color: Theme.of(context).colorScheme.error),
+                      )
+                    : VrxFitText(widget.title, style: TypeRole.caption(context)),
               ),
             ),
           ),
-        ),
-      ),
-      VrxKeyboard(controller: _controller, onDone: _done),
-    ]);
+          VrxKeyboard(controller: _controller, onDone: _done),
+        ]),
+      );
+    });
   }
 }
 
@@ -145,7 +193,12 @@ class _VrxZonePickerState extends State<VrxZonePicker> {
       for (final r in vrxZoneRegions.keys)
         if (widget.zones.any((z) => z.startsWith('$r/'))) r,
     ];
-    final cities = region == null ? const <String>[] : [for (final z in widget.zones) if (z.startsWith('$region/')) z];
+    final cities = region == null
+        ? const <String>[]
+        : [
+            for (final z in widget.zones)
+              if (z.startsWith('$region/')) z
+          ];
     final currentRegion = widget.current.split('/').first;
     return Column(children: [
       VrxHeader(

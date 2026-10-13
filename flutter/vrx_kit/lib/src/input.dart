@@ -43,6 +43,37 @@ abstract final class VrxBack {
   }
 }
 
+/// Offers [onBack] to [VrxBack] while mounted: what Escape and the
+/// mouse's back button do on this screen. VrxHeader wraps itself in one.
+class VrxBackOffer extends StatefulWidget {
+  const VrxBackOffer({super.key, required this.onBack, required this.child});
+
+  final VoidCallback? onBack;
+  final Widget child;
+
+  @override
+  State<VrxBackOffer> createState() => _VrxBackOfferState();
+}
+
+class _VrxBackOfferState extends State<VrxBackOffer> {
+  void _back() => widget.onBack?.call();
+
+  @override
+  void initState() {
+    super.initState();
+    VrxBack.offer(_back);
+  }
+
+  @override
+  void dispose() {
+    VrxBack.withdraw(_back);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 /// The hands in use, for widgets that differ by them.
 class VrxHandsScope extends InheritedNotifier<ValueNotifier<VrxHands>> {
   const VrxHandsScope({super.key, required ValueNotifier<VrxHands> hands, required super.child})

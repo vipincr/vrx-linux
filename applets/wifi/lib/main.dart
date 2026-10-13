@@ -128,7 +128,7 @@ class _Networks extends StatelessWidget {
         if (!view.present)
           const VrxRow(label: 'This device has no Wi-Fi', value: '')
         else ...[
-          VrxSettingRow(
+          VrxRow(
             label: 'Wi-Fi',
             value: view.on ? 'On' : 'Off',
             onTap: () => unawaited(VrxSystem.network.setWifi(!view.on).catchError((Object _) {})),

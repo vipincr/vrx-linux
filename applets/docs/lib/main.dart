@@ -66,13 +66,13 @@ class DocsApplet extends Applet<DocsState, DocsAction, DocsView> {
                   itemCount: view.packages.length,
                   itemBuilder: (context, i) {
                     final p = view.packages[i];
-                    return VrxRow(label: p.package, value: p.licence, onTap: () => unawaited(_openPackage(p)));
+                    return VrxRow(label: p.package, detail: p.licence, onTap: () => unawaited(_openPackage(p)));
                   },
                 ),
               ])
             : Column(children: [
                 VrxHeader(
-                  title: open.package,
+                  title: 'Licence',
                   onBack: () {
                     model.open = null;
                     _events.add(DocsAction.opened);
@@ -83,7 +83,13 @@ class DocsApplet extends Applet<DocsState, DocsAction, DocsView> {
                       ? const Center(child: CircularProgressIndicator())
                       : SingleChildScrollView(
                           padding: EdgeInsets.all(ScaledSpacing.of(context).md),
-                          child: Text(view.text!, style: TypeRole.subtext(context)),
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            // the package names itself here, where it can wrap
+                            Text(vrxBreakable('${open.package} ${open.version}'), style: TypeRole.emphasis(context)),
+                            Text(vrxBreakable(open.licence), style: TypeRole.caption(context)),
+                            SizedBox(height: ScaledSpacing.of(context).md),
+                            Text(view.text!, style: TypeRole.subtext(context)),
+                          ]),
                         ),
                 ),
               ]),

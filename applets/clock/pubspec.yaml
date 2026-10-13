@@ -13,8 +13,8 @@ dependencies:
     path: ../../flutter/vrx_kit
 
 dev_dependencies:
-  vrx_shots:
-    path: ../../flutter/vrx_shots
+  vrx_check:
+    path: ../../flutter/vrx_check
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0

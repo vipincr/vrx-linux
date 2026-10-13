@@ -136,8 +136,11 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
             VrxRow(
               label: view.cities[i].$1,
               value: view.cities[i].$2,
-              onLongPress: () => unawaited(_confirm(context, 'Remove this city?',
-                  '${view.cities[i].$1} will be taken off the world clock.', 'Remove',
+              onLongPress: () => unawaited(_confirm(
+                  context,
+                  'Remove this city?',
+                  '${view.cities[i].$1} will be taken off the world clock.',
+                  'Remove',
                   () => _do(() => model.removeCity(i), save: true))),
             ),
           if (view.cities.isEmpty) const _Note('No cities yet.'),
@@ -156,8 +159,11 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
               valueGlyph: view.alarms[i].$3 ? VrxSymbols.notifications : VrxSymbols.notifications_off,
               onValueGlyph: () => _do(() => model.toggleAlarm(i), save: true),
               onTap: () => _do(() => model.editAlarm(i)),
-              onLongPress: () => unawaited(_confirm(context, 'Delete this alarm?',
-                  'The ${view.alarms[i].$1} alarm will be deleted.', 'Delete',
+              onLongPress: () => unawaited(_confirm(
+                  context,
+                  'Delete this alarm?',
+                  'The ${view.alarms[i].$1} alarm will be deleted.',
+                  'Delete',
                   () => _do(() => model.removeAlarm(i), save: true))),
             ),
           if (view.alarms.isEmpty)
@@ -358,6 +364,9 @@ class _TimePickerState extends State<_TimePicker> {
         child: ListWheelScrollView.useDelegate(
           controller: c,
           itemExtent: touch,
+          // nearly flat: every row a tap can pick keeps the 9mm minimum
+          diameterRatio: 40,
+          perspective: 0.0001,
           physics: const FixedExtentScrollPhysics(),
           childDelegate: ListWheelChildLoopingListDelegate(children: [
             for (var i = 0; i < count; i++)
@@ -379,15 +388,18 @@ class _TimePickerState extends State<_TimePicker> {
     return Column(children: [
       VrxHeader(title: 'Time', onBack: widget.onBack),
       Expanded(
-        child: Stack(alignment: Alignment.center, children: [
-          // the band the chosen row sits in
-          Container(height: touch, color: palette.highlight),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            _wheel(_hours, 24),
-            Text(':', style: TypeRole.title(context)),
-            _wheel(_mins, 60),
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: ScaledSpacing.of(context).sm),
+          child: Stack(alignment: Alignment.center, children: [
+            // the band the chosen row sits in
+            Container(height: touch, color: palette.highlight),
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              _wheel(_hours, 24),
+              Text(':', style: TypeRole.title(context)),
+              _wheel(_mins, 60),
+            ]),
           ]),
-        ]),
+        ),
       ),
       VrxRow(
         glyph: VrxSymbols.check,
@@ -451,9 +463,11 @@ class _Timer extends StatelessWidget {
   }
 }
 
-/// The timer's dial. Pomodoro: five stops round it, tap one. Precise:
-/// sixty ticks, drag round it to set the minutes. The centre starts
-/// and stops; a hold resets.
+/// The timer's dial: one control, as evrx-rt's. The outer band, a touch
+/// minimum wide, is the setting: in pomodoro five sectors (tap one), in
+/// precise sixty minutes (tap or drag round). The centre starts and
+/// stops; a hold on it resets. Focused, the arrows step the setting and
+/// Enter presses. One control, so no small stop can sit on the centre.
 class _Dial extends StatelessWidget {
   const _Dial({
     required this.view,
@@ -470,13 +484,24 @@ class _Dial extends StatelessWidget {
   final void Function(int) onPrecise;
   final VoidCallback onPress, onHold;
 
-  /// Minutes 1..60 at a point, clockwise from the top.
-  int _minutesAt(Offset p) {
-    final c = size / 2;
-    var a = math.atan2(p.dx - c, c - p.dy);
+  /// Clockwise from the top, 0..1.
+  double _turn(Offset p) {
+    var a = math.atan2(p.dx - size / 2, size / 2 - p.dy);
     if (a < 0) a += 2 * math.pi;
-    final m = (a / (2 * math.pi) * preciseMax).round();
-    return m == 0 ? preciseMax : m;
+    return a / (2 * math.pi);
+  }
+
+  bool _inCentre(Offset p, double inner) => (p - Offset(size / 2, size / 2)).distance <= inner;
+
+  void _set(Offset p) {
+    if (view.running) return;
+    final t = _turn(p);
+    if (view.mode == TimerMode.precise) {
+      final m = (t * preciseMax).round();
+      onPrecise(m == 0 ? preciseMax : m);
+    } else {
+      onPick((t * dialMinutes.length).round() % dialMinutes.length);
+    }
   }
 
   @override
@@ -484,75 +509,72 @@ class _Dial extends StatelessWidget {
     final palette = VrxTheme.of(context);
     final touch = ScaledSpacing.of(context).touch;
     final precise = view.mode == TimerMode.precise;
-    final radius = size / 2 - touch / 2;
-    final centre = math.max(touch, size - 2 * touch - 4 * Strokes.border);
-    void drag(Offset p) {
-      if (precise && !view.running) onPrecise(_minutesAt(p));
-    }
-
-    return GestureDetector(
-      onPanStart: (d) => drag(d.localPosition),
-      onPanUpdate: (d) => drag(d.localPosition),
-      child: Stack(children: [
-        Positioned.fill(
+    final inner = size / 2 - touch;
+    final centre = math.max(0.0, 2 * inner - 2 * Strokes.border);
+    return Focus(
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
+        final key = event.logicalKey;
+        if (key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.space) {
+          onPress();
+          return KeyEventResult.handled;
+        }
+        final step = key == LogicalKeyboardKey.arrowRight || key == LogicalKeyboardKey.arrowUp
+            ? 1
+            : key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.arrowDown
+                ? -1
+                : 0;
+        if (step == 0 || view.running) return KeyEventResult.ignored;
+        if (precise) {
+          onPrecise((view.precise + step).clamp(1, preciseMax));
+        } else {
+          onPick((view.dial + step) % dialMinutes.length);
+        }
+        return KeyEventResult.handled;
+      },
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTapUp: (d) => _inCentre(d.localPosition, inner) ? onPress() : _set(d.localPosition),
+          onLongPressStart: (d) {
+            if (_inCentre(d.localPosition, inner)) onHold();
+          },
+          onPanStart: precise ? (d) => _set(d.localPosition) : null,
+          onPanUpdate: precise ? (d) => _set(d.localPosition) : null,
           child: CustomPaint(
             painter: _DialPainter(
               precise: precise,
               value: precise ? (view.running ? int.tryParse(view.centre) ?? 0 : view.precise) : 0,
+              dial: view.dial,
               ring: view.running ? view.ringValue : ringSteps,
               running: view.running,
+              band: touch,
               line: palette.line,
               fill: palette.fill,
+              onFill: palette.onFill,
+              text: palette.text,
+              label: TypeRole.value(context),
               stroke: Strokes.border,
-              inset: touch / 2,
             ),
-          ),
-        ),
-        if (!precise)
-          for (var i = 0; i < dialMinutes.length; i++)
-            Positioned(
-              left: size / 2 + radius * math.sin(i * 2 * math.pi / dialMinutes.length) - touch / 2,
-              top: size / 2 - radius * math.cos(i * 2 * math.pi / dialMinutes.length) - touch / 2,
-              width: touch,
-              height: touch,
-              child: VrxPress(
-                onTap: () => onPick(i),
-                child: Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: i == view.dial ? palette.fill : palette.page,
-                    border: Border.all(color: palette.line, width: Strokes.hairline),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    '${dialMinutes[i]}',
-                    style: TypeRole.value(context).copyWith(color: i == view.dial ? palette.onFill : palette.text),
-                  ),
+            child: Center(
+              child: Container(
+                width: centre,
+                height: centre,
+                decoration: BoxDecoration(shape: BoxShape.circle, color: palette.highlight),
+                padding: EdgeInsets.all(centre * 0.14),
+                child: FittedBox(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    // the glyph says what pressing does; the number what is set
+                    Icon(view.running ? VrxSymbols.pause : VrxSymbols.play_arrow, size: touch * 0.5),
+                    Text(view.centre, style: TypeRole.display(context)),
+                    Text(view.running ? 'left' : 'min', style: TypeRole.caption(context)),
+                  ]),
                 ),
               ),
             ),
-        Center(
-          child: VrxPress(
-            onTap: onPress,
-            onLongPress: onHold,
-            child: Container(
-              // what the stops leave: the ring of them is a touch wide
-              width: centre,
-              height: centre,
-              decoration: BoxDecoration(shape: BoxShape.circle, color: palette.highlight),
-              padding: EdgeInsets.all(centre * 0.12),
-              child: FittedBox(
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  // the glyph says what pressing does; the number what is set
-                  Icon(view.running ? VrxSymbols.pause : VrxSymbols.play_arrow, size: touch * 0.5),
-                  Text(view.centre, style: TypeRole.display(context)),
-                  Text(view.running ? 'left' : 'min', style: TypeRole.caption(context)),
-                ]),
-              ),
-            ),
           ),
         ),
-      ]),
+      ),
     );
   }
 }
@@ -561,24 +583,30 @@ class _DialPainter extends CustomPainter {
   _DialPainter({
     required this.precise,
     required this.value,
+    required this.dial,
     required this.ring,
     required this.running,
+    required this.band,
     required this.line,
     required this.fill,
+    required this.onFill,
+    required this.text,
+    required this.label,
     required this.stroke,
-    required this.inset,
   });
 
   final bool precise;
-  final int value, ring;
+  final int value, dial, ring;
   final bool running;
-  final Color line, fill;
-  final double stroke, inset;
+  final double band, stroke;
+  final Color line, fill, onFill, text;
+  final TextStyle label;
 
   @override
   void paint(Canvas canvas, Size size) {
     final c = size.center(Offset.zero);
-    final r = size.shortestSide / 2 - inset;
+    final outer = size.shortestSide / 2 - stroke;
+    final mid = outer - band / 2;
     final thin = Paint()
       ..color = line
       ..style = PaintingStyle.stroke
@@ -588,28 +616,46 @@ class _DialPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeWidth = stroke * 2;
+    Offset at(double turn, double r) => c + Offset(math.sin(turn * 2 * math.pi), -math.cos(turn * 2 * math.pi)) * r;
     if (precise) {
       // the ticks are the setting: the chosen span filled
       for (var i = 0; i < preciseMax; i++) {
-        final a = i * 2 * math.pi / preciseMax;
         final major = i % 5 == 0;
-        final inner = r - (major ? inset * 0.6 : inset * 0.35);
-        final dir = Offset(math.sin(a), -math.cos(a));
-        canvas.drawLine(c + dir * inner, c + dir * r, i < value ? bold : thin);
+        final t = i / preciseMax;
+        canvas.drawLine(at(t, outer - band * (major ? 0.55 : 0.3)), at(t, outer), i < value ? bold : thin);
       }
       return;
     }
-    canvas.drawCircle(c, r, thin);
+    canvas.drawCircle(c, outer, thin);
+    canvas.drawCircle(c, outer - band, thin);
     // no ring until something runs: an empty track round a button nobody
     // pressed reads as a progress bar stuck at zero
     if (running && ring > 0) {
-      canvas.drawArc(Rect.fromCircle(center: c, radius: r), -math.pi / 2, 2 * math.pi * ring / ringSteps, false, bold);
+      canvas.drawArc(
+          Rect.fromCircle(center: c, radius: outer), -math.pi / 2, 2 * math.pi * ring / ringSteps, false, bold);
+    }
+    for (var i = 0; i < dialMinutes.length; i++) {
+      final p = at(i / dialMinutes.length, mid);
+      final chosen = i == dial;
+      if (chosen) canvas.drawCircle(p, band * 0.4, Paint()..color = fill);
+      final tp = TextPainter(
+        text: TextSpan(text: '${dialMinutes[i]}', style: label.copyWith(color: chosen ? onFill : text)),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, p - Offset(tp.width / 2, tp.height / 2));
+      tp.dispose();
     }
   }
 
   @override
   bool shouldRepaint(_DialPainter old) =>
-      old.precise != precise || old.value != value || old.ring != ring || old.running != running || old.fill != fill;
+      old.precise != precise ||
+      old.value != value ||
+      old.dial != dial ||
+      old.ring != ring ||
+      old.running != running ||
+      old.fill != fill ||
+      old.band != band;
 }
 
 class _RingScreen extends StatelessWidget {
@@ -657,8 +703,7 @@ class _RingScreen extends StatelessWidget {
         const Spacer(),
         // words on these two: whoever reads this was asleep a second ago
         if (view.canSnooze) button(VrxSymbols.snooze, 'Snooze 9 min', onSnooze),
-        button(view.ringIsTimer ? VrxSymbols.timer_off : VrxSymbols.alarm_off, 'Stop', onStop,
-            strong: true),
+        button(view.ringIsTimer ? VrxSymbols.timer_off : VrxSymbols.alarm_off, 'Stop', onStop, strong: true),
       ]),
     );
   }

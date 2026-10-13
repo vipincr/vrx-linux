@@ -26,7 +26,7 @@ import 'theme.dart';
 /// The screen's own name with a back chevron: full width × the touch
 /// minimum, hairline under, chevron left, title at LIST past a touch
 /// minimum of offset.
-class VrxHeader extends StatefulWidget {
+class VrxHeader extends StatelessWidget {
   const VrxHeader({
     super.key,
     required this.title,
@@ -37,30 +37,9 @@ class VrxHeader extends StatefulWidget {
   final VoidCallback? onBack;
 
   @override
-  State<VrxHeader> createState() => _VrxHeaderState();
-}
+  Widget build(BuildContext context) => VrxBackOffer(onBack: onBack, child: _build(context));
 
-/// While mounted, the header's back is what Escape and the mouse's back
-/// button do (VrxBack).
-class _VrxHeaderState extends State<VrxHeader> {
-  void _back() => widget.onBack?.call();
-
-  @override
-  void initState() {
-    super.initState();
-    VrxBack.offer(_back);
-  }
-
-  @override
-  void dispose() {
-    VrxBack.withdraw(_back);
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final title = widget.title;
-    final onBack = widget.onBack;
+  Widget _build(BuildContext context) {
     final palette = VrxTheme.of(context);
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -75,14 +54,7 @@ class _VrxHeaderState extends State<VrxHeader> {
                   onTap: onBack,
                 ),
               SizedBox(width: onBack == null ? ScaledSpacing.of(context).inset : ScaledSpacing.of(context).xs),
-              Expanded(
-                child: Text(
-                  title,
-                  style: TypeRole.of(context, VrxTypeRole.title),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
+              Expanded(child: VrxFitText(title, style: TypeRole.of(context, VrxTypeRole.title))),
             ],
           ),
         ),
@@ -167,6 +139,7 @@ class VrxRow extends StatelessWidget {
     super.key,
     this.glyph,
     required this.label,
+    this.detail,
     this.value,
     this.valueGlyph,
     this.onValueGlyph,
@@ -176,6 +149,11 @@ class VrxRow extends StatelessWidget {
 
   final IconData? glyph;
   final String label;
+
+  /// A second line under the label (a package's licence, a network's
+  /// address); with it, label and detail each take two lines before
+  /// giving way, and long identifiers break at their punctuation.
+  final String? detail;
   final String? value;
 
   /// A glyph after the value (a lock on a secured network): a symbol
@@ -207,36 +185,35 @@ class VrxRow extends StatelessWidget {
         decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: palette.line, width: Strokes.hairline)),
         ),
-        // the value takes what it needs, up to three fifths of the row;
-        // the label the rest, giving way first (the whole row without a
-        // value)
-        child: LayoutBuilder(
-          builder: (context, box) => Row(children: [
-            if (glyph != null) ...[
-              Icon(glyph, size: VrxTypeRole.body.dp * VrxScale.of(context)),
-              SizedBox(width: ScaledSpacing.of(context).sm),
-            ],
-            Expanded(
-              child: Text(
-                label,
-                style: TypeRole.of(context, VrxTypeRole.list),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            if (hasValue)
-              ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: box.maxWidth * 0.6),
-                child: Padding(
-                  padding: EdgeInsets.only(left: ScaledSpacing.of(context).sm),
-                  child: Text(
-                    value!,
-                    style: TypeRole.of(context, VrxTypeRole.value),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
+        // label and value side by side when both fit whole; when not,
+        // the row grows and the value drops under the label (a setting's
+        // label is never cut, and neither is a zone or a board's name)
+        child: LayoutBuilder(builder: (context, box) {
+          final space = ScaledSpacing.of(context);
+          final labelStyle = TypeRole.of(context, VrxTypeRole.list);
+          final valueStyle = TypeRole.of(context, VrxTypeRole.value);
+          final scaler = MediaQuery.textScalerOf(context);
+          double width(String text, TextStyle style) {
+            final tp = TextPainter(
+              text: TextSpan(text: text, style: style),
+              textDirection: TextDirection.ltr,
+              textScaler: scaler,
+              maxLines: 1,
+            )..layout();
+            final w = tp.width;
+            tp.dispose();
+            return w;
+          }
+
+          final lead = glyph == null ? 0.0 : VrxTypeRole.body.dp * VrxScale.of(context) + space.sm;
+          final trail = valueGlyph == null
+              ? 0.0
+              : (onValueGlyph != null ? ScaledSpacing.minInteractive(context) : glyphSize + space.xs);
+          final room = box.maxWidth - lead - trail;
+          final stacked = detail != null ||
+              (hasValue && width(label, labelStyle) + space.sm + width(value!, valueStyle) > room) ||
+              (!hasValue && width(label, labelStyle) > room);
+          final trailing = [
             if (valueGlyph != null && onValueGlyph != null)
               VrxPress(
                 onTap: onValueGlyph,
@@ -246,62 +223,49 @@ class VrxRow extends StatelessWidget {
                 ),
               )
             else if (valueGlyph != null) ...[
-              SizedBox(width: ScaledSpacing.of(context).xs),
+              SizedBox(width: space.xs),
               Icon(valueGlyph, size: glyphSize),
             ],
-          ]),
-        ),
-      ),
-    );
-  }
-}
-
-/// A setting's row: the label must read whole — if it would be cut
-/// beside the value, the row grows and the value drops to its own
-/// line. A setting's label is never cut.
-class VrxSettingRow extends StatelessWidget {
-  const VrxSettingRow({
-    super.key,
-    required this.label,
-    this.value,
-    this.onTap,
-  });
-
-  final String label;
-  final String? value;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = VrxTheme.of(context);
-    return VrxPress(
-      onTap: onTap,
-      child: Container(
-        constraints: BoxConstraints(
-          minHeight: ScaledSpacing.minInteractive(context),
-        ),
-        padding: EdgeInsets.symmetric(
-          horizontal: ScaledSpacing.of(context).inset,
-          vertical: ScaledSpacing.of(context).sm,
-        ),
-        decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: palette.line, width: Strokes.hairline)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              label,
-              style: TypeRole.of(context, VrxTypeRole.list),
-            ),
-            if (value != null)
-              Text(
-                value!,
-                style: TypeRole.of(context, VrxTypeRole.value),
+          ];
+          final leading = [
+            if (glyph != null) ...[
+              Icon(glyph, size: VrxTypeRole.body.dp * VrxScale.of(context)),
+              SizedBox(width: space.sm),
+            ],
+          ];
+          if (!stacked) {
+            return Row(children: [
+              ...leading,
+              Expanded(child: Text(label, style: labelStyle, maxLines: 1)),
+              if (hasValue) ...[SizedBox(width: space.sm), Text(value!, style: valueStyle, maxLines: 1)],
+              ...trailing,
+            ]);
+          }
+          final second = detail ?? value;
+          return Row(children: [
+            ...leading,
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: space.xs),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  VrxFitText(label, style: labelStyle),
+                  if (second != null && second.isNotEmpty)
+                    Text(
+                      vrxBreakable(second),
+                      style: detail != null ? TypeRole.of(context, VrxTypeRole.caption) : valueStyle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ]),
               ),
-          ],
-        ),
+            ),
+            if (detail != null && hasValue) ...[
+              SizedBox(width: space.sm),
+              Text(value!, style: valueStyle, maxLines: 1)
+            ],
+            ...trailing,
+          ]);
+        }),
       ),
     );
   }
@@ -373,6 +337,9 @@ class VrxChip extends StatelessWidget {
     return VrxPress(
       onTap: onTap,
       child: Container(
+        // a control: the touch minimum tall on a touch display
+        constraints: BoxConstraints(minHeight: ScaledSpacing.minInteractive(context)),
+        alignment: Alignment.centerLeft,
         padding: EdgeInsets.symmetric(horizontal: s.sm, vertical: s.xs),
         decoration: BoxDecoration(
           color: filled ? palette.fill : null,
@@ -413,8 +380,7 @@ class VrxBanner extends StatelessWidget {
       color: palette.fill,
       child: Text(
         text!,
-        style: TypeRole.of(context, VrxTypeRole.subtext)
-            .copyWith(color: palette.onFill),
+        style: TypeRole.of(context, VrxTypeRole.subtext).copyWith(color: palette.onFill),
       ),
     );
   }
@@ -434,8 +400,7 @@ class VrxPress extends StatefulWidget {
   State<VrxPress> createState() => _VrxPressState();
 }
 
-class _VrxPressState extends State<VrxPress>
-    with SingleTickerProviderStateMixin {
+class _VrxPressState extends State<VrxPress> with SingleTickerProviderStateMixin {
   late final AnimationController _scale = AnimationController.unbounded(
     vsync: this,
     value: 1.0,
@@ -518,5 +483,50 @@ class _VrxPressState extends State<VrxPress>
         child: ScaleTransition(scale: _scale, child: child),
       ),
     );
+  }
+}
+
+/// [text] with break opportunities after its punctuation (- _ / . &),
+/// so an identifier longer than a line wraps between its parts rather
+/// than inside a word.
+String vrxBreakable(String text) => text.replaceAllMapped(RegExp(r'([-_/.&])'), (m) => '${m[1]}\u200B');
+
+/// Text that fits: one line at [style] when it can, else shrunk to fit
+/// one line down to [floor] of its size, else at that size over up to
+/// [maxLines] lines, breaking at punctuation. A long network name or
+/// package name in a header reads whole instead of ending in "...".
+class VrxFitText extends StatelessWidget {
+  const VrxFitText(this.text, {super.key, required this.style, this.floor = 0.7, this.maxLines = 2});
+
+  final String text;
+  final TextStyle style;
+  final double floor;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, box) {
+      final scaler = MediaQuery.textScalerOf(context);
+      final tp = TextPainter(
+        text: TextSpan(text: text, style: style),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      final natural = tp.width;
+      tp.dispose();
+      final base = style.fontSize ?? 14;
+      if (natural <= box.maxWidth) return Text(text, style: style, maxLines: 1);
+      final scale = box.maxWidth / natural;
+      if (scale >= floor) {
+        return Text(text, style: style.copyWith(fontSize: base * scale * 0.99), maxLines: 1);
+      }
+      return Text(
+        vrxBreakable(text),
+        style: style.copyWith(fontSize: base * floor),
+        maxLines: maxLines,
+        overflow: TextOverflow.ellipsis,
+      );
+    });
   }
 }
