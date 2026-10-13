@@ -1,0 +1,18 @@
+# Terminal: zsh on a pseudo-terminal. Debug images only (VRX_DEBUG=1):
+# packagegroup-vrx-linux adds it there and vrx-image refuses it anywhere
+# else, because its unit lifts the applet sandbox and sudo works in it.
+[applet]
+id = "terminal"
+name = "Terminal"
+version = "1.0.0"
+runtime = "flutter"
+
+[applet.display]
+icon = "terminal"
+tile = true
+
+[applet.resources]
+heap_mb = 64
+
+[applet.command]
+enabled = false

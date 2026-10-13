@@ -1,0 +1,33 @@
+# USB: a computer on the board's USB device port (plan 0008 D11). The
+# console is always on the port; this offers to share files beside it, a
+# disk the computer sees (/data/usb/files.img). vrxhost raises
+# sys.usb.connected when a computer enumerates the device, and this comes
+# to the front to ask. No tile: Settings > Device opens it too. Its id
+# is not "usb": the applet's user would be vrx-usb, the usb grant's group.
+[applet]
+id = "usbport"
+name = "USB"
+version = "1.0.0"
+runtime = "flutter"
+
+[applet.display]
+icon = "usb"
+tile = false
+
+[applet.resources]
+heap_mb = 48
+
+[applet.permissions]
+# usb: start and stop vrx-usb-files.service (polkit, 50-vrx.rules)
+system = ["usb"]
+
+[applet.intents]
+handles = [
+    { name = "sys.usb.connected", priority = 900, at = "connected" },
+]
+
+[applet.routes]
+connected = {}                 # route 1 (the sys.usb.connected deep link)
+
+[applet.command]
+enabled = false
