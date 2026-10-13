@@ -1,0 +1,436 @@
+// `cargo xtask ui-standard`: vrx_kit's tables from the vrx UI standard
+// (plan 0009 D1). The file is evrx-rt's, vendored unchanged at the commit
+// standard/PIN names; this reads it and writes
+// flutter/vrx_kit/lib/src/ui_standard.g.dart. Nothing here computes a
+// colour: the schemes were generated in evrx-rt (make_ui_schemes.py) and
+// are copied, so the C runtime and the Flutter kit draw the same values.
+// The gate (G018) checks the pin and that the Dart file is current.
+
+use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
+
+use toml::Value;
+
+fn kit(repo: &Path) -> PathBuf {
+    repo.join("flutter/vrx_kit")
+}
+
+pub fn standard_path(repo: &Path) -> PathBuf {
+    kit(repo).join("standard/vrx-ui-standard.toml")
+}
+
+pub fn pin_path(repo: &Path) -> PathBuf {
+    kit(repo).join("standard/PIN")
+}
+
+pub fn dart_path(repo: &Path) -> PathBuf {
+    kit(repo).join("lib/src/ui_standard.g.dart")
+}
+
+/// `key = "value"` from the PIN file.
+fn pin_field(pin: &str, key: &str) -> Option<String> {
+    pin.lines().find_map(|l| {
+        let (k, v) = l.split_once('=')?;
+        (k.trim() == key).then(|| v.trim().trim_matches('"').to_owned())
+    })
+}
+
+/// snake_case to lowerCamel: `on_primary_container` to `onPrimaryContainer`.
+fn camel(name: &str) -> String {
+    let mut out = String::new();
+    let mut up = false;
+    for c in name.chars() {
+        if c == '_' {
+            up = true;
+        } else if up {
+            out.extend(c.to_uppercase());
+            up = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn table<'a>(
+    v: &'a Value,
+    key: &str,
+) -> Result<&'a toml::map::Map<String, Value>, String> {
+    v.get(key)
+        .and_then(Value::as_table)
+        .ok_or_else(|| format!("the standard has no [{key}]"))
+}
+
+fn array<'a>(v: &'a Value, key: &str) -> Result<&'a Vec<Value>, String> {
+    v.get(key)
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("the standard has no {key} array"))
+}
+
+fn str_of<'a>(v: &'a Value, key: &str) -> Result<&'a str, String> {
+    v.get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{key}: not a string"))
+}
+
+fn int_of(v: &Value, key: &str) -> Result<i64, String> {
+    v.get(key)
+        .and_then(Value::as_integer)
+        .ok_or_else(|| format!("{key}: not an integer"))
+}
+
+/// A scheme's 32 colours: "#RRGGBB" strings to 0xFFRRGGBB.
+fn colours(v: &Value, what: &str, count: usize) -> Result<Vec<u32>, String> {
+    let list = v
+        .as_array()
+        .ok_or_else(|| format!("{what}: not an array"))?;
+    if list.len() != count {
+        return Err(format!(
+            "{what}: {} colours, the slots are {count}",
+            list.len()
+        ));
+    }
+    list.iter()
+        .map(|c| {
+            let s = c.as_str().ok_or_else(|| format!("{what}: not a string"))?;
+            let hex = s.strip_prefix('#').filter(|h| h.len() == 6);
+            hex.and_then(|h| u32::from_str_radix(h, 16).ok())
+                .map(|rgb| 0xFF00_0000 | rgb)
+                .ok_or_else(|| format!("{what}: {s:?} is not #RRGGBB"))
+        })
+        .collect()
+}
+
+/// A grey map's 32 levels.
+fn greys(v: &Value, what: &str, count: usize) -> Result<Vec<u8>, String> {
+    let list = v
+        .as_array()
+        .ok_or_else(|| format!("{what}: not an array"))?;
+    if list.len() != count {
+        return Err(format!(
+            "{what}: {} levels, the slots are {count}",
+            list.len()
+        ));
+    }
+    list.iter()
+        .map(|g| {
+            g.as_integer()
+                .and_then(|n| u8::try_from(n).ok())
+                .ok_or_else(|| format!("{what}: a level outside 0..255"))
+        })
+        .collect()
+}
+
+/// The Dart source for the standard's text.
+pub fn generate(text: &str, commit: &str) -> Result<String, String> {
+    let doc: Value = text.parse().map_err(|e| format!("the standard: {e}"))?;
+    let colour = doc.get("colour").ok_or("the standard has no [colour]")?;
+
+    // the slots, in the file's order: the order is the index (plan 0062 D1)
+    let slots: Vec<String> = array(colour, "slot")?
+        .iter()
+        .map(|s| str_of(s, "name").map(str::to_owned))
+        .collect::<Result<_, _>>()?;
+    let n = slots.len();
+    let index = |name: &str| {
+        slots
+            .iter()
+            .position(|s| s == name)
+            .ok_or_else(|| format!("no slot {name:?}"))
+    };
+    // a slot has an on-colour when the next slot is on_<it> (ui_kit's
+    // UI_COLOR_HAS_ON_MASK, derived the same way)
+    let mut has_on: u64 = 0;
+    for (i, s) in slots.iter().enumerate() {
+        if slots
+            .get(i + 1)
+            .is_some_and(|next| *next == format!("on_{s}"))
+        {
+            has_on |= 1 << i;
+        }
+    }
+
+    let mut out = String::new();
+    let w = &mut out;
+    let _ = writeln!(
+        w,
+        "// GENERATED by `cargo xtask ui-standard` from standard/vrx-ui-standard.toml,"
+    );
+    let _ = writeln!(
+        w,
+        "// evrx-rt {commit}. Do not edit: bump the pin and run it (plan 0009 D1)."
+    );
+    let _ = writeln!(w, "//");
+    let _ = writeln!(
+        w,
+        "// The colour slots, the 20 schemes, the grey maps, the display classes and the"
+    );
+    let _ = writeln!(
+        w,
+        "// contrast floors of the vrx UI standard, exactly as the C runtime has them."
+    );
+    let _ = writeln!(w);
+    let _ = writeln!(w, "/// What a colour is FOR (plan 0062 D1). The index is the column of every table below.");
+    let _ = writeln!(w, "enum VrxSlot {{");
+    for s in &slots {
+        let _ = writeln!(w, "  {},", camel(s));
+    }
+    let _ = writeln!(w, "}}");
+    let _ = writeln!(w);
+    let _ = writeln!(
+        w,
+        "/// The slots with an on-colour (the next slot), as a mask over the index."
+    );
+    let _ = writeln!(w, "const int vrxSlotHasOnMask = 0x{has_on:08X};");
+    let _ = writeln!(w);
+
+    // the schemes, numbered 1.. in the file's [schemes] order
+    let schemes = table(&doc, "schemes")?;
+    let _ = writeln!(w, "/// One scheme: a seed hue and a harmony rule, each slot in light and dark (0xAARRGGBB).");
+    let _ = writeln!(w, "class VrxSchemeRow {{");
+    let _ = writeln!(
+        w,
+        "  const VrxSchemeRow(this.id, this.seed, this.rule, this.light, this.dark);"
+    );
+    let _ = writeln!(w, "  final int id;");
+    let _ = writeln!(w, "  final String seed;");
+    let _ = writeln!(w, "  final String rule;");
+    let _ = writeln!(w, "  final List<int> light;");
+    let _ = writeln!(w, "  final List<int> dark;");
+    let _ = writeln!(w, "}}");
+    let _ = writeln!(w);
+    let _ = writeln!(w, "const List<VrxSchemeRow> vrxSchemes = [");
+    let mut ids: Vec<u32> = schemes
+        .keys()
+        .map(|k| {
+            k.parse()
+                .map_err(|_| format!("[schemes.{k}]: not a number"))
+        })
+        .collect::<Result<_, _>>()?;
+    ids.sort_unstable();
+    for (expect, id) in (1u32..).zip(&ids) {
+        if *id != expect {
+            return Err(format!(
+                "schemes are not numbered 1..: found {id} where {expect} belongs"
+            ));
+        }
+        let row = &schemes[&id.to_string()];
+        let seed = str_of(row, "seed")?;
+        let rule = str_of(row, "rule")?;
+        let light = colours(
+            row.get("light").ok_or("no light")?,
+            &format!("schemes.{id}.light"),
+            n,
+        )?;
+        let dark = colours(
+            row.get("dark").ok_or("no dark")?,
+            &format!("schemes.{id}.dark"),
+            n,
+        )?;
+        let hex = |v: &[u32]| {
+            v.iter()
+                .map(|c| format!("0x{c:08X}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let _ = writeln!(
+            w,
+            "  VrxSchemeRow({id}, '{seed}', '{rule}', [{}], [{}]),",
+            hex(&light),
+            hex(&dark)
+        );
+    }
+    let _ = writeln!(w, "];");
+    let _ = writeln!(w);
+
+    // the grey maps a class can take
+    let maps = table(&doc, "map")?;
+    for name in ["grey4", "grey2"] {
+        let map = maps.get(name).ok_or_else(|| format!("no [map.{name}]"))?;
+        let levels = greys(
+            map.get("light").ok_or("no light")?,
+            &format!("map.{name}.light"),
+            n,
+        )?;
+        let list = levels
+            .iter()
+            .map(|g| format!("0x{g:02X}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(
+            w,
+            "/// Each slot's grey on a {name} panel (r = g = b), light polarity."
+        );
+        let _ = writeln!(
+            w,
+            "const List<int> vrxMap{} = [{list}];",
+            camel(&format!("_{name}"))
+        );
+        let _ = writeln!(w);
+    }
+
+    // the display classes (plan 0062 D14)
+    let classes = table(&doc, "class")?;
+    let _ = writeln!(
+        w,
+        "/// The kinds of panel, and what differs between them (plan 0062 D14)."
+    );
+    let _ = writeln!(w, "enum VrxDisplayClass {{");
+    for name in classes.keys() {
+        let _ = writeln!(w, "  {},", camel(name));
+    }
+    let _ = writeln!(w, "}}");
+    let _ = writeln!(w);
+    let _ = writeln!(w, "class VrxClassRow {{");
+    let _ = writeln!(w, "  const VrxClassRow({{required this.pressedLayerPermille, required this.liveMinMs, required this.ambientMinMs, required this.dither}});");
+    let _ = writeln!(w, "  final int pressedLayerPermille;");
+    let _ = writeln!(w, "  final int liveMinMs;");
+    let _ = writeln!(w, "  final int ambientMinMs;");
+    let _ = writeln!(w, "  final String dither;");
+    let _ = writeln!(w, "}}");
+    let _ = writeln!(w);
+    let _ = writeln!(
+        w,
+        "/// The file's name for each class (what a board declares)."
+    );
+    let _ = writeln!(w, "const Map<String, VrxDisplayClass> vrxClassNames = {{");
+    for name in classes.keys() {
+        let _ = writeln!(w, "  '{name}': VrxDisplayClass.{},", camel(name));
+    }
+    let _ = writeln!(w, "}};");
+    let _ = writeln!(w);
+    let _ = writeln!(w, "const Map<VrxDisplayClass, VrxClassRow> vrxClasses = {{");
+    for (name, row) in classes {
+        let _ = writeln!(
+            w,
+            "  VrxDisplayClass.{}: VrxClassRow(pressedLayerPermille: {}, liveMinMs: {}, ambientMinMs: {}, dither: '{}'),",
+            camel(name),
+            int_of(row, "pressed_layer_permille")?,
+            int_of(row, "live_min_ms")?,
+            int_of(row, "ambient_min_ms")?,
+            str_of(row, "dither")?,
+        );
+    }
+    let _ = writeln!(w, "}};");
+    let _ = writeln!(w);
+
+    // the contrast floors the tables were generated to hold
+    let _ = writeln!(
+        w,
+        "/// A pair of slots read together, and its WCAG contrast floor times 100."
+    );
+    let _ = writeln!(w, "class VrxPairFloor {{");
+    let _ = writeln!(w, "  const VrxPairFloor(this.bg, this.fg, this.minX100);");
+    let _ = writeln!(w, "  final VrxSlot bg;");
+    let _ = writeln!(w, "  final VrxSlot fg;");
+    let _ = writeln!(w, "  final int minX100;");
+    let _ = writeln!(w, "}}");
+    let _ = writeln!(w);
+    let _ = writeln!(w, "const List<VrxPairFloor> vrxPairFloors = [");
+    for p in array(colour, "pair")? {
+        let bg = index(str_of(p, "bg")?)?;
+        let fg = index(str_of(p, "fg")?)?;
+        let _ = writeln!(
+            w,
+            "  VrxPairFloor(VrxSlot.{}, VrxSlot.{}, {}),",
+            camel(&slots[bg]),
+            camel(&slots[fg]),
+            int_of(p, "min")?
+        );
+    }
+    let _ = writeln!(w, "];");
+    Ok(out)
+}
+
+/// The Dart the vendored standard should produce, and whether the pin holds.
+pub fn expected(repo: &Path) -> Result<String, String> {
+    let path = standard_path(repo);
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let pin = std::fs::read_to_string(pin_path(repo))
+        .map_err(|e| format!("standard/PIN: {e}"))?;
+    let want = pin_field(&pin, "sha256").ok_or("standard/PIN has no sha256")?;
+    let got = crate::fonts::sha256(&path)?;
+    if got != want {
+        return Err(format!(
+            "standard/vrx-ui-standard.toml hashes to {got}, standard/PIN says {want}: the file was edited, or the pin not bumped with it"
+        ));
+    }
+    let commit = pin_field(&pin, "commit").ok_or("standard/PIN has no commit")?;
+    generate(&text, &commit)
+}
+
+/// `cargo xtask ui-standard`.
+pub fn run(repo: &Path) -> Result<(), String> {
+    let dart = expected(repo)?;
+    let path = dart_path(repo);
+    std::fs::write(&path, dart).map_err(|e| format!("{}: {e}", path.display()))?;
+    println!("ui-standard: wrote {}", path.display());
+    Ok(())
+}
+
+/// The gate: the pin holds and the Dart file is current.
+pub fn is_current(repo: &Path) -> Result<bool, String> {
+    let want = expected(repo)?;
+    Ok(std::fs::read_to_string(dart_path(repo)).is_ok_and(|have| have == want))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MINI: &str = r##"
+[colour]
+slot = [
+  { name = "page" }, { name = "text" }, { name = "primary" }, { name = "on_primary" },
+]
+pair = [ { bg = "primary", fg = "on_primary", min = 450 } ]
+
+[class.lcd_colour]
+pressed_layer_permille = 200
+live_min_ms = 0
+ambient_min_ms = 0
+dither = "none"
+
+[schemes.1]
+seed = "blue"
+rule = "analogous"
+light = ["#FFFFFF", "#000000", "#105EB1", "#FFFFFF"]
+dark = ["#121212", "#EEEEEE", "#A0C9FF", "#203147"]
+
+[map.grey4]
+light = [255, 32, 0, 255]
+
+[map.grey2]
+light = [255, 0, 0, 255]
+"##;
+
+    #[test]
+    fn the_tables_come_out_in_slot_order_with_the_on_mask_derived() {
+        let dart = generate(MINI, "abc").unwrap();
+        assert!(dart
+            .contains("enum VrxSlot {\n  page,\n  text,\n  primary,\n  onPrimary,\n}"));
+        // primary (index 2) is followed by on_primary
+        assert!(dart.contains("vrxSlotHasOnMask = 0x00000004"));
+        assert!(dart.contains("VrxSchemeRow(1, 'blue', 'analogous', [0xFFFFFFFF, 0xFF000000, 0xFF105EB1, 0xFFFFFFFF]"));
+        assert!(dart.contains("vrxMapGrey4 = [0xFF, 0x20, 0x00, 0xFF]"));
+        assert!(dart.contains("'lcd_colour': VrxDisplayClass.lcdColour"));
+        assert!(dart.contains("VrxPairFloor(VrxSlot.primary, VrxSlot.onPrimary, 450)"));
+    }
+
+    #[test]
+    fn a_short_scheme_or_a_gap_in_the_numbering_is_refused() {
+        let short = MINI.replace(r##""#A0C9FF", "#203147"]"##, r##""#A0C9FF"]"##);
+        assert!(generate(&short, "abc").unwrap_err().contains("3 colours"));
+        let gap = MINI.replace("[schemes.1]", "[schemes.2]");
+        assert!(generate(&gap, "abc").unwrap_err().contains("numbered"));
+        let bad = MINI.replace("#105EB1", "105EB1");
+        assert!(generate(&bad, "abc").unwrap_err().contains("#RRGGBB"));
+    }
+
+    #[test]
+    fn camel_case_is_dart_case() {
+        assert_eq!(camel("on_primary_container"), "onPrimaryContainer");
+        assert_eq!(camel("_grey4"), "Grey4");
+    }
+}

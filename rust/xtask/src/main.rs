@@ -18,6 +18,7 @@
 mod crates_inc;
 mod fonts;
 mod impact;
+mod ui_standard;
 
 use std::process::{Command, ExitCode, Stdio};
 
@@ -28,6 +29,13 @@ fn main() -> ExitCode {
     match task.as_str() {
         "gate" => gate(args.iter().any(|a| a == "--all")),
         "crates-inc" => crates_inc::run(&args),
+        "ui-standard" => match ui_standard::run(&repo_root()) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("ui-standard: {err}");
+                ExitCode::FAILURE
+            }
+        },
         "fonts" => match fonts::ensure() {
             Ok(()) => {
                 println!("fonts: in {}", fonts::dir().display());
@@ -39,7 +47,9 @@ fn main() -> ExitCode {
             }
         },
         _ => {
-            eprintln!("usage: cargo xtask gate [--all] | crates-inc | fonts");
+            eprintln!(
+                "usage: cargo xtask gate [--all] | crates-inc | ui-standard | fonts"
+            );
             ExitCode::from(64)
         }
     }
@@ -265,13 +275,14 @@ fn run(program: &str, args: &[&str]) -> bool {
     ok
 }
 
+/// The repository root (xtask lives at rust/xtask).
+fn repo_root() -> std::path::PathBuf {
+    let up = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    up.canonicalize().unwrap_or(up)
+}
+
 fn gate(all: bool) -> ExitCode {
-    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap_or_else(|_| {
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-        });
+    let repo = repo_root();
     let stamps = impact::Stamps::new(&repo, all);
 
     // the workspace: each crate checked when it, a crate it builds
@@ -326,6 +337,21 @@ fn gate(all: bool) -> ExitCode {
         }
         Err(err) => {
             eprintln!("gate: FAILED reading the crates manifest: {err}");
+            return ExitCode::FAILURE;
+        }
+    }
+
+    // G018 (plan 0009 D1): the vendored UI standard hashes to its pin, and
+    // vrx_kit's generated tables are what it produces
+    println!("gate: the UI standard's pin and vrx_kit's tables");
+    match ui_standard::is_current(&repo) {
+        Ok(true) => {}
+        Ok(false) => {
+            eprintln!("gate: FAILED — flutter/vrx_kit/lib/src/ui_standard.g.dart is stale: run `cargo xtask ui-standard`");
+            return ExitCode::FAILURE;
+        }
+        Err(err) => {
+            eprintln!("gate: FAILED (G018): {err}");
             return ExitCode::FAILURE;
         }
     }

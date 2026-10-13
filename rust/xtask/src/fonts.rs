@@ -61,7 +61,7 @@ fn run(cmd: &mut Command) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-fn sha256(path: &Path) -> Result<String, String> {
+pub(crate) fn sha256(path: &Path) -> Result<String, String> {
     // sha256sum on Linux, shasum on macOS
     let out = run(Command::new("sha256sum").arg(path))
         .or_else(|_| run(Command::new("shasum").args(["-a", "256"]).arg(path)))?;
