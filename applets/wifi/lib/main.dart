@@ -150,7 +150,8 @@ class _Networks extends StatelessWidget {
           return VrxRow(
             glyph: VrxSymbols.named(signalGlyph(n.strength)),
             label: n.name,
-            value: n.connecting ? 'Joining…' : n.saved ? 'Saved' : (n.secured ? '🔒' : ''),
+            value: n.connecting ? 'Joining…' : (n.saved ? 'Saved' : ''),
+            valueGlyph: n.secured ? VrxSymbols.lock : null,
             onTap: () => n.saved ? onForget(n) : onJoin(n),
           );
         },

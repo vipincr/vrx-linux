@@ -78,12 +78,26 @@ fn allowed(line: &str) -> bool {
         .is_some_and(|(_, reason)| !reason.trim().is_empty())
 }
 
+/// An emoji: the image ships no emoji font, so one renders as a
+/// missing-glyph box (bench 2026-10-13: the Wi-Fi lock). Symbols come
+/// from the icon font (VrxSymbols) instead.
+fn is_emoji(c: char) -> bool {
+    matches!(u32::from(c), 0x1F300..=0x1FAFF | 0x2600..=0x27BF | 0x1F000..=0x1F2FF)
+}
+
 /// Violations in one file's text: (line number, rule).
 fn violations(ext: &str, text: &str) -> Vec<(usize, &'static str, &'static str)> {
     let lines: Vec<&str> = text.lines().collect();
     let mut found = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         let code = line.split("//").next().unwrap_or("");
+        if ext == "dart" && code.chars().any(is_emoji) {
+            found.push((
+                i + 1,
+                "emoji",
+                "the image ships no emoji font: use a VrxSymbols glyph",
+            ));
+        }
         for rule in RULES.iter().filter(|r| r.ext == ext) {
             if !code.contains(rule.needle) {
                 continue;
@@ -149,6 +163,10 @@ mod tests {
         let found: Vec<usize> = violations("dart", dart).iter().map(|v| v.0).collect();
         // line 4 is allowed with a reason; line 5's bare marker is not
         assert_eq!(found, vec![1, 2, 5, 7]);
+        assert_eq!(
+            violations("dart", "final v = n.secured ? '\u{1F512}' : '';\n").len(),
+            1
+        );
         let rs = "fn f() { std::thread::sleep(d); }\n";
         assert_eq!(violations("rs", rs).len(), 1);
     }

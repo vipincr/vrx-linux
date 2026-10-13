@@ -144,12 +144,17 @@ class VrxRow extends StatelessWidget {
     this.glyph,
     required this.label,
     this.value,
+    this.valueGlyph,
     this.onTap,
   });
 
   final IconData? glyph;
   final String label;
   final String? value;
+
+  /// A glyph after the value (a lock on a secured network): a symbol
+  /// from the icon font, never an emoji (the image ships no emoji font).
+  final IconData? valueGlyph;
   final VoidCallback? onTap;
 
   @override
@@ -186,6 +191,10 @@ class VrxRow extends StatelessWidget {
                 value!,
                 style: TypeRole.of(context, VrxTypeRole.value),
               ),
+            if (valueGlyph != null) ...[
+              SizedBox(width: ScaledSpacing.of(context).xs),
+              Icon(valueGlyph, size: VrxTypeRole.value.dp * VrxScale.of(context)),
+            ],
           ],
         ),
       ),
