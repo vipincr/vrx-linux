@@ -57,6 +57,9 @@ pub struct Session {
     procs: HashMap<String, Proc>,
     linked: bool,
     sent: Option<u32>,
+    /// Applets started in the background once Home is up (D17): opening
+    /// a warm applet is a focus switch, not a cold start.
+    warm: Vec<String>,
 }
 
 impl Session {
@@ -69,6 +72,7 @@ impl Session {
             procs: HashMap::new(),
             linked: false,
             sent: None,
+            warm: Vec::new(),
         }
     }
 
@@ -84,6 +88,16 @@ impl Session {
     /// resident applet start now, everything else on first use.
     pub fn boot(&mut self, registry: &Registry) -> Vec<Order> {
         self.go_home();
+        // the launcher's tiles: what a person is about to open (plan 0008
+        // D17); started when Home is on screen, not before, so they never
+        // delay the first frame
+        if self.home.is_some() {
+            self.warm = registry
+                .iter()
+                .filter(|e| e.manifest.applet.display.as_ref().is_some_and(|d| d.tile))
+                .map(|e| e.manifest.applet.id.clone())
+                .collect();
+        }
         let mut orders = Vec::new();
         for entry in registry.iter() {
             let applet = &entry.manifest.applet;
@@ -143,7 +157,15 @@ impl Session {
         let applet = event.applet().to_owned();
         match event {
             Event::Started { pid, .. } => {
+                let is_home = self.home.as_deref() == Some(applet.as_str());
                 self.procs.insert(applet, Proc::Running(*pid));
+                if is_home && !self.warm.is_empty() {
+                    let warm = std::mem::take(&mut self.warm);
+                    let mut orders: Vec<Order> =
+                        warm.iter().flat_map(|a| self.start(a)).collect();
+                    orders.extend(self.refocus());
+                    return orders;
+                }
             }
             Event::Restarting { .. } => {
                 // the supervisor respawns it; Started brings the new pid
@@ -430,6 +452,46 @@ mod tests {
             vec![Order::Start("logger".into())]
         );
         assert_eq!(s.supervision(&started("logger", 11)), vec![]);
+    }
+
+    #[test]
+    fn tile_applets_warm_up_once_home_is_running() {
+        let mut reg = Registry::new();
+        for (id, extra) in [
+            ("launcher", "\n[applet.roles]\nhome = true\n"),
+            (
+                "clock",
+                "\n[applet.display]\nicon = \"schedule\"\ntile = true\n",
+            ),
+            (
+                "wifi",
+                "\n[applet.display]\nicon = \"wifi\"\ntile = false\n",
+            ),
+        ] {
+            let text = format!(
+                "[applet]\nid = \"{id}\"\nname = \"N\"\nversion = \"1.0.0\"\nruntime = \"flutter\"\n{extra}"
+            );
+            reg.admit(RegistryEntry {
+                manifest: text.parse().unwrap(),
+                path: PathBuf::from("/system/defaults").join(id),
+                builtin: true,
+            })
+            .unwrap();
+        }
+        let mut s = Session::new(Session::home_of(&reg));
+        // Home first, alone: the warm-up never delays its first frame
+        assert_eq!(s.boot(&reg), vec![Order::Start("launcher".into())]);
+        // then the tiles (not the untiled wifi), once
+        assert_eq!(
+            s.supervision(&started("launcher", 1)),
+            vec![Order::Start("clock".into())]
+        );
+        assert_eq!(s.supervision(&started("clock", 2)), vec![]);
+        // a later Home restart does not warm again
+        assert_eq!(s.supervision(&started("launcher", 3)), vec![]);
+        // opening the warm applet is a focus, not a start
+        assert_eq!(s.link(&LinkEvent::Connected), vec![Order::Focus(3)]);
+        assert_eq!(s.nav(&reg, push("clock")).unwrap(), vec![Order::Focus(2)]);
     }
 
     #[test]
