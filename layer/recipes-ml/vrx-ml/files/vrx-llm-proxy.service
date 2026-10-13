@@ -1,0 +1,19 @@
+# Forwards the socket's connections to llama-server on 127.0.0.1:8081
+# inside the server's network namespace (JoinsNamespaceOf): the TCP port
+# exists only there, so the socket is the one way in (G024). The pattern
+# is systemd-socket-proxyd(8)'s own example.
+[Unit]
+Description=vrx local chat model (proxy)
+Requires=vrx-llm.socket vrx-llm-server.service
+After=vrx-llm.socket vrx-llm-server.service
+JoinsNamespaceOf=vrx-llm-server.service
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd --exit-idle-time=120s 127.0.0.1:8081
+PrivateNetwork=yes
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+CapabilityBoundingSet=

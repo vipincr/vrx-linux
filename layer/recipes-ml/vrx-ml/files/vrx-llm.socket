@@ -1,0 +1,16 @@
+# The chat model's one door (plan 0011 D18, G024): a unix socket the ml
+# grant's group may connect to. A connection starts vrx-llm-proxy, which
+# starts the server; two minutes after the last request both stop and the
+# model's memory is free again.
+[Unit]
+Description=vrx local chat model (socket)
+
+[Socket]
+ListenStream=/run/vrx-ml/llm.sock
+SocketGroup=vrx-ml
+SocketMode=0660
+DirectoryMode=0755
+Service=vrx-llm-proxy.service
+
+[Install]
+WantedBy=sockets.target

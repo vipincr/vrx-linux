@@ -1,0 +1,12 @@
+# A person agreed to fetch a model (plan 0011 D18): an applet with the ml
+# grant made /var/lib/vrx-ml/wanted/<name>. Path activation, no polkit:
+# the grant is the right to ask, vrx-ml-fetch decides what that means.
+[Unit]
+Description=vrx: fetch the local models asked for
+
+[Path]
+PathExistsGlob=/var/lib/vrx-ml/wanted/*
+Unit=vrx-ml-fetch.service
+
+[Install]
+WantedBy=paths.target

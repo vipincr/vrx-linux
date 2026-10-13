@@ -1,0 +1,13 @@
+#!/bin/sh
+# vrx-ml-ready PORT PATH: wait until a model server inside its unit's
+# network namespace answers PATH with a success (llama-server's /health
+# says 503 while the model loads), so systemd-socket-proxyd never
+# forwards a connection to a server that is still loading. 60 s at most.
+i=0
+while [ $i -lt 300 ]; do
+    curl -sf -o /dev/null "http://127.0.0.1:$1$2" && exit 0
+    sleep 0.2
+    i=$((i + 1))
+done
+echo "vrx-ml-ready: nothing answered on 127.0.0.1:$1$2 in 60 s"
+exit 1

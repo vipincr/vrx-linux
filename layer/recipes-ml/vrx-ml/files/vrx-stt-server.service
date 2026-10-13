@@ -1,0 +1,33 @@
+# whisper-server with the speech model (plan 0011 D18). It listens on
+# 127.0.0.1:8082 in a network namespace of its own (PrivateNetwork=yes,
+# checked by vrx-image's G024 rule); only vrx-stt-proxy joins it. Started
+# with the proxy, stopped when the proxy is: StopWhenUnneeded frees the
+# model's ~100 MB two minutes after the last request. The kernel ends it
+# before the UI when memory runs out (OOMScoreAdjust), and its budget
+# leaves the applets theirs (MemoryHigh/MemoryMax).
+[Unit]
+Description=vrx local speech model (whisper-server)
+StopWhenUnneeded=yes
+ConditionPathExists=/var/lib/vrx-ml/models/ggml-tiny.en-q5_1.bin
+RequiresMountsFor=/var/lib/vrx-ml
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/whisper-server --host 127.0.0.1 --port 8082 \
+    --model /var/lib/vrx-ml/models/ggml-tiny.en-q5_1.bin --threads 4
+# whisper-server loads the model before it listens; its form page at /
+# answers once it does
+ExecStartPost=/usr/libexec/vrx/vrx-ml-ready 8082 /
+TimeoutStartSec=90
+PrivateNetwork=yes
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_UNIX
+MemoryHigh=200M
+MemoryMax=250M
+OOMScoreAdjust=500

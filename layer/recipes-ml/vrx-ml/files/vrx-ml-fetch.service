@@ -1,0 +1,21 @@
+# Downloads each model asked for from models.toml's pinned URL and keeps
+# it only when its SHA-256 matches (vrx-ml-fetch). Root, because the
+# models directory is root's (the servers read it, nothing else writes
+# it), with no capabilities and only /var/lib/vrx-ml writable.
+[Unit]
+Description=vrx: fetch local models
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/vrx-ml
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/vrx/vrx-ml-fetch
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/var/lib/vrx-ml
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

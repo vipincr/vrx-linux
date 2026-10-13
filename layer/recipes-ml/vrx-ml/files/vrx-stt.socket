@@ -1,0 +1,16 @@
+# The speech model's one door (plan 0011 D18, G024): a unix socket the ml
+# grant's group may connect to. A connection starts vrx-stt-proxy, which
+# starts the server; two minutes after the last request both stop and the
+# model's memory is free again.
+[Unit]
+Description=vrx local speech model (socket)
+
+[Socket]
+ListenStream=/run/vrx-ml/stt.sock
+SocketGroup=vrx-ml
+SocketMode=0660
+DirectoryMode=0755
+Service=vrx-stt-proxy.service
+
+[Install]
+WantedBy=sockets.target

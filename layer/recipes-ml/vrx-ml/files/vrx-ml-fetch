@@ -1,0 +1,82 @@
+#!/bin/sh
+# Fetch the models a person asked for (plan 0011 D18). An applet holding
+# the ml grant asks by creating /var/lib/vrx-ml/wanted/<name>; this
+# script, started by vrx-ml-fetch.path, takes the URL, size and SHA-256
+# from the image's models.toml (never from the applet), downloads to
+# <file>.part (resumable), checks the sum, and renames into models/.
+# Each request ends in a status file the applet reads:
+#   status/<name>: state=fetching|done|stopped|failed and, when failed,
+#   why=network|checksum|space|unknown
+# A request is consumed (its wanted file removed) whatever the outcome,
+# so the path unit never loops; removing it mid-download stops the
+# download and keeps the .part for the next try.
+set -u
+ROOT=/var/lib/vrx-ml
+LIST=/usr/share/vrx-ml/models.toml
+
+# the value of key in section name, from models.toml
+value() {
+    awk -v want="[$1]" -v key="$2" '
+        /^[ \t]*#/ { next }
+        /^[ \t]*\[/ { gsub(/[ \t]/, ""); section = $0; next }
+        section == want {
+            line = $0
+            sub(/^[ \t]*/, "", line)
+            if (match(line, "^" key "[ \t]*=[ \t]*")) {
+                rest = substr(line, RLENGTH + 1)
+                gsub(/^"|"[ \t]*$/, "", rest)
+                print rest
+                exit
+            }
+        }' "$LIST"
+}
+
+status() {
+    printf 'state=%s\n%s' "$2" "${3:+why=$3
+}" > "$ROOT/status/$1.tmp" && mv "$ROOT/status/$1.tmp" "$ROOT/status/$1"
+}
+
+for want in "$ROOT"/wanted/*; do
+    [ -e "$want" ] || continue
+    name=$(basename "$want")
+    case "$name" in *[!a-z0-9_-]*|'') rm -f "$want"; continue ;; esac
+    file=$(value "$name" file); url=$(value "$name" url)
+    sum=$(value "$name" sha256); size=$(value "$name" size)
+    if [ -z "$file" ] || [ -z "$url" ] || [ -z "$sum" ] || [ -z "$size" ]; then
+        echo "vrx-ml-fetch: no model '$name' in $LIST"
+        rm -f "$want"; continue
+    fi
+    if [ -e "$ROOT/models/$file" ]; then
+        status "$name" done; rm -f "$want"; continue
+    fi
+    part="$ROOT/models/$file.part"
+    have=$(stat -c %s "$part" 2>/dev/null || echo 0)
+    free=$(df -Pk "$ROOT" | awk 'NR == 2 { print $4 * 1024 }')
+    if [ $((size - have + 64 * 1024 * 1024)) -gt "$free" ]; then
+        echo "vrx-ml-fetch: $name needs $((size - have)) bytes, $free free"
+        status "$name" failed space; rm -f "$want"; continue
+    fi
+    status "$name" fetching
+    echo "vrx-ml-fetch: $name from $url"
+    curl -fsSL --retry 3 --connect-timeout 20 -C - -o "$part" "$url" &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if [ ! -e "$want" ]; then
+            kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+            echo "vrx-ml-fetch: $name stopped"
+            status "$name" stopped; continue 2
+        fi
+        sleep 1
+    done
+    if ! wait "$pid"; then
+        echo "vrx-ml-fetch: $name: download failed"
+        status "$name" failed network; rm -f "$want"; continue
+    fi
+    if [ "$(sha256sum "$part" | cut -d' ' -f1)" != "$sum" ]; then
+        echo "vrx-ml-fetch: $name: checksum mismatch, discarded"
+        rm -f "$part"; status "$name" failed checksum; rm -f "$want"; continue
+    fi
+    chmod 0644 "$part" && mv "$part" "$ROOT/models/$file"
+    echo "vrx-ml-fetch: $name ready ($size bytes)"
+    status "$name" done; rm -f "$want"
+done

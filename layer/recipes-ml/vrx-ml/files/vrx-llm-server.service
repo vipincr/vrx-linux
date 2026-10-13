@@ -1,0 +1,32 @@
+# llama-server with the chat model (plan 0011 D18). It listens on
+# 127.0.0.1:8081 in a network namespace of its own (PrivateNetwork=yes,
+# checked by vrx-image's G024 rule); only vrx-llm-proxy joins it. Started
+# with the proxy, stopped when the proxy is: StopWhenUnneeded frees the
+# model's ~600 MB two minutes after the last request. The kernel ends it
+# before the UI when memory runs out (OOMScoreAdjust), and its budget
+# leaves the applets theirs (MemoryHigh/MemoryMax).
+[Unit]
+Description=vrx local chat model (llama-server)
+StopWhenUnneeded=yes
+ConditionPathExists=/var/lib/vrx-ml/models/qwen2.5-0.5b-instruct-q4_k_m.gguf
+RequiresMountsFor=/var/lib/vrx-ml
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/llama-server --host 127.0.0.1 --port 8081 \
+    --model /var/lib/vrx-ml/models/qwen2.5-0.5b-instruct-q4_k_m.gguf \
+    --ctx-size 2048 --threads 4 --parallel 1
+ExecStartPost=/usr/libexec/vrx/vrx-ml-ready 8081 /health
+TimeoutStartSec=90
+PrivateNetwork=yes
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_UNIX
+MemoryHigh=750M
+MemoryMax=800M
+OOMScoreAdjust=500
