@@ -496,12 +496,13 @@ String vrxBreakable(String text) => text.replaceAllMapped(RegExp(r'([-_/.&])'), 
 /// [maxLines] lines, breaking at punctuation. A long network name or
 /// package name in a header reads whole instead of ending in "...".
 class VrxFitText extends StatelessWidget {
-  const VrxFitText(this.text, {super.key, required this.style, this.floor = 0.7, this.maxLines = 2});
+  const VrxFitText(this.text, {super.key, required this.style, this.floor = 0.7, this.maxLines = 2, this.textAlign});
 
   final String text;
   final TextStyle style;
   final double floor;
   final int maxLines;
+  final TextAlign? textAlign;
 
   @override
   Widget build(BuildContext context) {
@@ -516,16 +517,17 @@ class VrxFitText extends StatelessWidget {
       final natural = tp.width;
       tp.dispose();
       final base = style.fontSize ?? 14;
-      if (natural <= box.maxWidth) return Text(text, style: style, maxLines: 1);
+      if (natural <= box.maxWidth) return Text(text, style: style, maxLines: 1, textAlign: textAlign);
       final scale = box.maxWidth / natural;
       if (scale >= floor) {
-        return Text(text, style: style.copyWith(fontSize: base * scale * 0.99), maxLines: 1);
+        return Text(text, style: style.copyWith(fontSize: base * scale * 0.99), maxLines: 1, textAlign: textAlign);
       }
       return Text(
         vrxBreakable(text),
         style: style.copyWith(fontSize: base * floor),
         maxLines: maxLines,
         overflow: TextOverflow.ellipsis,
+        textAlign: textAlign,
       );
     });
   }

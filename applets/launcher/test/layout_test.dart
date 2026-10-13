@@ -10,6 +10,7 @@ void main() {
   LauncherApplet home() => LauncherApplet()
     ..replaceRegistry({
       for (final (i, t) in [
+        ('web', 'Web requests', 'language'),
         ('clock', 'Clock', 'schedule'),
         ('settings', 'Settings', 'settings'),
         ('terminal', 'Terminal', 'terminal'),

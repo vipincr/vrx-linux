@@ -52,14 +52,16 @@ class LauncherApplet
                           .clamp(3, 8);
                       final tileWidth = (inner - space.sm * (columns - 1)) / columns;
                       final label = TypeRole.caption(context);
-                      final labelHeight = space.xs + (label.fontSize ?? 14) * 1.3;
+                      // a name takes one line, or two at 70% when it is long
+                      // ("Web requests"): room for the two
+                      final labelHeight = space.xs + (label.fontSize ?? 14) * 1.3 * 1.45;
                       return GridView.count(
                         padding: EdgeInsets.fromLTRB(space.inset, space.sm, space.inset, space.inset),
                         crossAxisCount: columns,
                         mainAxisSpacing: space.md,
                         crossAxisSpacing: space.sm,
                         childAspectRatio: tileWidth / (tileWidth + labelHeight),
-                        children: [for (final tile in view.tiles) _Tile(tile: tile)],
+                        children: [for (final tile in view.tiles) _Tile(tile: tile, labelHeight: labelHeight)],
                       );
                     }),
             ),
@@ -128,9 +130,13 @@ class _NowState extends State<_Now> {
 }
 
 class _Tile extends StatelessWidget {
-  const _Tile({required this.tile});
+  const _Tile({required this.tile, required this.labelHeight});
 
   final Tile tile;
+
+  /// The label's room, the same on every tile so every icon is the same
+  /// size whether its name takes one line or two.
+  final double labelHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -161,9 +167,17 @@ class _Tile extends StatelessWidget {
               ),
             ),
           ),
-          SizedBox(height: space.xs),
-          // a long name shrinks to fit the tile rather than being cut
-          VrxFitText(tile.name, style: TypeRole.caption(context).copyWith(height: 1.2), maxLines: 1),
+          SizedBox(
+            height: labelHeight,
+            child: Padding(
+              padding: EdgeInsets.only(top: space.xs),
+              // a long name shrinks to fit, then takes two lines
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: VrxFitText(tile.name, style: TypeRole.caption(context).copyWith(height: 1.2), textAlign: TextAlign.center),
+              ),
+            ),
+          ),
         ],
       ),
     );
