@@ -1,7 +1,7 @@
 [applet]
 id = "clock"                   # [a-z][a-z0-9_]*, max 32, "vrx" refused
 name = "Clock"                 # what a person reads, max 32
-version = "1.0.0"
+version = "2.0.0"
 runtime = "flutter"            # "flutter" | "rust" | "native"
 
 [applet.display]
@@ -9,7 +9,9 @@ icon = "schedule"              # a Material Symbol name (VrxSymbols)
 tile = true
 position = 3
 orientation = "landscape"
-repaints_per_min = 30
+# the face changes once a minute; a ring flashes at 2 Hz for at most
+# 30 s, the one thing that repaints this fast
+repaints_per_min = 120
 
 [applet.resources]
 heap_mb = 128
@@ -18,33 +20,29 @@ heap_mb = 128
 home = false
 shell = false
 installs = false
-resident = false
+# the clock is the schedule (plan 0008 D9): alarms and timers fire
+# whether or not it was opened, so it is alive from boot
+resident = true
 
 [applet.permissions]
-system = ["time"]                # zone, alarms (plan 0008 D2)
+# time: the home zone; display: the light comes on when it rings
+system = ["time", "display"]
 
 [applet.intents]
 handles = [
     { name = "sys.alarm.ring", priority = 900, at = "ring" },
     { name = "vrx.open", priority = 500 },
 ]
-emits = ["alarm.fire", "app.finished"]
+# it sends sys.alarm.ring itself, to come to the front when one is due
+emits = ["sys.alarm.ring", "app.finished"]
 
 [applet.routes]
 # Route 0 is the root (never declared); declaration order is the numbering
-clock = {}                     # route 1
+world = {}                     # route 1
 alarms = {}                    # route 2
 timer = {}                     # route 3
 ring = {}                      # route 4 (the sys.alarm.ring deep link)
+zone = {}                      # route 5 (choose the home zone)
 
 [applet.command]
-enabled = true
-usage = "clock [--set HH:MM]"
-
-[[applet.settings]]
-key = "clock_format"
-label = "Time format"
-category = "Clock"
-type = "enum"
-default = "24h"
-options = ["12h", "24h"]
+enabled = false

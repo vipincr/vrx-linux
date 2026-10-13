@@ -145,7 +145,9 @@ class VrxRow extends StatelessWidget {
     required this.label,
     this.value,
     this.valueGlyph,
+    this.onValueGlyph,
     this.onTap,
+    this.onLongPress,
   });
 
   final IconData? glyph;
@@ -155,13 +157,23 @@ class VrxRow extends StatelessWidget {
   /// A glyph after the value (a lock on a secured network): a symbol
   /// from the icon font, never an emoji (the image ships no emoji font).
   final IconData? valueGlyph;
+
+  /// Makes [valueGlyph] its own control, a touch minimum square apart
+  /// from the row's tap (an alarm's bell switches it; the row edits it).
+  final VoidCallback? onValueGlyph;
   final VoidCallback? onTap;
+
+  /// A hold: for what a tap must not do by accident (removing a row,
+  /// after a confirm).
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
     final palette = VrxTheme.of(context);
+    final glyphSize = VrxTypeRole.value.dp * VrxScale.of(context);
     return VrxPress(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Container(
         constraints: BoxConstraints(
           minHeight: ScaledSpacing.minInteractive(context),
@@ -191,9 +203,17 @@ class VrxRow extends StatelessWidget {
                 value!,
                 style: TypeRole.of(context, VrxTypeRole.value),
               ),
-            if (valueGlyph != null) ...[
+            if (valueGlyph != null && onValueGlyph != null)
+              VrxPress(
+                onTap: onValueGlyph,
+                child: SizedBox.square(
+                  dimension: ScaledSpacing.minInteractive(context),
+                  child: Icon(valueGlyph, size: glyphSize),
+                ),
+              )
+            else if (valueGlyph != null) ...[
               SizedBox(width: ScaledSpacing.of(context).xs),
-              Icon(valueGlyph, size: VrxTypeRole.value.dp * VrxScale.of(context)),
+              Icon(valueGlyph, size: glyphSize),
             ],
           ],
         ),
@@ -370,10 +390,11 @@ class VrxBanner extends StatelessWidget {
 /// faded) and the control sinks to 0.97 scale back on the
 /// spatial-fast spring. Wraps any child; press is never eased.
 class VrxPress extends StatefulWidget {
-  const VrxPress({super.key, required this.child, this.onTap});
+  const VrxPress({super.key, required this.child, this.onTap, this.onLongPress});
 
   final Widget child;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   @override
   State<VrxPress> createState() => _VrxPressState();
@@ -416,6 +437,12 @@ class _VrxPressState extends State<VrxPress>
       onTapUp: (_) => _set(false),
       onTapCancel: () => _set(false),
       onTap: widget.onTap,
+      onLongPress: widget.onLongPress == null
+          ? null
+          : () {
+              _set(false);
+              widget.onLongPress!();
+            },
       child: ScaleTransition(
         scale: _scale,
         child: _held

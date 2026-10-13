@@ -1,111 +1,476 @@
 import 'package:vrx_kit/vrx_kit.dart';
 
-/// Everything the clock reacts to.
-enum ClockAction {
-  init,
-  tick,
-  formatChanged,
-  alarmFired,
-  snoozeTapped,
+import 'book.dart';
+import 'tz.dart';
+
+/// The clock's events. The model's methods make the changes (each a
+/// rule ported from evrx-rt's clock model); an event says the view is
+/// due again.
+enum ClockAction { init, changed, tick }
+
+/// Screens over the tabs. The tabs are one screen: a tab change is
+/// state, not a push, so Back leaves the applet from any tab.
+enum ClockScreen { tabs, regions, cities, editor, editTime }
+
+enum ClockTab { face, world, alarms, timer }
+
+enum TimerMode { pomodoro, precise }
+
+/// The pomodoro dial's five stops, clockwise from the top; it opens on
+/// 20 minutes.
+const dialMinutes = [1, 5, 20, 45, 60];
+const dialDefault = 2;
+const preciseMax = 60;
+
+/// The progress ring redraws this many times over a whole run, whatever
+/// its length (evrx-rt: twelve repaints, not one a second).
+const ringSteps = 12;
+
+/// Timezone regions as a person reads them: "Indian" is the ocean.
+const regionLabels = {
+  'Africa': 'Africa',
+  'America': 'Americas',
+  'Antarctica': 'Antarctica',
+  'Arctic': 'Arctic',
+  'Asia': 'Asia',
+  'Atlantic': 'Atlantic Ocean',
+  'Australia': 'Australia',
+  'Europe': 'Europe',
+  'Indian': 'Indian Ocean',
+  'Pacific': 'Pacific Ocean',
+};
+
+class Ring {
+  const Ring(this.kind, this.index, this.started);
+
+  final FireKind kind;
+  final int index;
+  final int started;
 }
 
-/// What the clock draws.
 class ClockView {
   const ClockView({
+    required this.screen,
+    required this.tab,
+    required this.valid,
     required this.time,
-    required this.is24h,
-    required this.ringing,
+    required this.date,
+    required this.zone,
+    required this.next,
+    required this.cities,
+    required this.canAddCity,
+    required this.alarms,
+    required this.canAddAlarm,
+    required this.mode,
+    required this.dial,
+    required this.precise,
+    required this.running,
+    required this.centre,
+    required this.ringValue,
+    required this.listTitle,
+    required this.list,
+    required this.draft,
+    required this.canDelete,
+    required this.notice,
+    required this.ring,
+    required this.ringNote,
+    required this.canSnooze,
   });
 
-  /// The time, formatted per the current setting.
+  final ClockScreen screen;
+  final ClockTab tab;
+
+  /// The clock has been set (synced, or a plausible year).
+  final bool valid;
   final String time;
+  final String date;
+  final String zone;
+  final String next;
 
-  /// 24-hour clock or 12-hour.
-  final bool is24h;
+  /// (city, "07:45 +1", the zone)
+  final List<(String, String, String)> cities;
+  final bool canAddCity;
 
-  /// An alarm is ringing: the ring route is the front screen.
-  final bool ringing;
+  /// (time, days, on)
+  final List<(String, String, bool)> alarms;
+  final bool canAddAlarm;
+
+  final TimerMode mode;
+  final int dial;
+  final int precise;
+  final bool running;
+
+  /// The dial's centre: minutes set, or minutes left (rounded up).
+  final String centre;
+
+  /// Steps of [ringSteps] left; [ringSteps] when nothing runs.
+  final int ringValue;
+
+  final String listTitle;
+  final List<String> list;
+
+  final Alarm draft;
+  final bool canDelete;
+  final String notice;
+
+  /// Ringing: covers whatever screen is up.
+  final bool ring;
+  final String ringNote;
+  final bool canSnooze;
 }
 
-/// The clock model: state as fields, reduce applies and derives the
-/// view. The same model a host test drives.
 class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
-  /// `clock` is read on boot and on every tick; host tests pass a
-  /// fixed one (the default), the applet's main passes the wall clock.
-  ClockModel({DateTime Function()? clock})
-      : _clock = clock ?? (() => DateTime(2026, 1, 1, 13, 4, 0)),
-        _is24h = true,
-        _ringing = false {
-    _now = _clock();
+  ClockModel({ClockBook? book, int Function()? now})
+      : book = book ?? ClockBook(),
+        _now = now ?? _wallClock;
+
+  static int _wallClock() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+  final int Function() _now;
+  ClockBook book;
+  Zone home = Zone.fixed('UTC', 0);
+  final world = <String, Zone>{};
+  bool synced = false;
+  List<String> zones = const [];
+
+  ClockTab tab = ClockTab.face;
+  final _stack = <ClockScreen>[ClockScreen.tabs];
+  bool pickHome = false;
+  String region = '';
+
+  int editing = -1;
+  Alarm draft = const Alarm(minutes: 420);
+  String notice = '';
+
+  TimerMode mode = TimerMode.pomodoro;
+  int dial = dialDefault;
+  int precise = 20;
+
+  Ring? ring;
+
+  int get now => _now();
+  ClockScreen get screen => _stack.last;
+
+  /// Back within the applet; false when Back should leave it.
+  bool back() {
+    if (ring != null || _stack.length == 1) return false;
+    _stack.removeLast();
+    notice = '';
+    return true;
   }
 
-  final DateTime Function() _clock;
-  late DateTime _now;
-  bool _is24h;
-  bool _ringing;
+  void _push(ClockScreen s) => _stack.add(s);
+  void _toTabs() => _stack
+    ..clear()
+    ..add(ClockScreen.tabs);
+
+  void openTab(ClockTab t) {
+    if (ring == null && screen == ClockScreen.tabs) tab = t;
+  }
+
+  // ── zones ──────────────────────────────────────────────────────────
+
+  /// The face's zone row: choose the home zone (the system's).
+  void pickHomeZone() {
+    if (ring != null || screen != ClockScreen.tabs) return;
+    pickHome = true;
+    _push(ClockScreen.regions);
+  }
+
+  void addCity() {
+    if (ring != null || screen != ClockScreen.tabs || book.world.length >= worldMax) return;
+    pickHome = false;
+    _push(ClockScreen.regions);
+  }
+
+  List<String> get regions =>
+      [for (final r in regionLabels.keys) if (zones.any((z) => z.startsWith('$r/'))) r];
+
+  List<String> citiesIn(String r) => [for (final z in zones) if (z.startsWith('$r/')) z];
+
+  void pickRegion(int i) {
+    final rs = regions;
+    if (screen != ClockScreen.regions || i < 0 || i >= rs.length) return;
+    region = rs[i];
+    _push(ClockScreen.cities);
+  }
+
+  /// The zone a city row names; the caller sets it (home) or it joins
+  /// the world clock. Null when the tap is stale.
+  String? pickCity(int i) {
+    final cs = citiesIn(region);
+    if (screen != ClockScreen.cities || i < 0 || i >= cs.length) return null;
+    final zone = cs[i];
+    if (!pickHome && !book.world.contains(zone) && book.world.length < worldMax) book.world.add(zone);
+    _toTabs();
+    return zone;
+  }
+
+  void removeCity(int i) {
+    if (i >= 0 && i < book.world.length) book.world.removeAt(i);
+  }
+
+  // ── alarms ─────────────────────────────────────────────────────────
+
+  void newAlarm() {
+    if (ring != null || screen != ClockScreen.tabs || book.alarms.length >= alarmsMax) return;
+    draft = const Alarm(minutes: 7 * 60); // the alarm most people set
+    editing = -1;
+    notice = '';
+    _push(ClockScreen.editor);
+  }
+
+  void editAlarm(int i) {
+    if (ring != null || screen != ClockScreen.tabs || i < 0 || i >= book.alarms.length) return;
+    editing = i;
+    draft = book.alarms[i]; // a copy: the book may change under an edit
+    notice = '';
+    _push(ClockScreen.editor);
+  }
+
+  void toggleAlarm(int i) {
+    if (i < 0 || i >= book.alarms.length) return;
+    book.alarms[i] = book.alarms[i].copyWith(enabled: !book.alarms[i].enabled);
+    // a re-enabled one-off rings at its next time, not at a missed one
+    book.checked = now;
+  }
+
+  void removeAlarm(int i) {
+    if (i < 0 || i >= book.alarms.length) return;
+    book.alarms.removeAt(i);
+    final s = book.snoozeAlarm;
+    if (s == i) {
+      book
+        ..snoozeAlarm = null
+        ..snoozeUntil = null;
+    } else if (s != null && s > i) {
+      book.snoozeAlarm = s - 1;
+    }
+  }
+
+  void editTime() {
+    if (screen == ClockScreen.editor) _push(ClockScreen.editTime);
+  }
+
+  void setDraftTime(int minutes) {
+    if (screen != ClockScreen.editTime) return;
+    draft = draft.copyWith(minutes: minutes.clamp(0, 1439));
+    _stack.removeLast();
+  }
+
+  /// Four presets rather than seven checkboxes: these cover what people
+  /// set, and seven toggles is seven taps to say "weekdays".
+  void cycleDays() {
+    if (screen != ClockScreen.editor) return;
+    draft = draft.copyWith(
+        days: switch (draft.days) { 0 => daysAll, daysAll => daysWeek, daysWeek => daysWeekend, _ => 0 });
+  }
+
+  void toggleSnooze() {
+    if (screen == ClockScreen.editor) draft = draft.copyWith(snooze: !draft.snooze);
+  }
+
+  /// Save the draft; stays on the editor and says why when it cannot.
+  bool saveDraft() {
+    if (screen != ClockScreen.editor) return false;
+    final others = [for (var i = 0; i < book.alarms.length; i++) if (i != editing) book.alarms[i]];
+    if (others.any(draft.sameTime)) {
+      notice = 'That alarm is already set.';
+      return false;
+    }
+    if (editing < 0 && book.alarms.length >= alarmsMax) {
+      notice = 'There is no room for another alarm.';
+      return false;
+    }
+    final saved = draft.copyWith(enabled: true);
+    if (editing < 0) {
+      book.alarms.add(saved);
+    } else {
+      book.alarms[editing] = saved;
+    }
+    book.checked = now;
+    notice = '';
+    _stack.removeLast();
+    return true;
+  }
+
+  void deleteDraft() {
+    if (screen != ClockScreen.editor || editing < 0) return;
+    removeAlarm(editing);
+    editing = -1;
+    _stack.removeLast();
+  }
+
+  // ── the timer ──────────────────────────────────────────────────────
+
+  bool get _onTimer => ring == null && screen == ClockScreen.tabs && tab == ClockTab.timer;
+  bool get running => (book.timerEnd ?? 0) > now;
+
+  void setMode(TimerMode m) {
+    if (_onTimer) mode = m;
+  }
+
+  void pickDial(int i) {
+    if (_onTimer && mode == TimerMode.pomodoro && !running && i >= 0 && i < dialMinutes.length) dial = i;
+  }
+
+  void setPrecise(int minutes) {
+    if (_onTimer && mode == TimerMode.precise && !running) precise = minutes.clamp(1, preciseMax);
+  }
+
+  /// The dial's centre: start what is set, or stop what runs.
+  void pressDial() {
+    if (!_onTimer) return;
+    if (running) {
+      book.timerEnd = null;
+      return;
+    }
+    final seconds = (mode == TimerMode.precise ? precise : dialMinutes[dial]) * 60;
+    book
+      ..timerSeconds = seconds
+      ..timerEnd = now + seconds;
+  }
+
+  /// A hold: stop, and put the ring back to full.
+  void resetTimer() {
+    if (_onTimer) book.timerEnd = null;
+  }
+
+  // ── the ring ───────────────────────────────────────────────────────
+
+  /// Check the schedule; the first thing due rings (one at a time).
+  /// True when the book changed and wants saving.
+  bool check() {
+    final before = book.toJson().toString();
+    final due = takeDue(book, now, home);
+    if (due.isNotEmpty && ring == null) {
+      final d = due.first;
+      ring = Ring(d.kind, d.index, now);
+      // the ring ends on a tab, so the stack goes back to the tabs now
+      _toTabs();
+    }
+    return book.toJson().toString() != before;
+  }
+
+  bool get canSnooze {
+    final r = ring;
+    return r != null && r.kind == FireKind.alarm && r.index < book.alarms.length && book.alarms[r.index].snooze;
+  }
+
+  /// Stop the ring. A finished timer returns to the timer; an alarm to
+  /// the face (it happened; it is not a tool being used).
+  void stopRing() {
+    final r = ring;
+    if (r == null) return;
+    ring = null;
+    tab = r.kind == FireKind.timer ? ClockTab.timer : ClockTab.face;
+  }
+
+  /// Snooze; on an alarm without snooze, or a timer, it stops: a button
+  /// that does nothing reads as broken.
+  void snoozeRing() {
+    final r = ring;
+    if (r == null) return;
+    if (canSnooze) {
+      book
+        ..snoozeUntil = now + snoozeMinutes * 60
+        ..snoozeAlarm = r.index;
+    }
+    stopRing();
+  }
+
+  /// An alarm nobody is there for gives up.
+  bool get ringExpired => ring != null && now - ring!.started >= ringSeconds;
+
+  // ── the view ───────────────────────────────────────────────────────
 
   @override
-  ClockState get initial => ClockState(
-        hour: _now.hour,
-        minute: _now.minute,
-        is24h: _is24h,
-        ringing: _ringing,
-      );
+  ClockState get initial => const ClockState();
 
   @override
   ClockAction get bootAction => ClockAction.init;
 
   @override
-  ClockView reduce(ClockState state, ClockAction action) {
-    switch (action) {
-      case ClockAction.init:
-        break;
-      case ClockAction.tick:
-        _now = _clock();
-      case ClockAction.formatChanged:
-        _is24h = !_is24h;
-      case ClockAction.alarmFired:
-        _ringing = true;
-      case ClockAction.snoozeTapped:
-        _ringing = false;
-    }
-    return ClockView(
-      time: _format(_now),
-      is24h: _is24h,
-      ringing: _ringing,
-    );
-  }
-
-  String _format(DateTime now) {
-    if (_is24h) {
-      return '${_two(now.hour)}:${_two(now.minute)}';
-    }
-    final hour = now.hour % 12 == 0 ? 12 : now.hour % 12;
-      return '$hour:${_two(now.minute)} ${now.hour < 12 ? 'AM' : 'PM'}';
-  }
-
-  String _two(int n) => n.toString().padLeft(2, '0');
+  ClockState get snapshot => const ClockState();
 
   @override
-  ClockState get snapshot => ClockState(
-        hour: _now.hour,
-        minute: _now.minute,
-        is24h: _is24h,
-        ringing: _ringing,
-      );
+  ClockView reduce(ClockState state, ClockAction action) {
+    final t = now;
+    final wall = home.local(t);
+    final valid = synced || wall.year >= 2025;
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June', //
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ];
+    var next = '';
+    final snooze = book.snoozeUntil;
+    final due = nextDue(book, t, home);
+    if (due != null) {
+      final s = home.local(due);
+      next = snooze == due
+          ? 'Snoozed until ${hm(s.hour * 60 + s.minute)}.'
+          : 'Next ${due == book.timerEnd ? 'timer' : 'alarm'} at ${hm(s.hour * 60 + s.minute)}.';
+    }
+    final homeDay = DateTime.utc(wall.year, wall.month, wall.day);
+    final cities = <(String, String, String)>[];
+    for (final z in book.world) {
+      final w = (world[z] ?? Zone.fixed(z, 0)).local(t);
+      final shift = DateTime.utc(w.year, w.month, w.day).difference(homeDay).inDays;
+      final mark = shift == 0 ? '' : (shift > 0 ? ' +$shift' : ' −${-shift}');
+      cities.add((cityOf(z), '${hm(w.hour * 60 + w.minute)}$mark', z));
+    }
+    final left = (book.timerEnd ?? 0) - t;
+    final run = left > 0;
+    final setMinutes = mode == TimerMode.precise ? precise : dialMinutes[dial];
+    final total = book.timerSeconds;
+    final r = ring;
+    var ringNote = '';
+    if (r != null) {
+      ringNote = r.kind == FireKind.timer
+          ? 'The timer has finished.'
+          : (r.index < book.alarms.length && book.alarms[r.index].label.isNotEmpty
+              ? book.alarms[r.index].label
+              : 'Alarm.');
+    }
+    return ClockView(
+      screen: screen,
+      tab: tab,
+      valid: valid,
+      time: valid ? hm(wall.hour * 60 + wall.minute) : '--:--',
+      date: valid ? '${days[wall.weekday - 1]} ${wall.day} ${months[wall.month - 1]}' : '',
+      zone: home.name,
+      next: next,
+      cities: cities,
+      canAddCity: book.world.length < worldMax,
+      alarms: [for (final a in book.alarms) (hm(a.minutes), describeDays(a.days), a.enabled)],
+      canAddAlarm: book.alarms.length < alarmsMax,
+      mode: mode,
+      dial: dial,
+      precise: precise,
+      running: run,
+      centre: '${run ? ((left + 59) ~/ 60).clamp(0, 999) : setMinutes}',
+      ringValue: !run ? ringSteps : (total <= 0 ? 0 : (ringSteps * left.clamp(0, total) + total - 1) ~/ total),
+      listTitle: switch (screen) {
+        ClockScreen.regions => pickHome ? 'Time zone' : 'Add a city',
+        ClockScreen.cities => regionLabels[region] ?? region,
+        _ => '',
+      },
+      list: switch (screen) {
+        ClockScreen.regions => [for (final r in regions) regionLabels[r] ?? r],
+        ClockScreen.cities => [for (final z in citiesIn(region)) cityOf(z)],
+        _ => const [],
+      },
+      draft: draft,
+      canDelete: editing >= 0,
+      notice: notice,
+      ring: r != null,
+      ringNote: ringNote,
+      canSnooze: canSnooze,
+    );
+  }
 }
 
-/// The clock's state snapshot: what suspension preserves.
 class ClockState {
-  const ClockState({
-    required this.hour,
-    required this.minute,
-    required this.is24h,
-    required this.ringing,
-  });
-
-  final int hour;
-  final int minute;
-  final bool is24h;
-  final bool ringing;
+  const ClockState();
 }
