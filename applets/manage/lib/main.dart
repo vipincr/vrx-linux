@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart' hide Intent; // vrx's Intent
 import 'package:vrx_kit/vrx_kit.dart';
@@ -7,7 +8,10 @@ import 'state.dart';
 
 final _events = StreamController<ManageAction>();
 
-/// Manage: serve the management page to a browser on the same network.
+/// Manage (plan 0011 D15): opening it serves the management page and
+/// leaving it stops it (vrx-manage.service, through Flutter's lifecycle);
+/// the address is a QR code. With no network it hosts one (connman's
+/// tethering), shows its QR code to join, then the address.
 class ManageApplet extends Applet<bool, ManageAction, ManageView> {
   ManageApplet(this.model);
 
@@ -25,20 +29,48 @@ class ManageApplet extends Applet<bool, ManageAction, ManageView> {
   @override
   bool get snapshot => model.snapshot;
 
-  void _serve(bool on) => unawaited(VrxSystem.manage.serve(on).catchError((Object err) {
-        model.error = VrxWords.of(err, context: 'manage: serve');
-        _events.add(ManageAction.failed);
-      }));
+  @override
+  String? get keepsScreenOn => model.keepsScreenOn;
+
+  void serve(bool on) {
+    if (!on) model.askedStop = true;
+    unawaited(VrxSystem.manage.serve(on).catchError((Object err) {
+      model.error = VrxWords.of(err, context: 'manage: serve');
+      _events.add(ManageAction.failed);
+    }));
+  }
+
+  Future<void> host(bool on) async {
+    try {
+      if (on) {
+        model
+          ..ssid = hostedName(model.hostname)
+          ..passphrase = hostedPassphrase();
+      }
+      await VrxSystem.network.host(on: on, ssid: model.ssid, passphrase: model.passphrase);
+      model.hosting = on;
+      model.hostedAddress = on ? await tetherAddress() : '';
+    } on Object catch (err) {
+      model.error = VrxWords.of(err, context: 'manage: host');
+    }
+    _events.add(ManageAction.hosting);
+  }
 
   @override
   Widget build(BuildContext context, ManageView view) {
     final space = ScaledSpacing.of(context);
     final serving = view.serving == true;
+    final first = view.addresses.isEmpty ? null : view.addresses.first;
     final words = switch (view.serving) {
       null => '…',
-      true => 'A browser on the same network opens the page at:',
-      false => 'Serve this device\'s page to a browser on the same network. It stops by itself after ten minutes in which nobody asks.',
+      true when view.hosting => 'Join this network on a phone, with the code or by its name and passphrase. Then open the address below.',
+      true when view.onNoNetwork => 'This device is on no network. It can host one for a phone to join.',
+      true => 'Open this address on a phone or computer on the same network.',
+      false when view.stoppedIdle => 'The page stopped by itself after ten minutes in which nobody asked.',
+      false => 'The page is not being served.',
     };
+    // the code is as wide as the panel allows, never taller than half of it
+    final qrSide = (MediaQuery.sizeOf(context).shortestSide * 0.6);
     return Scaffold(
       body: SafeArea(
         child: Column(children: [
@@ -46,8 +78,16 @@ class ManageApplet extends Applet<bool, ManageAction, ManageView> {
             child: VrxList(children: [
               const VrxHeader(title: 'Manage', onBack: Nav.pop),
               Padding(padding: EdgeInsets.all(space.inset), child: Text(words, style: TypeRole.body(context))),
-              if (serving)
+              if (serving && view.hosting) ...[
+                Center(child: SizedBox.square(dimension: qrSide, child: VrxQr(data: view.wifiQr, label: 'The code that joins ${view.ssid}'))),
+                VrxRow(label: 'Network', value: view.ssid),
+                VrxRow(label: 'Passphrase', value: view.passphrase),
+              ],
+              if (serving && first != null && !view.onNoNetwork) ...[
+                SizedBox(height: space.sm),
+                Center(child: SizedBox.square(dimension: qrSide, child: VrxQr(data: first, label: 'The address of this page'))),
                 for (final a in view.addresses) VrxRow(label: a),
+              ],
             ]),
           ),
           // the one action stays in view; the words above scroll on a
@@ -57,9 +97,18 @@ class ManageApplet extends Applet<bool, ManageAction, ManageView> {
               padding: EdgeInsets.all(space.inset),
               child: SizedBox(
                 width: double.infinity,
-                child: VrxChip(label: serving ? 'Stop' : 'Serve the page', filled: true, onTap: () => _serve(!serving)),
+                child: switch ((serving, view.onNoNetwork, view.hosting)) {
+                  (false, _, _) => VrxChip(label: view.stoppedIdle ? 'Start again' : 'Serve the page', filled: true, onTap: () => serve(true)),
+                  (true, true, _) => VrxChip(label: 'Host a network', filled: true, onTap: () => unawaited(host(true))),
+                  (true, _, true) => VrxChip(label: 'Stop hosting', onTap: () => unawaited(host(false))),
+                  _ => VrxChip(label: 'Stop', onTap: () => serve(false)),
+                },
               ),
             ),
+          if (view.hosting) Padding(
+            padding: EdgeInsets.symmetric(horizontal: space.inset),
+            child: Text('While it hosts a network, the device is on no other.', style: TypeRole.caption(context)),
+          ),
           if (view.error != null) VrxBanner(text: view.error),
         ]),
       ),
@@ -67,9 +116,21 @@ class ManageApplet extends Applet<bool, ManageAction, ManageView> {
   }
 }
 
+/// The hosted network's address: connman's tether bridge, as `ip` says.
+Future<String> tetherAddress() async {
+  try {
+    final r = await Process.run('ip', ['-4', '-o', 'addr', 'show', 'tether']);
+    final m = RegExp(r'inet (\d+\.\d+\.\d+\.\d+)').firstMatch('${r.stdout}');
+    return m?.group(1) ?? '';
+  } on ProcessException {
+    return '';
+  }
+}
+
 void main() {
   final model = ManageModel();
-  runApplet(ManageApplet(model), actions: _events.stream);
+  final applet = ManageApplet(model);
+  runApplet(applet, actions: _events.stream);
   void fact(void Function() change) {
     change();
     _events.add(ManageAction.factsChanged);
@@ -80,9 +141,19 @@ void main() {
     _events.add(ManageAction.failed);
   }
 
-  VrxSystem.manage.watch().listen((on) => fact(() => model.serving = on), onError: failed);
+  VrxSystem.manage.watch().listen((on) => fact(() => model.servingNow(on)), onError: failed);
   VrxSystem.device.watch().listen((d) => fact(() => model.hostname = d.hostname), onError: failed);
   VrxSystem.network.watch().listen(
       (n) => fact(() => model.ips = [if (n.wired) n.ethernetAddress, if (n.connected != null) n.connected!.address]),
       onError: failed);
+  // opening serves the page; leaving (Back, Home, another applet in
+  // front) stops it, and the hosted network with it
+  applet.serve(true);
+  AppLifecycleListener(
+    onShow: () => applet.serve(true),
+    onHide: () {
+      applet.serve(false);
+      if (model.hosting) unawaited(applet.host(false));
+    },
+  );
 }

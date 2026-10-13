@@ -24,6 +24,7 @@ export 'src/motion.dart';
 export 'src/nav.dart';
 export 'src/pickers.dart';
 export 'src/power_supply.dart';
+export 'src/qr.dart';
 export 'src/scale.dart';
 export 'src/screen.dart';
 export 'src/screens.dart';

@@ -274,6 +274,11 @@ abstract class NetworkService {
 
   /// Forget a saved network (connman drops its passphrase).
   Future<void> forget(String id);
+
+  /// Host a Wi-Fi network named [ssid] with [passphrase] (connman's
+  /// tethering), or stop hosting it. While it runs the device is not a
+  /// client of any other network; connman rejoins one when it stops.
+  Future<void> host({required bool on, String ssid = '', String passphrase = ''});
 }
 
 /// connman over D-Bus. connman keeps its own property protocol
@@ -394,6 +399,19 @@ class ConnmanNetworkService implements NetworkService {
   Future<void> setWifi(bool on) => _call(() => _object('/net/connman/technology/wifi').callMethod(
       'net.connman.Technology', 'SetProperty', [const DBusString('Powered'), DBusVariant(DBusBoolean(on))],
       replySignature: DBusSignature('')));
+
+  @override
+  Future<void> host({required bool on, String ssid = '', String passphrase = ''}) => _call(() async {
+        final wifi = _object('/net/connman/technology/wifi');
+        Future<void> set(String name, DBusValue value) => wifi.callMethod(
+            'net.connman.Technology', 'SetProperty', [DBusString(name), DBusVariant(value)],
+            replySignature: DBusSignature(''));
+        if (on) {
+          await set('TetheringIdentifier', DBusString(ssid));
+          await set('TetheringPassphrase', DBusString(passphrase));
+        }
+        await set('Tethering', DBusBoolean(on));
+      });
 
   @override
   Future<void> scan() => _call(() => _object('/net/connman/technology/wifi')
