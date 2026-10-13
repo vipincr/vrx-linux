@@ -145,7 +145,35 @@ fn scaffold_rust(dir: &Path, id: &str, sdk: &Path) -> std::io::Result<()> {
         dir.join("tests").join("store_test.rs"),
         &rust_test_rs(&crate_name),
     )?;
+    write(
+        dir.join("tests").join("layout.rs"),
+        &rust_layout_rs(&crate_name),
+    )?;
     Ok(())
+}
+
+/// The layout check `vrx build` runs with the tests: every screen's text
+/// fits the console grid on every display vrx drives (vrx::layout).
+fn rust_layout_rs(name: &str) -> String {
+    format!(
+        r#"use {name}::{{Action, {Camel}}};
+use vrx::prelude::*;
+
+/// Every screen the applet draws, on every display vrx drives: no row
+/// cut, no word broken (AGENTS.md rule 11). Add each new screen here,
+/// with facts in it as long as real ones get.
+#[test]
+fn every_screen_fits_every_display() {{
+    let mut harness = StoreHarness::new({Camel}::new());
+    assert_clean_layout(&{Camel}::screen_of(harness.view()));
+    for _ in 0..12345 {{
+        harness.dispatch(Action::Tap);
+    }}
+    assert_clean_layout(&{Camel}::screen_of(harness.view()));
+}}
+"#,
+        Camel = camel(name)
+    )
 }
 
 fn rust_cargo_toml(name: &str, sdk: &Path) -> String {
@@ -256,12 +284,19 @@ impl Applet for {Camel} {{
     }}
 
     fn render(view: &View) -> String {{
+        Self::screen_of(view).render()
+    }}
+}}
+
+impl {Camel} {{
+    /// The screen for a view: what render draws, and what the layout
+    /// test checks on every display (tests/layout.rs).
+    pub fn screen_of(view: &View) -> Screen {{
         screen(vec![
             text_title("{name}"),
             text_row("taps", view.taps.to_string()),
             button("Tap", "{name}.tap"),
         ])
-        .render()
     }}
 }}
 "#,
@@ -271,7 +306,7 @@ impl Applet for {Camel} {{
 
 fn rust_main_rs(name: &str) -> String {
     format!(
-        "use {name}::{{{Camel}}};\n\nfn main() -> std::process::ExitCode {{\n    vrx::applet_main::<{Camel}>({Camel}::new())\n}}\n",
+        "use {name}::{Camel};\n\nfn main() -> std::process::ExitCode {{\n    vrx::applet_main::<{Camel}>({Camel}::new())\n}}\n",
         Camel = camel(name)
     )
 }

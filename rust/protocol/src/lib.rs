@@ -14,6 +14,7 @@ pub mod intent;
 pub mod manifest;
 pub mod pipe;
 pub mod registry;
+pub mod scan;
 
 pub use intent::{Intent, IntentPayload, Verdict};
 pub use manifest::{HandleDecl, Manifest, SystemGrant};

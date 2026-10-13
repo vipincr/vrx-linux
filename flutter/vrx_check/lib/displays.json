@@ -1,0 +1,10 @@
+{
+  "_": "The displays vrx boards drive: pixels, and the panel's width in mm (0 when its EDID gives none, and the runtime keeps the pixel ratio at 1.0). The one table: vrx_check (Dart) and vrx::kit (Rust) both read it.",
+  "displays": [
+    { "name": "disp28a", "width": 480, "height": 640, "width_mm": 43, "touch": true, "about": "the bench's 2.8\" panel on the CM4, 43x58mm" },
+    { "name": "dsi7", "width": 800, "height": 480, "width_mm": 154, "touch": true, "about": "the Raspberry Pi 7\" touch display" },
+    { "name": "hdmi7", "width": 1024, "height": 600, "width_mm": 154, "touch": true, "about": "a 7\" HDMI panel" },
+    { "name": "hdmi1080", "width": 1920, "height": 1080, "width_mm": 527, "touch": false, "about": "a 24\" monitor with a mouse and keyboard" },
+    { "name": "hdmi-nosize", "width": 1280, "height": 720, "width_mm": 0, "touch": false, "about": "a monitor whose EDID gives no size" }
+  ]
+}

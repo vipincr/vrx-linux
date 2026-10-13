@@ -60,9 +60,10 @@ class _Target {
 Future<List<LayoutIssue>> checkApplet<S, A, V>(
   WidgetTester tester,
   Applet<S, A, V> applet, {
-  Display display = disp28a,
+  Display? display,
   Future<void> Function(WidgetTester tester)? setUp,
 }) async {
+  display ??= disp28a;
   await loadVrxFonts();
   final issues = <LayoutIssue>[];
   final previous = FlutterError.onError;
@@ -88,7 +89,8 @@ Future<List<LayoutIssue>> checkApplet<S, A, V>(
 
 /// Mount [applet] on [display] as runApplet would and leave it mounted,
 /// for a test's own measurements (proportions an applet promises).
-Future<void> shotLayout<S, A, V>(WidgetTester tester, Applet<S, A, V> applet, {Display display = disp28a}) async {
+Future<void> shotLayout<S, A, V>(WidgetTester tester, Applet<S, A, V> applet, {Display? display}) async {
+  display ??= disp28a;
   await loadVrxFonts();
   tester.view.physicalSize = Size(display.width, display.height);
   tester.view.devicePixelRatio = display.pixelRatio;
@@ -101,9 +103,10 @@ Future<void> shotLayout<S, A, V>(WidgetTester tester, Applet<S, A, V> applet, {D
 Future<void> expectCleanLayout<S, A, V>(
   WidgetTester tester,
   Applet<S, A, V> applet, {
-  Display display = disp28a,
+  Display? display,
   Future<void> Function(WidgetTester tester)? setUp,
 }) async {
+  display ??= disp28a;
   final issues = await checkApplet(tester, applet, display: display, setUp: setUp);
   if (issues.isNotEmpty) {
     fail('${issues.length} layout issue(s) on ${display.name}:\n  ${issues.join('\n  ')}');

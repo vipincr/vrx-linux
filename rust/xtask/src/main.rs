@@ -15,7 +15,6 @@
 
 mod crates_inc;
 mod fonts;
-mod scan;
 
 use std::process::{Command, ExitCode, Stdio};
 
@@ -41,6 +40,50 @@ fn main() -> ExitCode {
             ExitCode::from(64)
         }
     }
+}
+
+/// The Rust applets under applets/ (standalone crates, outside the
+/// workspace): fmt, clippy -D warnings and their tests, which include the
+/// layout check every applet carries (tests/layout.rs, AGENTS.md rule 11),
+/// the same steps `vrx build` runs before it compiles one.
+fn rust_applets_gate(repo: &std::path::Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(repo.join("applets")) else {
+        return true;
+    };
+    let mut crates: Vec<_> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.join("Cargo.toml").is_file())
+        .collect();
+    crates.sort();
+    for dir in crates {
+        let shown = dir.strip_prefix(repo).unwrap_or(&dir).display().to_string();
+        if !dir.join("tests").join("layout.rs").is_file() {
+            eprintln!(
+                "gate: FAILED — {shown} has no tests/layout.rs (AGENTS.md rule 11)"
+            );
+            return false;
+        }
+        let steps: [&[&str]; 3] = [
+            &["fmt", "--check"],
+            &["clippy", "--all-targets", "--", "-D", "warnings"],
+            &["test"],
+        ];
+        for args in steps {
+            println!("gate: cargo {} ({shown})", args.join(" "));
+            let ok = Command::new("cargo")
+                .args(args)
+                .current_dir(&dir)
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if !ok {
+                eprintln!("gate: FAILED at cargo {} in {shown}", args.join(" "));
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// flutter analyze (the vrx lint set, errors fail) and flutter test, in
@@ -145,7 +188,23 @@ fn gate() -> ExitCode {
     // the responsiveness scan and the Flutter half (plan 0008 D19)
     let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     println!("gate: responsiveness scan (applet and SDK sources)");
-    if !scan::run(&repo) {
+    // the trees whose code runs inside applets: the Flutter SDK, the Rust
+    // SDK and every applet
+    let mut roots = vec![repo.join("flutter/vrx_kit/lib"), repo.join("rust/sdk/src")];
+    if let Ok(entries) = std::fs::read_dir(repo.join("applets")) {
+        for entry in entries.flatten() {
+            roots.extend(vrx_protocol::scan::applet_roots(&entry.path()));
+        }
+    }
+    let found = vrx_protocol::scan::scan(&roots);
+    for v in &found {
+        let shown = v.path.strip_prefix(&repo).unwrap_or(&v.path).display();
+        eprintln!(
+            "{shown}:{}: `{}`: {} (or mark the line `vrx-allow: <reason>`)",
+            v.line, v.needle, v.why
+        );
+    }
+    if !found.is_empty() {
         eprintln!("gate: FAILED at the responsiveness scan");
         return ExitCode::FAILURE;
     }
@@ -156,6 +215,9 @@ fn gate() -> ExitCode {
         return ExitCode::FAILURE;
     }
     if !flutter_gate(&repo) {
+        return ExitCode::FAILURE;
+    }
+    if !rust_applets_gate(&repo) {
         return ExitCode::FAILURE;
     }
 

@@ -4,10 +4,14 @@
 // - the manifest parses and all keys are known
 // - intents sent in code are declared in the `emits` list
 // - intents handled in code are declared in the `handles` list
-// - a Flutter applet's layout holds on every display vrx drives: its
-//   test/layout_test.dart (vrx_check) runs before the compile, so text
-//   that overlaps, is cut, or breaks inside a word fails the build
-//   (AGENTS.md rule 11), not a bench session
+// - nothing in the applet's source blocks its event loop or a frame
+//   (the responsiveness scan, the same code as the repo's gate)
+// - the runtime's own gates pass: Rust fmt, clippy -D warnings and tests;
+//   Flutter analyze and tests
+// - its layout holds on every display vrx drives: a required layout test
+//   (test/layout_test.dart through vrx_check, or tests/layout.rs through
+//   vrx::layout) runs with the tests, so text that overlaps, is cut, or
+//   breaks inside a word fails the build (AGENTS.md rule 11)
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -46,29 +50,77 @@ pub fn run(args: &[String]) -> ExitCode {
         }
     );
 
-    // compile: delegate to the runtime's own tool
     let manifest_dir = dir;
-    match manifest.applet.runtime {
-        vrx_protocol::manifest::Runtime::Flutter => {
-            let layout = manifest_dir.join("test").join("layout_test.dart");
-            if !layout.is_file() {
-                eprintln!(
-                    "vrx build: {} has no test/layout_test.dart: every screen must be laid out on \
-                     every display (vrx_check, AGENTS.md rule 11)",
-                    manifest.applet.id
-                );
-                return ExitCode::from(65);
-            }
-            println!("layout: test/layout_test.dart on every display");
-            let checked =
-                delegate("flutter", &["test", "test/layout_test.dart"], &manifest_dir);
-            if checked != ExitCode::SUCCESS {
-                return checked;
-            }
-            delegate("flutter", &["build"], &manifest_dir)
-        }
-        _ => delegate("cargo", &["build"], &manifest_dir),
+
+    // the responsiveness scan: nothing that blocks the event loop or a
+    // frame (plan 0008 D19); one implementation with the repo's gate
+    let found =
+        vrx_protocol::scan::scan(&vrx_protocol::scan::applet_roots(&manifest_dir));
+    for v in &found {
+        let shown = v
+            .path
+            .strip_prefix(&manifest_dir)
+            .unwrap_or(&v.path)
+            .display();
+        eprintln!(
+            "{shown}:{}: `{}`: {} (or mark the line `vrx-allow: <reason>`)",
+            v.line, v.needle, v.why
+        );
     }
+    if !found.is_empty() {
+        eprintln!("vrx build: the responsiveness scan failed");
+        return ExitCode::from(65);
+    }
+    println!("scan ok");
+
+    // the runtime's gates, then the compile; each step must pass. The
+    // layout test is required: every screen on every display vrx drives
+    // (AGENTS.md rule 11)
+    let flutter = manifest.applet.runtime == vrx_protocol::manifest::Runtime::Flutter;
+    let layout = if flutter {
+        manifest_dir.join("test").join("layout_test.dart")
+    } else {
+        manifest_dir.join("tests").join("layout.rs")
+    };
+    if !layout.is_file() {
+        eprintln!(
+            "vrx build: {} has no {}: every screen must be checked on every display \
+             (AGENTS.md rule 11)",
+            manifest.applet.id,
+            layout
+                .strip_prefix(&manifest_dir)
+                .unwrap_or(&layout)
+                .display()
+        );
+        return ExitCode::from(65);
+    }
+    let steps: &[(&str, &[&str])] = if flutter {
+        &[
+            ("flutter", &["analyze", "--fatal-infos"]),
+            ("flutter", &["test"]),
+            // the Dart kernel and assets: every compile error, on any host;
+            // the device's AOT build (libapp.so) is the image recipe's
+            ("flutter", &["build", "bundle"]),
+        ]
+    } else {
+        &[
+            ("cargo", &["fmt", "--check"]),
+            (
+                "cargo",
+                &["clippy", "--all-targets", "--", "-D", "warnings"],
+            ),
+            ("cargo", &["test"]),
+            ("cargo", &["build", "--release"]),
+        ]
+    };
+    for (program, args) in steps {
+        println!("{program} {}", args.join(" "));
+        let status = delegate(program, args, &manifest_dir);
+        if status != ExitCode::SUCCESS {
+            return status;
+        }
+    }
+    ExitCode::SUCCESS
 }
 
 #[allow(clippy::print_stderr)]

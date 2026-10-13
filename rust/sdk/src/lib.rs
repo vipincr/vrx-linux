@@ -13,6 +13,7 @@
 pub mod applet;
 pub mod ipc;
 pub mod kit;
+pub mod layout;
 pub mod service;
 pub mod store;
 
@@ -76,6 +77,7 @@ pub mod prelude {
     pub use crate::applet::Applet;
     pub use crate::ipc::{intent_send, File, Pipe, PipeReader};
     pub use crate::kit::{button, screen, text_body, text_row, text_title, Screen};
+    pub use crate::layout::{assert_clean_layout, check as check_layout, displays};
     pub use crate::store::{Effect, Store, StoreHarness};
     pub use vrx_protocol::{Intent, IntentPayload, Verdict};
 }

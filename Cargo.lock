@@ -942,6 +942,9 @@ dependencies = [
 [[package]]
 name = "vrx-xtask"
 version = "0.1.0"
+dependencies = [
+ "vrx-protocol",
+]
 
 [[package]]
 name = "wasi"

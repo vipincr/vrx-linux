@@ -3,6 +3,9 @@
 /// (1 logical px = 1/6.299 mm, the density vrx_kit's metrics are in).
 library;
 
+import 'dart:convert';
+import 'dart:io';
+
 class Display {
   const Display(this.name, this.width, this.height, this.widthMm, {this.touch = true});
 
@@ -24,20 +27,45 @@ class Display {
   String toString() => name;
 }
 
-/// The bench's 2.8" disp28a on the CM4: 480x640 portrait, 43x58mm.
-const disp28a = Display('disp28a', 480, 640, 43);
+/// The table, from package:vrx_check/displays.json (the one source; the
+/// Rust SDK's console check reads the same file).
+final List<Display> allDisplays = () {
+  // where the package lives, from the running package's own
+  // .dart_tool/package_config.json (test isolates cannot resolve
+  // package: URIs synchronously); read once before any test runs
+  // vrx-allow: test-time setup
+  final configFile = File('.dart_tool/package_config.json');
+  // vrx-allow: test-time setup
+  final config = jsonDecode(configFile.readAsStringSync()) as Map<String, dynamic>;
+  final entry = (config['packages'] as List).cast<Map<String, dynamic>>().firstWhere((p) => p['name'] == 'vrx_check');
+  final root = configFile.absolute.parent.uri.resolve('${entry['rootUri']}'.endsWith('/') ? '${entry['rootUri']}' : '${entry['rootUri']}/');
+  // vrx-allow: test-time setup
+  final table = jsonDecode(File.fromUri(root.resolve('lib/displays.json')).readAsStringSync()) as Map<String, dynamic>;
+  return [
+    for (final d in (table['displays'] as List).cast<Map<String, dynamic>>())
+      Display(
+        '${d['name']}',
+        (d['width'] as num).toDouble(),
+        (d['height'] as num).toDouble(),
+        (d['width_mm'] as num).toDouble(),
+        touch: d['touch'] as bool,
+      ),
+  ];
+}();
 
-/// The Raspberry Pi 7" touch display: 800x480, 154x86mm.
-const dsi7 = Display('dsi7', 800, 480, 154);
+Display _named(String name) => allDisplays.firstWhere((d) => d.name == name);
 
-/// A 7" HDMI panel: 1024x600, 154x86mm.
-const hdmi7 = Display('hdmi7', 1024, 600, 154);
+/// The bench's 2.8" panel on the CM4.
+final Display disp28a = _named('disp28a');
 
-/// A 24" monitor over HDMI: 1920x1080, 527x296mm, mouse and keyboard.
-const hdmi1080 = Display('hdmi1080', 1920, 1080, 527, touch: false);
+/// The Raspberry Pi 7" touch display.
+final Display dsi7 = _named('dsi7');
 
-/// A monitor whose EDID gives no size: 1280x720 at ratio 1.0.
-const hdmiNoSize = Display('hdmi-nosize', 1280, 720, 0, touch: false);
+/// A 7" HDMI panel.
+final Display hdmi7 = _named('hdmi7');
 
-/// Every display an applet's layout must hold on.
-const allDisplays = [disp28a, dsi7, hdmi7, hdmi1080, hdmiNoSize];
+/// A 24" monitor with a mouse and keyboard.
+final Display hdmi1080 = _named('hdmi1080');
+
+/// A monitor whose EDID gives no size.
+final Display hdmiNoSize = _named('hdmi-nosize');

@@ -10,6 +10,7 @@ name = "xtask"
 path = "src/main.rs"
 
 [dependencies]
+vrx-protocol = { path = "../protocol" }
 
 [lints]
 workspace = true

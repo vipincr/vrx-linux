@@ -1,7 +1,9 @@
 // The responsiveness scan (plan 0008 D19): source forms that block an
 // applet's event loop or frame, banned by file and line. A line that
-// genuinely needs one says so with `vrx-allow: <reason>` on the line or
-// the line above; a bare marker without a reason does not count.
+// needs one says so with `vrx-allow: <reason>` on the line or the line
+// above; a bare marker without a reason does not count. One
+// implementation: `cargo xtask gate` scans the repo, `vrx build` the
+// applet it builds.
 
 use std::path::{Path, PathBuf};
 
@@ -41,23 +43,6 @@ const RULES: &[Rule] = &[
         why: "sleeping stalls the applet's loop and its watchdog",
     },
 ];
-
-/// The trees whose code runs inside applets: the Flutter SDK, the Rust
-/// SDK and every applet.
-fn roots(repo: &Path) -> Vec<PathBuf> {
-    let mut roots = vec![repo.join("flutter/vrx_kit/lib"), repo.join("rust/sdk/src")];
-    if let Ok(entries) = std::fs::read_dir(repo.join("applets")) {
-        for entry in entries.flatten() {
-            for sub in ["lib", "src"] {
-                let dir = entry.path().join(sub);
-                if dir.is_dir() {
-                    roots.push(dir);
-                }
-            }
-        }
-    }
-    roots
-}
 
 fn files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -123,13 +108,24 @@ fn violations(ext: &str, text: &str) -> Vec<(usize, &'static str, &'static str)>
     found
 }
 
-/// Scan the repo; print each violation; true when clean.
-pub fn run(repo: &Path) -> bool {
+/// One violation: where, what matched, and why it is banned.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Violation {
+    pub path: PathBuf,
+    pub line: usize,
+    pub needle: &'static str,
+    pub why: &'static str,
+}
+
+/// Scan every .dart and .rs file under [roots]. A Rust file's test module
+/// is host code, not applet code, and is skipped.
+pub fn scan(roots: &[PathBuf]) -> Vec<Violation> {
     let mut all = Vec::new();
-    for root in roots(repo) {
-        files(&root, &mut all);
+    for root in roots {
+        files(root, &mut all);
     }
-    let mut clean = true;
+    all.sort();
+    let mut out = Vec::new();
     for path in all {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
         if ext != "dart" && ext != "rs" {
@@ -138,19 +134,30 @@ pub fn run(repo: &Path) -> bool {
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
-        // a Rust file's test module is host code, not applet code
         let body = if ext == "rs" {
             text.split("#[cfg(test)]").next().unwrap_or("").to_owned()
         } else {
             text
         };
         for (line, needle, why) in violations(ext, &body) {
-            clean = false;
-            let shown = path.strip_prefix(repo).unwrap_or(&path).display();
-            eprintln!("{shown}:{line}: `{needle}`: {why} (or mark the line `vrx-allow: <reason>`)");
+            out.push(Violation {
+                path: path.clone(),
+                line,
+                needle,
+                why,
+            });
         }
     }
-    clean
+    out
+}
+
+/// An applet's own source trees: lib/ (Flutter) and src/ (Rust).
+pub fn applet_roots(dir: &Path) -> Vec<PathBuf> {
+    ["lib", "src"]
+        .iter()
+        .map(|s| dir.join(s))
+        .filter(|d| d.is_dir())
+        .collect()
 }
 
 #[cfg(test)]

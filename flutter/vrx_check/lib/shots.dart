@@ -19,9 +19,10 @@ Future<void> shotApplet<S, A, V>(
   WidgetTester tester,
   String name,
   Applet<S, A, V> applet, {
-  Display display = disp28a,
+  Display? display,
   Future<void> Function(WidgetTester tester)? setUp,
 }) async {
+  display ??= disp28a;
   await loadVrxFonts();
   tester.view.physicalSize = Size(display.width, display.height);
   tester.view.devicePixelRatio = display.pixelRatio;
