@@ -32,7 +32,8 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
   bool clockValid = false;
   String version = '';
 
-  /// The back trail's depth (vrxhost): Back is offered above Home.
+  /// The back trail's depth (vrxhost), Home included: Back is offered
+  /// above Home (the bench showed it on Home at depth > 0).
   int depth = 0;
 
   String get clockText {
@@ -62,11 +63,11 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
     if (action == ShellAction.drawerToggled) drawer = !drawer;
     return ShellView(
       drawer: drawer,
-      facts: VrxStatusFacts(showBack: depth > 0, clockText: clockText, dateText: dateText, wifiUp: wifiUp),
+      facts: VrxStatusFacts(showBack: depth > 1, clockText: clockText, dateText: dateText, wifiUp: wifiUp),
       version: version,
       lightOn: lightOn,
       wifiUp: wifiUp,
-      canGoBack: depth > 0,
+      canGoBack: depth > 1,
     );
   }
 

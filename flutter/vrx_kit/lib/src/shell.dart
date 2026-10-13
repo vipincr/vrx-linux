@@ -124,7 +124,8 @@ class VrxInsets extends StatelessWidget {
       listenable: VrxShell.changes,
       child: child,
       builder: (context, child) {
-        // the compositor's 0 follows a hide; the layout need not wait
+        // the inset is the strip's height; a screen holding the whole panel
+        // is laid out without it
         final px = VrxShell.hidden.value ? 0.0 : VrxShell.top.value;
         if (px <= 0) return child!;
         final media = MediaQuery.of(context);

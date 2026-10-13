@@ -6,11 +6,11 @@
 /// warning triangle here — that glyph belongs to whoever owns the
 /// policy).
 ///
-/// Seven equal slots (the evrx-rt contract): 0 back, 1-2 the clock,
-/// 3 wifi, 4 ble (hidden when down — an always-present glyph says
-/// nothing), 5-6 the battery cell (glyph + percent, `~` while
-/// estimated). Hairline under; edge insets; the strip height is the
-/// 4mm control + 2×1mm breathing room.
+/// Left to right: back (offered, not asserted), the clock and the day
+/// (all the width the rest leaves), then at the end wifi, ble (hidden
+/// when down: an always-present glyph says nothing) and the battery cell
+/// (glyph and percent, `~` while estimated). Hairline under; edge insets;
+/// the height is heightOf's.
 library;
 
 import 'package:flutter/material.dart';
@@ -93,9 +93,10 @@ class VrxStatusStrip extends StatelessWidget {
           // slot 0: back (offered, not asserted)
           if (facts.showBack)
             VrxIconButton(glyph: VrxSymbols.arrow_back, onTap: facts.onBack),
-          // slots 1-2: the clock, and the day while there is room
+          // the clock, and the day while there is room: all the width the
+          // glyphs at the end leave (a fixed share cut "Tue 13 Oct" to
+          // "Tue…" on the 43mm panel, beside an empty battery slot)
           Expanded(
-            flex: 2,
             child: Row(children: [
               Text(
                 facts.clockText ?? '--:--',
@@ -133,9 +134,9 @@ class VrxStatusStrip extends StatelessWidget {
                 color: palette.text,
               ),
             ),
-          const Spacer(),
-          // slots 5-6: the battery cell
+          // the battery cell
           if (facts.batteryLevel != null) ...[
+            SizedBox(width: s.sm),
             Icon(
               facts.batteryCharging
                   ? VrxSymbols.bolt

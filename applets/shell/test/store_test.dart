@@ -14,7 +14,10 @@ void main() {
       ..wifiUp = true
       ..depth = 1;
     h.dispatch(ShellAction.factsChanged);
-    h.assertView((v) => v.facts.clockText == '09:05' && v.wifiUp && v.canGoBack);
+    h.assertView((v) => v.facts.clockText == '09:05' && v.wifiUp && !v.canGoBack, because: 'Home alone is depth 1');
+    model.depth = 2;
+    h.dispatch(ShellAction.factsChanged);
+    h.assertView((v) => v.canGoBack, because: 'an applet above Home');
     h.dispatch(ShellAction.drawerToggled);
     h.assertView((v) => v.drawer);
   });

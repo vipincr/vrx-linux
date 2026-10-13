@@ -37,6 +37,8 @@ class FrontApplet {
   const FrontApplet({required this.front, required this.depth});
 
   final String front;
+
+  /// The trail's entries, Home included: 1 at Home.
   final int depth;
 }
 
