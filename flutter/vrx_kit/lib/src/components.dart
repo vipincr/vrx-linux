@@ -443,7 +443,8 @@ class VrxChip extends StatelessWidget {
         // a control: the touch minimum tall on a touch display
         constraints: BoxConstraints(minHeight: ScaledSpacing.minInteractive(context)),
         alignment: Alignment.centerLeft,
-        padding: EdgeInsets.symmetric(horizontal: s.sm, vertical: s.xs),
+        // a fitted label is centred: the small gap each side is enough
+        padding: EdgeInsets.symmetric(horizontal: fit ? s.xs : s.sm, vertical: s.xs),
         decoration: onTap == null
             ? null
             : BoxDecoration(

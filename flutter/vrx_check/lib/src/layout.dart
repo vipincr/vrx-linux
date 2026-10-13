@@ -227,6 +227,44 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
   final issues = <LayoutIssue>[];
   final screen = Offset.zero & tester.view.physicalSize / tester.view.devicePixelRatio;
 
+  // ── modals ───────────────────────────────────────────────────────────
+  // a modal's message is what a person must read: it may scroll only when
+  // the client area (below the strip) could not hold it with one row of
+  // acts under it (the bench, disp28a, 2026-10-14: "Every applet closes"
+  // and the rest scrolled out of a dialog with room to spare)
+  for (final e in find.byType(VrxModalMessage).evaluate()) {
+    final scrollable = find.descendant(of: find.byWidget(e.widget), matching: find.byType(Scrollable));
+    if (scrollable.evaluate().isEmpty) continue;
+    final position = tester.state<ScrollableState>(scrollable.first).position;
+    if (!position.hasContentDimensions || position.maxScrollExtent <= 0.5) continue;
+    final s = ScaledSpacing.of(e);
+    final client = screen.height - VrxShell.top.value / tester.view.devicePixelRatio;
+    final content = position.viewportDimension + position.maxScrollExtent;
+    // the fewest rows of acts the modal rule allows: Cancel and one act
+    // share a row; two acts stack under Cancel
+    final route = ModalRoute.of(e);
+    final chips = route == null
+        ? 2
+        : find
+            .byType(VrxChip)
+            .evaluate()
+            .where((c) => ModalRoute.of(c) == route)
+            .length;
+    final rows = chips <= 2 ? 1 : chips;
+    final touch = ScaledSpacing.minInteractive(e);
+    // the message, a gap, the acts, the dialog's padding and frame, the
+    // inset above and below
+    final needs = content + s.md + rows * touch + (rows - 1) * s.sm + 2 * s.md + 2 * Strokes.border + 2 * s.inset;
+    if (needs <= client) {
+      final box = e.renderObject;
+      issues.add(LayoutIssue(
+        'message scrolls',
+        'a modal\'s message (${content.toStringAsFixed(0)} tall) scrolls though the client area (${client.toStringAsFixed(0)}) holds it',
+        box is RenderBox && box.hasSize ? _rectOf(box) : Rect.zero,
+      ));
+    }
+  }
+
   // ── text ─────────────────────────────────────────────────────────────
   final texts = <(RenderParagraph, Rect, String, bool)>[];
   for (final e in find.byType(RichText).evaluate()) {

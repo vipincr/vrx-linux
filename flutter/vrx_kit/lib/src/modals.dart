@@ -165,13 +165,36 @@ class VrxAsk extends StatelessWidget {
       // a narrow box broke "Can|cel" and "Res|tart" and clipped them)
       final width = box.maxWidth - 2 * s.inset;
       final inner = width - 2 * s.md - 2 * Strokes.border;
-      // a chip's label plus its own padding and frame
-      final chipPad = 2 * s.sm + 2 * Strokes.hairline + 1;
+      // a modal chip's label is centred: the small gap each side, its
+      // frame, and a pixel (disp28a: "Restart" 74.4 + 17.6 = 92.0 in a
+      // half row of 94.6, side by side)
+      final chipPad = 2 * s.xs + 2 * Strokes.hairline + 1;
       final widest = labels.map(labelWidth).reduce((x, y) => x > y ? x : y) + chipPad;
       // side by side only when one act and Cancel both fit whole in half
       // the row each; otherwise stacked, full width, Cancel first and the
       // act last
-      final sideBySide = actions.length == 1 && widest <= (inner - s.sm) / 2;
+      final half = (inner - s.sm) / 2;
+      // the message's own height at this width, laid out first: it is the
+      // part a person must read
+      double heightOf(String text, TextStyle style) {
+        final tp = TextPainter(text: TextSpan(text: text, style: style), textDirection: TextDirection.ltr, textScaler: scaler)
+          ..layout(maxWidth: inner);
+        final h = tp.height;
+        tp.dispose();
+        return h;
+      }
+
+      final words = heightOf(title, TypeRole.of(context, VrxTypeRole.title)) +
+          s.sm +
+          heightOf(message, TypeRole.of(context, VrxTypeRole.subtext));
+      final room = box.maxHeight - 2 * s.inset - 2 * s.md - 2 * Strokes.border - s.md;
+      final touch = ScaledSpacing.minInteractive(context);
+      final stacked = labels.length * touch + (labels.length - 1) * s.sm;
+      // side by side when both labels fit whole in half the row; also when
+      // stacking would push the message into a scroll and the labels need
+      // shrink no further than 70 % to share a row (they stay whole)
+      final sideBySide = actions.length == 1 &&
+          (widest <= half || (words + stacked > room && words + touch <= room && half / widest >= 0.7));
       Widget chip(String label, VoidCallback? onTap, {bool filled = false}) =>
           VrxChip(label: label, filled: filled, onTap: onTap, fit: true);
       final Widget acts;
@@ -202,13 +225,15 @@ class VrxAsk extends StatelessWidget {
               color: colors.page,
               border: Border.all(color: colors.outline, width: Strokes.border),
             ),
-            // a message longer than the screen scrolls; the acts stay
+            // the message is what a person must read: it takes the height
+            // it needs, up to the whole client area; only a message taller
+            // than that scrolls, and then with a thumb that shows it does
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Flexible(
-                  child: SingleChildScrollView(
+                  child: VrxModalMessage(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                       Text(title, style: TypeRole.of(context, VrxTypeRole.title)),
                       SizedBox(height: s.sm),
@@ -216,7 +241,7 @@ class VrxAsk extends StatelessWidget {
                     ]),
                   ),
                 ),
-                SizedBox(height: s.lg),
+                SizedBox(height: s.md),
                 acts,
               ],
             ),
@@ -224,5 +249,42 @@ class VrxAsk extends StatelessWidget {
         ),
       );
     });
+  }
+}
+
+
+/// A modal's title and message: unscrolled when they fit, which the
+/// dialog's layout makes true whenever the client area can hold them; a
+/// message taller than that scrolls with its thumb always shown, so a
+/// person can see there is more (vrx_check finds this widget and refuses
+/// a message that scrolls while it could have fit).
+class VrxModalMessage extends StatefulWidget {
+  const VrxModalMessage({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<VrxModalMessage> createState() => _VrxModalMessageState();
+}
+
+class _VrxModalMessageState extends State<VrxModalMessage> {
+  final _scroll = ScrollController();
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = VrxTheme.of(context);
+    return RawScrollbar(
+      controller: _scroll,
+      thumbVisibility: true,
+      thumbColor: colors.outline,
+      thickness: Strokes.border,
+      child: SingleChildScrollView(controller: _scroll, child: widget.child),
+    );
   }
 }

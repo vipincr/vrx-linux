@@ -63,7 +63,60 @@ class _OldAsk extends Applet<int, int, int> {
   }
 }
 
+/// The dialog as 66266c1 laid it out: acts stacked (the fit measure
+/// counted a wide chip padding), so the message got what was left and
+/// scrolled ("Every applet closes" and half a line on the board).
+class _StackedAsk extends Applet<int, int, int> {
+  @override
+  int get initial => 0;
+  @override
+  int get bootAction => 0;
+  @override
+  int reduce(int state, int action) => 0;
+  @override
+  int get snapshot => 0;
+  @override
+  Widget build(BuildContext context, int view) {
+    final s = ScaledSpacing.of(context);
+    return Scaffold(
+      body: LayoutBuilder(
+        builder: (context, box) => Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: box.maxHeight - 2 * s.inset),
+            child: Container(
+              width: box.maxWidth - 2 * s.inset,
+              padding: EdgeInsets.all(s.md),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Flexible(
+                  child: VrxModalMessage(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      Text('Restart?', style: TypeRole.of(context, VrxTypeRole.title)),
+                      SizedBox(height: s.sm),
+                      Text('Every applet closes and the device starts again.', style: TypeRole.of(context, VrxTypeRole.subtext)),
+                    ]),
+                  ),
+                ),
+                SizedBox(height: s.lg),
+                VrxChip(label: 'Cancel', onTap: () {}, fit: true),
+                SizedBox(height: s.sm),
+                VrxChip(label: 'Restart', filled: true, onTap: () {}, fit: true),
+                // the 66266c1 chips' padding, which made them stack
+                SizedBox(height: s.lg),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 void main() {
+  testWidgets("a message that scrolls with room to spare is refused (66266c1's layout)", (tester) async {
+    final issues = await checkApplet(tester, _StackedAsk(), display: disp28a);
+    expect([for (final i in issues) i.rule], contains('message scrolls'));
+  });
+
   // the rules are seen to fire on the layout the bench photographed
   testWidgets('the old dialog layout breaks its words on disp28a', (tester) async {
     final issues = await checkApplet(tester, _OldAsk(), display: disp28a);
