@@ -20,7 +20,7 @@ RDEPENDS:${PN} = "\
     vrxhost \
     vrxinit \
     vrx-policy \
-    ${@'vrx-applet-launcher vrx-applet-clock vrx-applet-settings vrx-applet-wifi vrx-applet-setup vrx-applet-docs vrx-applet-scripts vrx-applet-web' if d.getVar('VRX_UI') == 'flutter' else ''} \
+    ${@'vrx-applet-launcher vrx-applet-clock vrx-applet-settings vrx-applet-wifi vrx-applet-setup vrx-applet-docs vrx-applet-scripts vrx-applet-web vrx-applet-recorder' if d.getVar('VRX_UI') == 'flutter' else ''} \
     ${@'vrx-applet-terminal' if d.getVar('VRX_UI') == 'flutter' and d.getVar('VRX_DEBUG') == '1' else ''} \
 "
 

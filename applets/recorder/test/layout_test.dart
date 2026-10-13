@@ -1,0 +1,35 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:vrx_check/vrx_check.dart';
+
+import 'package:recorder_applet/main.dart';
+import 'package:recorder_applet/state.dart';
+
+/// The Recorder holds on every display vrx drives (vrx_check), with and
+/// without a microphone, idle and recording.
+void main() {
+  const recordings = [
+    Recording(name: 'rec-20261013-150412.wav', seconds: 12.4),
+    Recording(name: 'rec-20261013-091530.wav', seconds: 3605),
+  ];
+  final cases = <String, RecorderModel Function()>{
+    'mic': () => RecorderModel()
+      ..devices = const SoundDevices(playback: true, capture: true)
+      ..recordings = recordings,
+    'no mic': () => RecorderModel()
+      ..devices = const SoundDevices(playback: true, capture: false)
+      ..recordings = recordings,
+    'silent': () => RecorderModel()..recordings = recordings,
+    'recording': () => RecorderModel()
+      ..devices = const SoundDevices(playback: true, capture: true)
+      ..recording = true
+      ..elapsed = 75
+      ..recordings = recordings,
+  };
+  for (final display in allDisplays) {
+    for (final c in cases.entries) {
+      testWidgets('recorder ${c.key} on ${display.name}', (tester) async {
+        await expectCleanLayout(tester, RecorderApplet(c.value()), display: display);
+      });
+    }
+  }
+}
