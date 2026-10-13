@@ -72,8 +72,12 @@ void main() {
     harness.dispatch(SettingsAction.factsChanged);
     final keys = harness.view.rows.map((r) => r.key).toList();
     // no network-name row when it equals the name; no serial when unknown
-    expect(keys, ['name', 'model', 'version', 'memory', 'licences', 'setup']);
+    expect(keys, ['name', 'model', 'version', 'memory', 'manage', 'licences', 'setup']);
     expect(harness.view.rows.firstWhere((r) => r.key == 'memory').value, '1.8 GB');
+    // USB only on a board with a device port
+    model.usbPresent = true;
+    harness.dispatch(SettingsAction.factsChanged);
+    expect(harness.view.rows.map((r) => r.key), contains('usbport'));
   });
 
   test('a failure shows until the person moves on', () {

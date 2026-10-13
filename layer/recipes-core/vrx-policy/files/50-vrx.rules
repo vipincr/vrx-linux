@@ -32,7 +32,8 @@ polkit.addRule(function (action, subject) {
         if (subject.isInGroup("vrx-usb") && startStop && unit === "vrx-usb-files.service") {
             return polkit.Result.YES;
         }
-        if (subject.isInGroup("vrx-serve") && startStop && unit === "vrx-manage.socket") {
+        /* the management page: the service holds port 80 by capability */
+        if (subject.isInGroup("vrx-serve") && startStop && unit === "vrx-manage.service") {
             return polkit.Result.YES;
         }
     }

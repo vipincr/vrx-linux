@@ -929,6 +929,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vrx-manage"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "vrx-protocol"
 version = "0.1.0"
 dependencies = [

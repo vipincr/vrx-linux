@@ -1,0 +1,25 @@
+# Manage: the management page, for a browser on the same network (plan
+# 0008 Part G). Serving starts vrx-manage.service (port 80) through the
+# serve grant; it stops on Stop, or by itself after ten minutes in which
+# nobody asked. The page is evrx-rt's manage-ui. No tile: Settings >
+# Device opens it.
+[applet]
+id = "manage"
+name = "Manage"
+version = "1.0.0"
+runtime = "flutter"
+
+[applet.display]
+icon = "language"
+tile = false
+
+[applet.resources]
+heap_mb = 48
+
+[applet.permissions]
+# serve: start and stop vrx-manage.service; network: the addresses it
+# shows (connman answers only that grant; hostnamed answers anyone)
+system = ["serve", "network"]
+
+[applet.command]
+enabled = false

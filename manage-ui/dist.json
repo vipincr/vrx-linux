@@ -1,0 +1,66 @@
+{
+  "source_sha256": "dd3d0294d4c5368d84cc609cc70a3946682105d1c63bcf572252bd0931bad706",
+  "files": [
+    {
+      "path": "_next/static/chunks/0_24p4doydh5c.js.gz",
+      "size": 5920,
+      "sha256": "346dfd835f7a69a50cac89c108cddec824643e82d09fe1ab4f5a081380e3a593"
+    },
+    {
+      "path": "_next/static/chunks/0cz1d0mv5g_q7.js.gz",
+      "size": 39373,
+      "sha256": "c3bd59bbb0182a736c2b27a75416bbbcd04cc44d8dd20a7c85e743f36f9600cc"
+    },
+    {
+      "path": "_next/static/chunks/2anzc5gehesl_.js.gz",
+      "size": 71768,
+      "sha256": "9bad9d3e7075213d6ea0400a4616744cebbad8d281c9381a031964e567a54870"
+    },
+    {
+      "path": "_next/static/chunks/2dle_hu9uvlqd.js.gz",
+      "size": 3525,
+      "sha256": "513957f1daf26bce02667e0d11b2552ba1e158f6ca61aa79cc060ae026d0c55f"
+    },
+    {
+      "path": "_next/static/chunks/3f0yx-iehrzsg.css.gz",
+      "size": 625,
+      "sha256": "6e2c2ddf49ffdda6d73b04b5a45779a38e91befa28f7a8841759d19ae452312d"
+    },
+    {
+      "path": "_next/static/chunks/3ltuo88-3jfu4.js.gz",
+      "size": 1546,
+      "sha256": "a51d6484c77c268e4c187e7515f7c26404baa2fba9a75ea8d7e0c3853a4dd809"
+    },
+    {
+      "path": "_next/static/chunks/41b6dv8iz1ftc.js.gz",
+      "size": 49616,
+      "sha256": "f749a5c8a26025099e3816d0e59d8cf581ef1a1f2b0659263e3afd6bf4ac2dff"
+    },
+    {
+      "path": "_next/static/chunks/turbopack-3-ry682tkyiqk.js.gz",
+      "size": 3946,
+      "sha256": "9a75a47a6b356440e6d9b497b72c730bd9568bb9ee2f43f808899e404f4292f2"
+    },
+    {
+      "path": "_next/static/ml-vtJ1d5fg-nybjZ4OK8/_buildManifest.js.gz",
+      "size": 151,
+      "sha256": "4b5d6cbc0759e3fc2d58f5ea1d35ccab572389c44c21e9a069fba8eed1735dcf"
+    },
+    {
+      "path": "_next/static/ml-vtJ1d5fg-nybjZ4OK8/_clientMiddlewareManifest.js.gz",
+      "size": 66,
+      "sha256": "a4271cb5f1f736c98a23448318cb570f78a1f4d23b716d057150f129ec0afe18"
+    },
+    {
+      "path": "_next/static/ml-vtJ1d5fg-nybjZ4OK8/_ssgManifest.js.gz",
+      "size": 64,
+      "sha256": "b808c866615c24c45bde6f40d059b0fc65fa314982b0a41539af3c68566b932a"
+    },
+    {
+      "path": "index.html.gz",
+      "size": 1950,
+      "sha256": "f28a805cf6090cd2832f1297c630e85aad76ff7a9c9fe8e0c10a36f9bc3e5062"
+    }
+  ],
+  "total_bytes": 178550
+}

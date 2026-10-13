@@ -142,6 +142,8 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
     switch (row.key) {
       case 'wifi':
       case 'setup':
+      case 'usbport':
+      case 'manage':
         // their own applets (no tile): a trail push, vrxhost starts them
         Nav.push(row.key);
       case 'licences':
@@ -269,6 +271,7 @@ Future<void> main() async {
   VrxSystem.device.watch().listen((d) => fact(() => model.device = d), onError: failed);
   VrxSystem.power.watchLight().listen((on) => fact(() => model.light = on), onError: failed);
   VrxSystem.power.watchSupplyLow().listen((low) => fact(() => model.supplyLow = low), onError: failed);
+  VrxSystem.usb.watch().listen((u) => fact(() => model.usbPresent = u.present), onError: failed);
   // the system's own settings (the light-off timeout)
   _settings.watch('vrx').listen((v) => fact(() => model.values['vrx'] = v), onError: failed);
   // applets' declared settings, each file watched so a change shows

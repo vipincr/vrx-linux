@@ -1,4 +1,4 @@
-name: usb_applet
+name: usbport_applet
 description: "vrx USB: share files with a connected computer"
 publish_to: none
 version: 1.0.0

@@ -1,3 +1,3 @@
 SUMMARY = "vrx applet: USB (share files with a connected computer)"
-VRX_APPLET = "usb"
+VRX_APPLET = "usbport"
 require vrx-applet.inc

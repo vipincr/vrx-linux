@@ -1,0 +1,19 @@
+[package]
+name = "vrx-manage"
+version = "0.1.0"
+edition = "2021"
+description = "vrx-manage: the management page and its JSON API, served while the Manage applet asks (plan 0008 Part G)"
+license = "MIT"
+
+[[bin]]
+name = "vrx-manage"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

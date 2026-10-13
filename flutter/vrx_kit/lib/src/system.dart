@@ -433,6 +433,17 @@ abstract class UsbService {
   Future<void> share(bool on);
 }
 
+// ── the management page ───────────────────────────────────────────────
+
+/// The management page (plan 0008 Part G): vrx-manage.service serves it
+/// on port 80 while it runs; it stops itself after ten minutes in which
+/// nobody asked. Needs the `serve` grant.
+abstract class ManageService {
+  /// Serving now, and on every change.
+  Stream<bool> watch();
+  Future<void> serve(bool on);
+}
+
 // ── the installed set ─────────────────────────────────────────────────
 
 /// The system services an applet uses. On a device they are the D-Bus
@@ -445,6 +456,7 @@ abstract final class VrxSystem {
   static PowerService? _power;
   static NetworkService? _network;
   static UsbService? _usb;
+  static ManageService? _manage;
 
   static DBusClient get _system => _bus ??= DBusClient.system();
 
@@ -453,6 +465,7 @@ abstract final class VrxSystem {
   static PowerService get power => _power ??= LinuxPowerService(_system);
   static NetworkService get network => _network ??= ConnmanNetworkService(_system);
   static UsbService get usb => _usb ??= LinuxUsbService(_system);
+  static ManageService get manage => _manage ??= SystemdManageService(_system);
 
   /// Replace any of the services (tests, a desktop `flutter run`).
   static void install({
@@ -461,7 +474,9 @@ abstract final class VrxSystem {
     PowerService? power,
     NetworkService? network,
     UsbService? usb,
+    ManageService? manage,
   }) {
+    _manage = manage ?? _manage;
     _usb = usb ?? _usb;
     _network = network ?? _network;
     _time = time ?? _time;
@@ -724,18 +739,41 @@ class LinuxPowerService implements PowerService {
   }
 }
 
+/// A system unit an applet may start and stop (its grant's polkit rule
+/// names it): the one place vrx_kit asks systemd to.
+class _Unit {
+  _Unit(this.bus, this.name)
+      : _manager = DBusRemoteObject(bus,
+            name: 'org.freedesktop.systemd1',
+            path: DBusObjectPath('/org/freedesktop/systemd1'));
+
+  static const _managerIface = 'org.freedesktop.systemd1.Manager';
+  final DBusClient bus;
+  final String name;
+  final DBusRemoteObject _manager;
+
+  Future<void> run(bool on) => _call(() => _manager.callMethod(
+      _managerIface, on ? 'StartUnit' : 'StopUnit', [DBusString(name), const DBusString('replace')],
+      replySignature: DBusSignature('o')));
+
+  /// Active (or on its way there).
+  Future<bool> active() => _call(() async {
+        final reply = await _manager.callMethod(_managerIface, 'LoadUnit', [DBusString(name)],
+            replySignature: DBusSignature('o'));
+        final unit = DBusRemoteObject(bus, name: 'org.freedesktop.systemd1', path: reply.returnValues.first.asObjectPath());
+        final state = (await unit.getProperty('org.freedesktop.systemd1.Unit', 'ActiveState')).asString();
+        return state == 'active' || state == 'activating' || state == 'reloading';
+      });
+}
+
 /// The UDC's state and the gadget in configfs (vrx-usb's vrx-usb-gadget);
 /// sharing through systemd. Neither sysfs nor configfs raises inotify
 /// events, so a small read every second, as for the light.
 class LinuxUsbService implements UsbService {
   LinuxUsbService(DBusClient bus, {this.udcRoot = '/sys/class/udc', this.gadget = '/sys/kernel/config/usb_gadget/vrx'})
-      : _systemd = DBusRemoteObject(bus,
-            name: 'org.freedesktop.systemd1',
-            path: DBusObjectPath('/org/freedesktop/systemd1'));
+      : _unit = _Unit(bus, 'vrx-usb-files.service');
 
-  static const _manager = 'org.freedesktop.systemd1.Manager';
-  static const _unit = 'vrx-usb-files.service';
-  final DBusRemoteObject _systemd;
+  final _Unit _unit;
   final String udcRoot;
   final String gadget;
 
@@ -763,7 +801,26 @@ class LinuxUsbService implements UsbService {
   }
 
   @override
-  Future<void> share(bool on) => _call(() => _systemd.callMethod(
-      _manager, on ? 'StartUnit' : 'StopUnit', [const DBusString(_unit), const DBusString('replace')],
-      replySignature: DBusSignature('o')));
+  Future<void> share(bool on) => _unit.run(on);
+}
+
+/// vrx-manage.service, read every second (systemd sends unit changes only
+/// to a subscribed client; one property read is cheaper than that).
+class SystemdManageService implements ManageService {
+  SystemdManageService(DBusClient bus) : _unit = _Unit(bus, 'vrx-manage.service');
+
+  final _Unit _unit;
+
+  @override
+  Stream<bool> watch() async* {
+    var last = await _unit.active();
+    yield last;
+    await for (final _ in Stream<void>.periodic(const Duration(seconds: 1))) {
+      final now = await _unit.active();
+      if (now != last) yield last = now;
+    }
+  }
+
+  @override
+  Future<void> serve(bool on) => _unit.run(on);
 }

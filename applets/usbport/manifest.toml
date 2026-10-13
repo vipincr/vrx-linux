@@ -2,9 +2,10 @@
 # console is always on the port; this offers to share files beside it, a
 # disk the computer sees (/data/usb/files.img). vrxhost raises
 # sys.usb.connected when a computer enumerates the device, and this comes
-# to the front to ask. No tile: Settings > Device opens it too.
+# to the front to ask. No tile: Settings > Device opens it too. Its id
+# is not "usb": the applet's user would be vrx-usb, the usb grant's group.
 [applet]
-id = "usb"
+id = "usbport"
 name = "USB"
 version = "1.0.0"
 runtime = "flutter"

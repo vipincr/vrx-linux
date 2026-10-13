@@ -113,6 +113,9 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
   int lightLevels = 0;
   bool canPowerOff = false;
 
+  /// The board has a USB device port (a UDC): the USB row.
+  bool usbPresent = false;
+
   /// The supply is too low (null: the board has no supply sensor).
   bool? supplyLow;
   /// Applets' declared settings (vrxhost) and their values (the files).
@@ -280,6 +283,8 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
           if (d.memoryMb > 0)
             SettingRow(key: 'memory', label: 'Memory', value: '${(d.memoryMb / 1024).toStringAsFixed(1)} GB', kind: RowKind.info),
           if (d.serial.isNotEmpty) SettingRow(key: 'serial', label: 'Serial', value: d.serial, kind: RowKind.info),
+          if (usbPresent) const SettingRow(key: 'usbport', label: 'USB', value: '', kind: RowKind.open),
+          const SettingRow(key: 'manage', label: 'Manage from a browser', value: '', kind: RowKind.open),
           const SettingRow(key: 'licences', label: 'Licences', value: '', kind: RowKind.open),
           const SettingRow(key: 'setup', label: 'Set up again', value: '', kind: RowKind.open),
         ];

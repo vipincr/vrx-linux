@@ -2,8 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vrx_check/vrx_check.dart';
 import 'package:vrx_kit/vrx_kit.dart';
 
-import 'package:usb_applet/main.dart';
-import 'package:usb_applet/state.dart';
+import 'package:usbport_applet/main.dart';
+import 'package:usbport_applet/state.dart';
 
 /// Every USB screen on every display vrx drives (vrx_check, AGENTS.md
 /// rule 11).

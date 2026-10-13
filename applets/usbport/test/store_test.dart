@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vrx_kit/vrx_kit.dart';
 
-import 'package:usb_applet/state.dart';
+import 'package:usbport_applet/state.dart';
 
 void main() {
   test('the screen follows the port: no port, no computer, a computer, sharing', () {

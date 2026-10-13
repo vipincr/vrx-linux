@@ -1,0 +1,36 @@
+# The management page and its JSON API (plan 0008 Part G). Started and
+# stopped by the Manage applet through the serve grant (polkit,
+# 50-vrx.rules), never at boot; it stops itself after ten minutes in
+# which nobody asked for anything. Port 80 by capability, not by root:
+# a dynamic user with CAP_NET_BIND_SERVICE and nothing else, reading the
+# journal for /api/log.
+[Unit]
+Description=vrx management page
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/vrx-manage
+DynamicUser=yes
+# named: without User= the dynamic user takes the unit's name, and an
+# existing static user of that name (the Manage applet's vrx-manage)
+# would be used instead
+User=vrx-httpd
+SupplementaryGroups=systemd-journal
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+# the server, journalctl (unix) and ip (netlink)
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+SystemCallArchitectures=native
+Restart=no

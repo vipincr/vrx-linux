@@ -17,6 +17,7 @@ members = [
     "rust/cli",
     "rust/init",
     "rust/xtask",
+    "rust/manage",
 ]
 
 # applets/ are standalone: each is built and tested on its own (the
