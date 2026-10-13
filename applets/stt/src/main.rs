@@ -1,0 +1,107 @@
+// stt's process: listen for sys.stt.listen, answer it at once (a told
+// handler has 100 ms), then record, detect, transcribe and send
+// sys.stt.heard. One clip at a time; an ask while one is in progress is
+// answered and joins it (the one answer goes to whoever listens).
+
+use std::io::Read;
+use std::path::Path;
+use std::process::{Command, ExitCode, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+use stt::{has_capture, heard, samples, transcribe, Step, Vad, FRAME, RATE};
+use vrx::ipc::{answer, intent_send, Delivery, Listener};
+use vrx::service::{notify, Liveness};
+
+const SOCKET: &str = "/run/vrx-ml/stt.sock";
+
+/// Record until the detector decides; the outcome sys.stt.heard carries.
+fn listen_once() -> Result<String, &'static str> {
+    let pcm = std::fs::read_to_string("/proc/asound/pcm").unwrap_or_default();
+    if !has_capture(&pcm) {
+        return Err("no-microphone");
+    }
+    let rate = RATE.to_string();
+    let mut rec = Command::new("arecord")
+        .args(["-q", "-t", "raw", "-f", "S16_LE", "-c", "1", "-r", &rate])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|e| {
+            log(&format!("arecord: {e}"));
+            "no-microphone"
+        })?;
+    let Some(mut out) = rec.stdout.take() else {
+        return Err("no-microphone");
+    };
+    let mut vad = Vad::new();
+    let mut frame = vec![0u8; FRAME * 2];
+    let outcome = loop {
+        if out.read_exact(&mut frame).is_err() {
+            break Err("no-microphone");
+        }
+        match vad.frame(&samples(&frame)) {
+            Step::More => {}
+            Step::NothingHeard => break Ok(String::new()),
+            Step::Heard(clip) => {
+                break transcribe(Path::new(SOCKET), &clip).map_err(|e| {
+                    log(&format!("whisper-server: {e:?}"));
+                    "engine"
+                })
+            }
+        }
+    };
+    let _ = rec.kill();
+    let _ = rec.wait();
+    outcome
+}
+
+#[allow(clippy::print_stderr)]
+fn log(line: &str) {
+    eprintln!("stt: {line}");
+}
+
+fn main() -> ExitCode {
+    let liveness = Liveness::new();
+    liveness.spawn_watchdog();
+    let mut listener = match Listener::start() {
+        Ok(l) => l,
+        Err(err) => {
+            log(&format!("cannot listen: {err}"));
+            return ExitCode::FAILURE;
+        }
+    };
+    notify("READY=1");
+    let busy = Arc::new(AtomicBool::new(false));
+    // blocked here is idle: the watchdog keeps pinging
+    while let Some(delivery) = listener.next_delivery() {
+        let Delivery::Intent { id, name, .. } = delivery else {
+            continue;
+        };
+        if name != "sys.stt.listen" {
+            if let Some(id) = id {
+                let _ = answer(id, false);
+            }
+            continue;
+        }
+        if let Some(id) = id {
+            if let Err(err) = answer(id, true) {
+                log(&format!("answer: {err}"));
+            }
+        }
+        if busy.swap(true, Ordering::SeqCst) {
+            continue;
+        }
+        let busy = Arc::clone(&busy);
+        std::thread::spawn(move || {
+            let outcome = listen_once();
+            if let Err(err) = intent_send("sys.stt.heard", heard(outcome)) {
+                log(&format!("sys.stt.heard: {err}"));
+            }
+            busy.store(false, Ordering::SeqCst);
+        });
+    }
+    // vrxhost went away: systemd starts stt again with it
+    log("vrxhost hung up");
+    ExitCode::FAILURE
+}

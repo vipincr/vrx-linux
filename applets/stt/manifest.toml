@@ -1,0 +1,34 @@
+# Speech to text (plan 0011 D18): no screen, alive from boot. An applet
+# asks with sys.stt.listen; stt records from the board's microphone
+# (ALSA, the audio grant), finds the speech (evrx-rt's voice detector:
+# 250 ms to learn the room, 100 ms of speech to start, 900 ms of quiet to
+# end, 4 s waiting, 8 s at most), has the local whisper-server write it
+# down through /run/vrx-ml/stt.sock (the ml grant), and answers
+# sys.stt.heard with the text, or with why there is none.
+[applet]
+id = "stt"
+name = "Speech to text"
+version = "0.1.0"
+runtime = "rust"
+# no screen: vrxhost starts and supervises it, never opens it
+kind = "service"
+
+[applet.display]
+icon = "record_voice_over"
+tile = false
+
+[applet.resources]
+heap_mb = 32
+
+[applet.roles]
+resident = true
+
+[applet.permissions]
+system = ["audio", "ml"]
+
+[applet.intents]
+handles = [{ name = "sys.stt.listen", priority = 500 }]
+emits = ["sys.stt.heard"]
+
+[applet.command]
+enabled = false
