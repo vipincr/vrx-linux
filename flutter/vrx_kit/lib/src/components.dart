@@ -20,6 +20,7 @@ import 'input.dart';
 import 'metrics.dart';
 import 'motion.dart';
 import 'scale.dart';
+import 'shell.dart';
 import 'symbols.dart';
 import 'theme.dart';
 
@@ -40,11 +41,17 @@ class VrxHeader extends StatelessWidget {
   /// One control at the header's end (a mode the whole screen is in).
   final Widget? action;
 
+  // the back offer stays while the strip shows: the strip's Back calls it
   @override
-  Widget build(BuildContext context) => VrxBackOffer(onBack: onBack, child: _build(context));
+  Widget build(BuildContext context) => VrxBackOffer(
+        onBack: onBack,
+        child: ListenableBuilder(listenable: VrxShell.changes, builder: (context, _) => _build(context)),
+      );
 
   Widget _build(BuildContext context) {
     final palette = VrxTheme.of(context);
+    // one Back on screen: the shell's strip has it while it shows
+    final arrow = onBack != null && !VrxShell.stripShown;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -52,12 +59,12 @@ class VrxHeader extends StatelessWidget {
           height: ScaledSpacing.of(context).touch,
           child: Row(
             children: [
-              if (onBack != null)
+              if (arrow)
                 VrxIconButton(
                   glyph: VrxSymbols.arrow_back,
                   onTap: onBack,
                 ),
-              SizedBox(width: onBack == null ? ScaledSpacing.of(context).inset : ScaledSpacing.of(context).xs),
+              SizedBox(width: arrow ? ScaledSpacing.of(context).xs : ScaledSpacing.of(context).inset),
               Expanded(child: VrxFitText(title, style: TypeRole.of(context, VrxTypeRole.title))),
               if (action != null) ...[
                 action!,

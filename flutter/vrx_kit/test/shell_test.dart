@@ -9,7 +9,7 @@ import 'package:vrx_kit/vrx_kit.dart';
 /// its drawer is open.
 void main() {
   const shell = MethodChannel('vrx/shell', JSONMethodCodec());
-  const insets = MethodChannel('vrx/insets', JSONMethodCodec());
+  const chrome = MethodChannel('vrx/chrome', JSONMethodCodec());
   final calls = <MethodCall>[];
 
   setUp(() {
@@ -38,8 +38,8 @@ void main() {
 
     // the compositor pushes 60 device px: 40 logical at 1.5
     VrxShell.listen();
-    final message = insets.codec.encodeMethodCall(const MethodCall('insets', {'top': 60}));
-    await tester.binding.defaultBinaryMessenger.handlePlatformMessage('vrx/insets', message, (_) {});
+    final message = chrome.codec.encodeMethodCall(const MethodCall('insets', {'top': 60}));
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage('vrx/chrome', message, (_) {});
     await tester.pump();
     expect(VrxShell.top.value, 60);
     expect(tester.getTopLeft(find.byKey(key)).dy, 40);
@@ -74,5 +74,29 @@ void main() {
     await tester.pumpWidget(region(full: true));
     await tester.pump();
     expect(calls.length, sent);
+  });
+
+  testWidgets('the strip\'s Back goes back a screen, and the header draws no arrow under the strip', (tester) async {
+    var backs = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: VrxHeader(title: 'Wi-Fi', onBack: () => backs++)),
+    ));
+    expect(find.byIcon(VrxSymbols.arrow_back), findsOneWidget);
+
+    VrxShell.top.value = 60;
+    await tester.pump();
+    expect(find.byIcon(VrxSymbols.arrow_back), findsNothing);
+
+    VrxShell.listen();
+    final message = chrome.codec.encodeMethodCall(const MethodCall('back'));
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage('vrx/chrome', message, (_) {});
+    expect(backs, 1);
+
+    // a screen with the whole panel has no strip over it: its own arrow
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: VrxNoChrome(child: VrxHeader(title: 'Wi-Fi', onBack: () => backs++))),
+    ));
+    await tester.pump();
+    expect(find.byIcon(VrxSymbols.arrow_back), findsOneWidget);
   });
 }

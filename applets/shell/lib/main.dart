@@ -31,7 +31,8 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
   Widget build(BuildContext context, ShellView view) {
     final facts = VrxStatusFacts(
       showBack: view.canGoBack,
-      onBack: Nav.pop,
+      // the one Back: the focused app goes back a screen, or leaves
+      onBack: () => unawaited(VrxShell.back()),
       clockText: view.facts.clockText,
       dateText: view.facts.dateText,
       wifiUp: view.wifiUp,

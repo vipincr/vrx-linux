@@ -1,6 +1,6 @@
 /// The shell's place on screen (plan 0008 D10). The compositor draws the
-/// shell applet on an overlay plane above whatever app is focused. Two
-/// things cross flutter-vrx's `vrx/shell` and `vrx/insets` channels:
+/// shell applet on an overlay plane above whatever app is focused. These
+/// cross flutter-vrx's `vrx/shell` (calls) and `vrx/chrome` (pushes):
 ///
 /// - every app is told how much of the top the shell's strip covers, and
 ///   the host lays the app out below it ([VrxInsets]), dialogs included;
@@ -8,7 +8,11 @@
 ///   whole screen ([VrxShellRegion]); the compositor routes input by it;
 /// - an app may take the whole screen while a screen of it is up
 ///   ([VrxNoChrome]): the compositor takes the shell's plane down while
-///   that app is focused and its inset is 0.
+///   that app is focused and its inset is 0;
+/// - the strip's Back is the one Back: the compositor hands it to the
+///   focused app, which goes back a screen ([VrxBack]) or leaves
+///   ([Nav.pop]) at its first. [VrxHeader] draws no arrow of its own
+///   while the strip shows.
 ///
 /// Off the board (tests, the host) there is no channel: the inset is 0
 /// and a region report goes nowhere.
@@ -19,11 +23,14 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import 'input.dart';
+import 'nav.dart';
+
 class VrxShell {
   VrxShell._();
 
   static const _shell = MethodChannel('vrx/shell', JSONMethodCodec());
-  static const _insets = MethodChannel('vrx/insets', JSONMethodCodec());
+  static const _chrome = MethodChannel('vrx/chrome', JSONMethodCodec());
 
   /// The strip's height in device pixels; 0 when no shell runs.
   static final ValueNotifier<double> top = ValueNotifier<double>(0);
@@ -31,6 +38,13 @@ class VrxShell {
   /// A [VrxNoChrome] screen is up: the strip steps aside.
   static final ValueNotifier<bool> hidden = ValueNotifier<bool>(false);
   static final _hiders = <Object>{};
+
+  /// The strip is over this app now (a shell runs and the app has not
+  /// taken the whole screen): its Back is the app's.
+  static bool get stripShown => top.value > 0 && !hidden.value;
+
+  /// Notifies when [stripShown] may have changed.
+  static final Listenable changes = Listenable.merge([top, hidden]);
 
   static bool _listening = false;
 
@@ -45,10 +59,15 @@ class VrxShell {
     if (_listening) return;
     _listening = true;
     var pushed = false;
-    _insets.setMethodCallHandler((call) async {
-      if (call.method != 'insets') return;
-      pushed = true;
-      top.value = _read(call.arguments);
+    _chrome.setMethodCallHandler((call) async {
+      switch (call.method) {
+        case 'insets':
+          pushed = true;
+          top.value = _read(call.arguments);
+        case 'back':
+          // the screen on top goes back; at the app's first, the app leaves
+          if (!VrxBack.invoke()) Nav.pop();
+      }
     });
     // a push that lands before the answer is newer than it
     unawaited(_shell.invokeMethod<Object?>('getInsets').then((v) {
@@ -69,6 +88,15 @@ class VrxShell {
     top.value = 0;
     _hiders.clear();
     hidden.value = false;
+  }
+
+  /// The strip's Back, from the shell: to the focused app.
+  static Future<void> back() async {
+    try {
+      await _shell.invokeMethod<Object?>('back');
+    } on MissingPluginException {
+      // off the board
+    }
   }
 
   /// The shell's region: its strip, `top` device pixels from the top, or
@@ -93,7 +121,7 @@ class VrxInsets extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([VrxShell.top, VrxShell.hidden]),
+      listenable: VrxShell.changes,
       child: child,
       builder: (context, child) {
         // the compositor's 0 follows a hide; the layout need not wait
