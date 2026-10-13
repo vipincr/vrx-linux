@@ -11,6 +11,7 @@ void main() {
       ShellModel(now: () => DateTime(2026, 10, 13, 23, 59).millisecondsSinceEpoch)
         ..clockValid = true
         ..wifiUp = true
+        ..bleUp = true
         ..depth = 2
         ..version = 'vrx 0.1.0077'
         ..dimming = VrxDimming.alpha

@@ -15,6 +15,10 @@ void main() {
       ..depth = 1;
     h.dispatch(ShellAction.factsChanged);
     h.assertView((v) => v.facts.clockText == '09:05' && v.wifiUp && !v.canGoBack, because: 'Home alone is depth 1');
+    h.assertView((v) => !v.bleUp && !v.facts.bleUp, because: 'the radio is off until connman says on');
+    model.bleUp = true;
+    h.dispatch(ShellAction.factsChanged);
+    h.assertView((v) => v.bleUp && v.facts.bleUp, because: 'the strip and the drawer both say the radio is on');
     model.depth = 2;
     h.dispatch(ShellAction.factsChanged);
     h.assertView((v) => v.canGoBack, because: 'an applet above Home');

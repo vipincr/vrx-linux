@@ -58,6 +58,7 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
       clockText: view.facts.clockText,
       dateText: view.facts.dateText,
       wifiUp: view.wifiUp,
+      bleUp: view.bleUp,
     );
     // the compositor routes input by the strip's height, and gives the
     // shell all of it while the drawer is open. The drawer is a slide
@@ -93,10 +94,15 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
                     onBrightness: (v) => _brightness(v, settled: false),
                     onBrightnessEnd: (v) => _brightness(v, settled: true),
                     wifiUp: view.wifiUp,
-                    bleUp: false,
+                    bleUp: view.bleUp,
                     onWifi: () {
                       _toggle();
                       unawaited(Nav.push('wifi'));
+                    },
+                    // Device Link: the radio, pairing and paired phones
+                    onBle: () {
+                      _toggle();
+                      unawaited(Nav.push('devicelink'));
                     },
                     onPower: () => _events.add(ShellAction.powerAsked),
                     onDismiss: _toggle,
@@ -140,6 +146,9 @@ Future<void> main() async {
       .watch()
       .listen((t) => fact(() => model.clockValid = t.synced || DateTime.now().year >= 2025), onError: (Object _) {});
   VrxSystem.network.watch().listen((n) => fact(() => model.wifiUp = n.connected != null), onError: (Object _) {});
+  // the radio's switch is connman's (the network grant); the shell does not
+  // reach BlueZ, so on or off is all it says
+  VrxSystem.bluetooth.watch().listen((b) => fact(() => model.bleUp = b.on), onError: (Object _) {});
   _screen.watch().listen((s) => fact(() => model.brightness = s.brightness), onError: (Object _) {});
   unawaited(_screen.dimming().then((d) => fact(() => model.dimming = d)));
   // the release only ("0.1.0077"): the platform after it is Settings >

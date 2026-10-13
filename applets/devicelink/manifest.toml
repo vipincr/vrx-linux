@@ -1,0 +1,26 @@
+# Device Link: pair a phone over Bluetooth (plan 0011 D19, plan 0008
+# Part H). connman turns the radio on; BlueZ pairs and keeps the bonds;
+# while its window is open this applet is BlueZ's agent and puts the
+# passkey on the screen. No tile: Settings > Device and the drawer's
+# Bluetooth button open it. The phone companion's GATT protocol is a
+# separate approval and is not here.
+[applet]
+id = "devicelink"
+name = "Device Link"
+version = "1.0.0"
+runtime = "flutter"
+
+[applet.display]
+icon = "bluetooth"
+tile = false
+
+[applet.resources]
+heap_mb = 48
+
+[applet.permissions]
+# bluetooth: the adapter, pairing and bonds (org.bluez, vrx-policy's bus
+# policy); network: the radio's power, which is connman's
+system = ["bluetooth", "network"]
+
+[applet.command]
+enabled = false

@@ -34,6 +34,10 @@ void main() {
       serial: '10000000a1b2c3d4',
       memoryMb: 3796,
     )
+    // the longest Device Link value: a connected phone's name
+    ..bluetooth = const BluetoothState(present: true, on: true, devices: [
+      BluetoothDevice(id: '/org/bluez/hci0/dev_1', name: 'Pixel 9 Pro XL of a long-named person', connected: true),
+    ])
     ..dimming = VrxDimming.alpha
     ..screen = const ScreenState(brightness: 40, lightOff: 600)
     // a colour panel drawing scheme 12, with 13 chosen: the longest Display

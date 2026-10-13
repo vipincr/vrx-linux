@@ -8,6 +8,7 @@
 library;
 
 export 'src/applet.dart';
+export 'src/bluetooth.dart';
 export 'src/channel.dart';
 export 'src/chat.dart';
 export 'src/chrome.dart';

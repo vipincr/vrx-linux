@@ -214,6 +214,7 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
     }
     switch (row.key) {
       case 'wifi':
+      case 'devicelink':
       case 'usbport':
       case 'manage':
         // their own applets (no tile): a trail push, vrxhost starts them
@@ -366,6 +367,7 @@ Future<void> main() async {
   unawaited(_screen.dimming().then((d) => fact(() => model.dimming = d)));
   VrxSystem.power.watchSupplyLow().listen((low) => fact(() => model.supplyLow = low), onError: failed);
   VrxSystem.usb.watch().listen((u) => fact(() => model.usbPresent = u.present), onError: failed);
+  VrxSystem.bluetooth.watch().listen((b) => fact(() => model.bluetooth = b), onError: failed);
   VrxSystem.powerSupply.watch().listen((b) => fact(() => model.battery = b), onError: failed);
   unawaited(deviceUsage().then((u) => fact(() => model.usage = u)));
   // the locales a time format can come from, and LC_TIME now (localed)

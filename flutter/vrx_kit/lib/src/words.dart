@@ -93,6 +93,13 @@ abstract final class VrxWords {
     if (name.endsWith('AutomaticTimeSyncEnabled')) {
       return 'Turn off network time first; the clock is set from the network.';
     }
+    // BlueZ
+    if (name == 'org.bluez.Error.Blocked') return 'Bluetooth is switched off. Turn it on first.';
+    if (name == 'org.bluez.Error.NotReady') return 'Bluetooth is still starting. Try again in a moment.';
+    if (name == 'org.bluez.Error.AuthenticationCanceled' || name == 'org.bluez.Error.AuthenticationRejected') {
+      return 'The pairing was canceled.';
+    }
+    if (name == 'org.bluez.Error.DoesNotExist') return 'That device is no longer paired.';
     if (name.endsWith('ServiceUnknown') || name.endsWith('NameHasNoOwner')) return noHost;
     return failed;
   }

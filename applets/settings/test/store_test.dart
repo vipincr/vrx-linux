@@ -111,6 +111,17 @@ void main() {
     model.usbPresent = true;
     harness.dispatch(SettingsAction.factsChanged);
     expect(harness.view.rows.map((r) => r.key), contains('usbport'));
+    // Device Link only where connman has a Bluetooth radio
+    expect(harness.view.rows.map((r) => r.key), isNot(contains('devicelink')));
+    model.bluetooth = const BluetoothState(present: true, on: false);
+    harness.dispatch(SettingsAction.factsChanged);
+    expect(harness.view.rows.firstWhere((r) => r.key == 'devicelink').value, 'Off');
+    model.bluetooth = const BluetoothState(present: true, on: true, devices: [
+      BluetoothDevice(id: '/org/bluez/hci0/dev_1', name: 'Pixel'),
+      BluetoothDevice(id: '/org/bluez/hci0/dev_2', name: 'iPhone'),
+    ]);
+    harness.dispatch(SettingsAction.factsChanged);
+    expect(harness.view.rows.firstWhere((r) => r.key == 'devicelink').value, '2 paired');
   });
 
   test('a failure shows until the person moves on', () {

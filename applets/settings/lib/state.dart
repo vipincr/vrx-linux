@@ -137,6 +137,20 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
   /// The board has a USB device port (a UDC): the USB row.
   bool usbPresent = false;
 
+  /// The Bluetooth radio, the adapter and the paired phones (plan 0011
+  /// D19); null until read, or on a device with none.
+  BluetoothState? bluetooth;
+
+  /// Device Link's row value: what Bluetooth is doing, in a few words.
+  static String linkValue(BluetoothState b) {
+    if (!b.on) return 'Off';
+    if (b.discoverable) return 'Pairing';
+    final c = b.connected;
+    if (c != null) return c.name;
+    if (b.devices.isEmpty) return 'On';
+    return b.devices.length == 1 ? '1 paired' : '${b.devices.length} paired';
+  }
+
   /// The supply is too low (null: the board has no supply sensor).
   bool? supplyLow;
 
@@ -412,6 +426,8 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
           if (usage.rootFreeMb != null)
             SettingRow(key: 'system_space', label: 'System space', value: '${_size(usage.rootFreeMb!)} free', kind: RowKind.info),
           if (d.serial.isNotEmpty) SettingRow(key: 'serial', label: 'Serial', value: d.serial, kind: RowKind.info),
+          if (bluetooth?.present ?? false)
+            SettingRow(key: 'devicelink', label: 'Device Link', value: linkValue(bluetooth!), kind: RowKind.open),
           if (usbPresent) const SettingRow(key: 'usbport', label: 'USB', value: '', kind: RowKind.open),
           const SettingRow(key: 'manage', label: 'Manage from a browser', value: '', kind: RowKind.open),
           const SettingRow(key: 'licences', label: 'Licences', value: '', kind: RowKind.open),

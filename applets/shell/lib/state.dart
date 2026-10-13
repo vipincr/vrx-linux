@@ -10,6 +10,7 @@ class ShellView {
     required this.version,
     this.brightness,
     required this.wifiUp,
+    this.bleUp = false,
     required this.canGoBack,
   });
 
@@ -25,6 +26,9 @@ class ShellView {
   /// The brightness slider's position; null where the screen does not dim.
   final int? brightness;
   final bool wifiUp;
+
+  /// The Bluetooth radio is on (connman).
+  final bool bleUp;
   final bool canGoBack;
 }
 
@@ -36,6 +40,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
   bool drawer = false;
   bool askingPower = false;
   bool wifiUp = false;
+  bool bleUp = false;
 
   /// How the compositor dims, and the brightness setting (plan 0010 D8).
   VrxDimming dimming = VrxDimming.none;
@@ -101,6 +106,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
         clockText: clockText,
         dateText: dateText,
         wifiUp: wifiUp,
+        bleUp: bleUp,
         notice: notice,
         batteryLevel: battery?.percent,
         batteryCharging: battery?.charging ?? false,
@@ -108,6 +114,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
       version: version,
       brightness: dimming == VrxDimming.none ? null : brightness,
       wifiUp: wifiUp,
+      bleUp: bleUp,
       canGoBack: depth > 1,
     );
   }

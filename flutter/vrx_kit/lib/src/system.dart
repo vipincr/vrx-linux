@@ -15,6 +15,7 @@ import 'dart:io';
 
 import 'package:dbus/dbus.dart';
 
+import 'bluetooth.dart';
 import 'locale.dart';
 import 'power_supply.dart';
 
@@ -530,6 +531,7 @@ abstract final class VrxSystem {
   static ManageService? _manage;
   static LocaleService? _locale;
   static PowerSupplyService? _supply;
+  static BluetoothService? _bluetooth;
 
   static DBusClient get _system => _bus ??= DBusClient.system();
 
@@ -541,6 +543,7 @@ abstract final class VrxSystem {
   static ManageService get manage => _manage ??= SystemdManageService(_system);
   static LocaleService get locale => _locale ??= LocaledLocaleService(_system);
   static PowerSupplyService get powerSupply => _supply ??= PowerSupplyService();
+  static BluetoothService get bluetooth => _bluetooth ??= LinuxBluetoothService(_system);
 
   /// Replace any of the services (tests, a desktop `flutter run`).
   static void install({
@@ -552,7 +555,9 @@ abstract final class VrxSystem {
     ManageService? manage,
     LocaleService? locale,
     PowerSupplyService? powerSupply,
+    BluetoothService? bluetooth,
   }) {
+    _bluetooth = bluetooth ?? _bluetooth;
     _locale = locale ?? _locale;
     _supply = powerSupply ?? _supply;
     _manage = manage ?? _manage;
