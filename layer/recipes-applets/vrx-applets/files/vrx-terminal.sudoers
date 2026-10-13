@@ -1,0 +1,3 @@
+# Debug images only (vrx-applet-terminal): the Terminal applet's user may
+# become root without a password, as the bench's ssh login already can.
+vrx-terminal ALL=(ALL:ALL) NOPASSWD: ALL

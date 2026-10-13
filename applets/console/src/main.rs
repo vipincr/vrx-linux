@@ -1,8 +1,8 @@
-//! terminal: a vrx Rust applet. The screen is a bounded ring of lines;
+//! console: a vrx Rust applet. The screen is a bounded ring of lines;
 //! every input line is an action that appends and scrolls. Run:
 //!
-//!   cargo run -p terminal --bin terminal
-//!   echo '"hello"' | cargo run -p terminal --bin terminal
+//!   cargo run -p console --bin console
+//!   echo '"hello"' | cargo run -p console --bin console
 //!
 //! The same binary is a console applet (vrxhost supervises it) and a
 //! shell pipeline stage (manifest command.enabled) — the applet-as-ELF
@@ -11,10 +11,10 @@
 use serde::{Deserialize, Serialize};
 use vrx::{applet_main, prelude::*};
 
-/// The ring depth: the terminal keeps the last N lines.
+/// The ring depth: the console keeps the last N lines.
 const RING: usize = 24;
 
-struct Terminal {
+struct Console {
     lines: Vec<String>,
 }
 
@@ -29,7 +29,7 @@ struct View {
     lines: Vec<String>,
 }
 
-impl Applet for Terminal {
+impl Applet for Console {
     type State = Vec<String>;
     type Action = Action;
     type View = View;
@@ -64,10 +64,10 @@ impl Applet for Terminal {
     }
 
     fn render(view: &View) -> String {
-        let mut rows = vec![text_title("terminal"), text_row(
-            "lines",
-            format!("{}/{}", view.lines.len(), RING),
-        )];
+        let mut rows = vec![
+            text_title("console"),
+            text_row("lines", format!("{}/{}", view.lines.len(), RING)),
+        ];
         rows.push(vrx::kit::Row::Blank);
         for line in &view.lines {
             rows.push(text_body(line.clone()));
@@ -80,7 +80,7 @@ impl Applet for Terminal {
 }
 
 fn main() -> std::process::ExitCode {
-    applet_main(Terminal { lines: Vec::new() })
+    applet_main(Console { lines: Vec::new() })
 }
 
 #[cfg(test)]
@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn lines_append_and_the_ring_bounds_the_screen() {
-        let mut harness = vrx::store::StoreHarness::new(Terminal { lines: Vec::new() });
+        let mut harness = vrx::store::StoreHarness::new(Console { lines: Vec::new() });
         for i in 0..(RING + 5) {
             harness.dispatch(Action::Line(format!("line {i}")));
         }
@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn clear_empties_the_screen() {
-        let mut harness = vrx::store::StoreHarness::new(Terminal { lines: Vec::new() });
+        let mut harness = vrx::store::StoreHarness::new(Console { lines: Vec::new() });
         harness.dispatch(Action::Line("x".into()));
         harness.dispatch(Action::Clear);
         assert!(harness.view().lines.is_empty());
@@ -115,7 +115,7 @@ mod tests {
         let view = View {
             lines: vec!["hello".to_owned()],
         };
-        let rendered = Terminal::render(&view);
+        let rendered = Console::render(&view);
         assert!(rendered.contains("lines: 1/24"));
         assert!(rendered.contains("hello"));
     }

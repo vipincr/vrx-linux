@@ -1,0 +1,33 @@
+# Console: a native Rust applet, both a console applet (the console
+# kit) and a shell pipeline stage (command.enabled). This is the
+# "applets run as normal ELFs from the shell" promise: the same binary
+# vrxhost supervises is the binary a user pipes through. It is the Rust
+# SDK's worked applet and ships in no image; the interactive terminal
+# is applets/terminal (zsh on a pty, debug images).
+[applet]
+id = "console"
+name = "Console"
+version = "0.1.0"
+runtime = "rust"
+
+[applet.display]
+icon = "list"
+tile = false
+position = 9
+
+[applet.resources]
+heap_mb = 64
+
+[applet.permissions]
+fs = ["/bin", "/usr/bin"]
+
+[applet.intents]
+handles = [{ name = "vrx.open", priority = 200 }]
+emits = ["app.finished"]
+
+[applet.routes]
+scroll = {}
+
+[applet.command]
+enabled = true
+usage = "console [lines...]   # lines on stdin append to the screen ring"

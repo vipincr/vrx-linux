@@ -1,6 +1,6 @@
-# terminal: a vrx Rust applet — the console half of the terminal.
+# console: a vrx Rust applet, a ring of lines that is also a pipeline stage.
 [package]
-name = "terminal"
+name = "console"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"

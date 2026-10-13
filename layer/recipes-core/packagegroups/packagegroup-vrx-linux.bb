@@ -21,8 +21,11 @@ RDEPENDS:${PN} = "\
     vrxinit \
     vrx-policy \
     ${@'vrx-applet-launcher vrx-applet-clock vrx-applet-settings vrx-applet-wifi vrx-applet-setup vrx-applet-docs' if d.getVar('VRX_UI') == 'flutter' else ''} \
+    ${@'vrx-applet-terminal' if d.getVar('VRX_UI') == 'flutter' and d.getVar('VRX_DEBUG') == '1' else ''} \
 "
 
 # The built-in applets render through flutter-vrx, so they ride only on
 # an image with the Flutter UI (VRX_UI = "flutter", validated by
 # packagegroup-vrx-ui); a headless vrx-linux image is vrxhost alone.
+# Terminal rides only on a debug image as well: its unit lifts the
+# sandbox and sudo works in it (vrx-image refuses it in production).

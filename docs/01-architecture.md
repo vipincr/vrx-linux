@@ -24,7 +24,8 @@ file names the reality.
 | The launcher (home applet) | `applets/launcher` | model landed; UI pending the compositor |
 | The clock | `applets/clock` | model landed |
 | Settings | `applets/settings` | model landed |
-| The terminal (console + pipeline stage) | `applets/terminal` | landed; interactive half pending input (part E) |
+| The console (Rust SDK applet + pipeline stage) | `applets/console` | landed, host-proven; ships in no image |
+| The terminal (zsh on a pty, debug images) | `applets/terminal` | landed (plan 0008 Part F) |
 | vrxinit (PID 1) | `rust/init` | decisions landed + tested; exec half is bench-verified |
 | The compositor (DRM/KMS, input, one fullscreen app at a time) | flutter-vrx (`--compositor`, C, its own repo) | amendment C; vrxhost names the focus by pid over its socket |
 | The Yocto layer | `layer/` | vrxhost + vrxinit recipes, packagegroup; image-built (below) |
