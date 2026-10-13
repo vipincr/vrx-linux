@@ -46,12 +46,16 @@ python vrx_applet_unit() {
         if not bundle:
             bb.fatal("%s: a flutter applet needs VRX_FLUTTER_BUNDLE" % applet)
         # D18: only an AOT release bundle ships. A debug or JIT bundle
-        # (no libapp.so, or a kernel_blob.bin) is slow by construction.
+        # (no libapp.so, or a kernel snapshot in kernel_blob.bin) is slow
+        # by construction. meta-flutter leaves an EMPTY kernel_blob.bin
+        # in a release bundle; a non-empty one is the JIT kernel.
         root = d.getVar('D') + bundle
         if not os.path.isfile(os.path.join(root, 'lib', 'libapp.so')):
             bb.fatal("%s: %s has no lib/libapp.so: not an AOT release bundle" % (applet, bundle))
-        if os.path.exists(os.path.join(root, 'data', 'flutter_assets', 'kernel_blob.bin')):
-            bb.fatal("%s: %s carries kernel_blob.bin: a JIT bundle, never shipped" % (applet, bundle))
+        blob = os.path.join(root, 'data', 'flutter_assets', 'kernel_blob.bin')
+        if os.path.exists(blob) and os.path.getsize(blob) > 0:
+            bb.fatal("%s: %s carries a %d-byte kernel_blob.bin: a JIT bundle, never shipped"
+                     % (applet, bundle, os.path.getsize(blob)))
         exec_start = "/usr/bin/flutter-vrx --release --app %s" % bundle
         # the KMS node its buffers come from and the GPU's render node
         groups.update(['video', 'render'])
