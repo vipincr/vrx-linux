@@ -90,9 +90,25 @@ class VrxStatusStrip extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // slot 0: back (offered, not asserted)
+          // back (offered, not asserted): its own slot, the strip's
+          // full height and half again the touch minimum wide, so a
+          // finger near the arrow goes back instead of falling through
+          // to whatever the rest of the strip does (the drawer)
           if (facts.showBack)
-            VrxIconButton(glyph: VrxSymbols.arrow_back, onTap: facts.onBack),
+            VrxPress(
+              onTap: facts.onBack,
+              child: SizedBox(
+                width: 1.5 *
+                    (ScaledSpacing.minInteractive(context) > Chrome.iconButton * VrxScale.of(context)
+                        ? ScaledSpacing.minInteractive(context)
+                        : Chrome.iconButton * VrxScale.of(context)),
+                height: double.infinity,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Icon(VrxSymbols.arrow_back, size: Chrome.iconButton * VrxScale.of(context), color: palette.text),
+                ),
+              ),
+            ),
           // the clock, and the day while there is room: all the width the
           // glyphs at the end leave (a fixed share cut "Tue 13 Oct" to
           // "Tue…" on the 43mm panel, beside an empty battery slot)

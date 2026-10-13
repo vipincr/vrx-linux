@@ -48,16 +48,18 @@ class ManageApplet extends Applet<bool, ManageAction, ManageView> {
               Padding(padding: EdgeInsets.all(space.inset), child: Text(words, style: TypeRole.body(context))),
               if (serving)
                 for (final a in view.addresses) VrxRow(label: a),
-              if (view.serving != null)
-                Padding(
-                  padding: EdgeInsets.all(space.inset),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: VrxChip(label: serving ? 'Stop' : 'Serve the page', filled: true, onTap: () => _serve(!serving)),
-                  ),
-                ),
             ]),
           ),
+          // the one action stays in view; the words above scroll on a
+          // panel too short for them (the 58mm disp28a)
+          if (view.serving != null)
+            Padding(
+              padding: EdgeInsets.all(space.inset),
+              child: SizedBox(
+                width: double.infinity,
+                child: VrxChip(label: serving ? 'Stop' : 'Serve the page', filled: true, onTap: () => _serve(!serving)),
+              ),
+            ),
           if (view.error != null) VrxBanner(text: view.error),
         ]),
       ),

@@ -20,5 +20,11 @@ void main() {
     h.assertView((v) => v.canGoBack, because: 'an applet above Home');
     h.dispatch(ShellAction.drawerToggled);
     h.assertView((v) => v.drawer);
+    // the power button closes the drawer and asks; the shell keeps the
+    // screen until it is answered
+    h.dispatch(ShellAction.powerAsked);
+    h.assertView((v) => !v.drawer && v.askingPower);
+    h.dispatch(ShellAction.powerDismissed);
+    h.assertView((v) => !v.drawer && !v.askingPower);
   });
 }

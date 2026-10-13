@@ -1,10 +1,11 @@
 import 'package:vrx_kit/vrx_kit.dart';
 
-enum ShellAction { init, factsChanged, drawerToggled }
+enum ShellAction { init, factsChanged, drawerToggled, powerAsked, powerDismissed }
 
 class ShellView {
   const ShellView({
     required this.drawer,
+    this.askingPower = false,
     required this.facts,
     required this.version,
     required this.lightOn,
@@ -14,6 +15,10 @@ class ShellView {
 
   /// The drawer is open (the shell asks for the whole screen).
   final bool drawer;
+
+  /// The power question is up (restart, power off); the shell keeps the
+  /// whole screen until it is answered.
+  final bool askingPower;
   final VrxStatusFacts facts;
   final String version;
   final bool lightOn;
@@ -27,6 +32,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
 
   final int Function() _now;
   bool drawer = false;
+  bool askingPower = false;
   bool wifiUp = false;
   bool lightOn = true;
   bool clockValid = false;
@@ -60,9 +66,21 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
 
   @override
   ShellView reduce(ShellState state, ShellAction action) {
-    if (action == ShellAction.drawerToggled) drawer = !drawer;
+    switch (action) {
+      case ShellAction.drawerToggled:
+        drawer = !drawer;
+      case ShellAction.powerAsked:
+        // the drawer closes before acting; the question takes its place
+        drawer = false;
+        askingPower = true;
+      case ShellAction.powerDismissed:
+        askingPower = false;
+      case ShellAction.init || ShellAction.factsChanged:
+        break;
+    }
     return ShellView(
       drawer: drawer,
+      askingPower: askingPower,
       facts: VrxStatusFacts(showBack: depth > 1, clockText: clockText, dateText: dateText, wifiUp: wifiUp),
       version: version,
       lightOn: lightOn,

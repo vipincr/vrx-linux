@@ -13,7 +13,7 @@ import 'theme.dart';
 
 /// The quick drawer: an overlay pulled from the top — an opaque scrim
 /// (a tap dismisses it) and an opaque panel: the version row, the
-/// light toggle and sleep at its right, and the shortcut row (wifi,
+/// light toggle and power at its right, and the shortcut row (wifi,
 /// ble — filled when up) across the bottom with a hairline above it.
 /// Every control closes the drawer before acting (a drawer's answer
 /// is an effect, never a state it lingers to show).
@@ -23,7 +23,7 @@ class VrxQuickDrawer extends StatelessWidget {
     required this.version,
     required this.lightOn,
     this.onLightToggle,
-    this.onSleep,
+    this.onPower,
     required this.wifiUp,
     required this.bleUp,
     this.onWifi,
@@ -34,7 +34,9 @@ class VrxQuickDrawer extends StatelessWidget {
   final String version;
   final bool lightOn;
   final VoidCallback? onLightToggle;
-  final VoidCallback? onSleep;
+  /// The power menu (restart, power off): a CM4 does not suspend, so
+  /// this is never sleep on vrx.
+  final VoidCallback? onPower;
   final bool wifiUp;
   final bool bleUp;
   final VoidCallback? onWifi;
@@ -78,7 +80,7 @@ class VrxQuickDrawer extends StatelessWidget {
                         SizedBox(width: s.xs),
                         VrxIconButton(
                           glyph: VrxSymbols.power_settings_new,
-                          onTap: onSleep,
+                          onTap: onPower,
                         ),
                       ],
                     ),

@@ -27,12 +27,27 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
 
   void _toggle() => _events.add(ShellAction.drawerToggled);
 
+  void _power(Future<void> Function() act) {
+    _events.add(ShellAction.powerDismissed);
+    unawaited(act().catchError((Object _) {}));
+  }
+
   @override
   Widget build(BuildContext context, ShellView view) {
     final facts = VrxStatusFacts(
-      showBack: view.canGoBack,
-      // the one Back: the focused app goes back a screen, or leaves
-      onBack: () => unawaited(VrxShell.back()),
+      showBack: view.canGoBack || view.askingPower || view.drawer,
+      // the one Back: it closes what the shell has open (the power menu,
+      // the drawer); otherwise the focused app goes back a screen, or
+      // leaves
+      onBack: () {
+        if (view.askingPower) {
+          _events.add(ShellAction.powerDismissed);
+        } else if (view.drawer) {
+          _toggle();
+        } else {
+          unawaited(VrxShell.back());
+        }
+      },
       clockText: view.facts.clockText,
       dateText: view.facts.dateText,
       wifiUp: view.wifiUp,
@@ -40,7 +55,7 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
     // the compositor routes input by the strip's height, and gives the
     // shell all of it while the drawer is open
     final strip = VrxShellRegion(
-      full: view.drawer,
+      full: view.drawer || view.askingPower,
       child: VrxPress(onTap: _toggle, child: VrxStatusStrip(facts: facts)),
     );
     // the drawer is an overlay of its own (a scrim and a panel) over the
@@ -66,9 +81,28 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
                     _toggle();
                     Nav.push('wifi');
                   },
+                  onPower: () => _events.add(ShellAction.powerAsked),
                   onDismiss: _toggle,
                 ),
               ]),
+            ),
+          // the power menu, a screen in the client area below the strip
+          // (a menu is a screen, not a dialog: two acts and Cancel do
+          // not fit a dialog on the 58mm panel); its Back cancels
+          if (view.askingPower)
+            Expanded(
+              child: ColoredBox(
+                color: VrxTheme.of(context).page,
+                child: VrxList(children: [
+                  // no arrow of its own: the strip's Back closes it
+                  const VrxHeader(title: 'Power'),
+                  VrxRow(glyph: VrxSymbols.restart_alt, label: 'Restart', onTap: () => _power(VrxSystem.power.reboot)),
+                  VrxRow(
+                      glyph: VrxSymbols.power_settings_new,
+                      label: 'Power off',
+                      onTap: () => _power(VrxSystem.power.powerOff)),
+                ]),
+              ),
             ),
         ]),
       ),

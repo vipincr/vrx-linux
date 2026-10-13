@@ -43,18 +43,20 @@ class UsbApplet extends Applet<UsbState, UsbAction, UsbView> {
                 padding: EdgeInsets.all(space.inset),
                 child: Text(view.message, style: TypeRole.body(context)),
               ),
-              if (view.offer == UsbOffer.share)
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: space.inset),
-                  child: SizedBox(width: double.infinity, child: VrxChip(label: 'Share files', filled: true, onTap: () => _share(true))),
-                ),
-              if (view.offer == UsbOffer.stop)
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: space.inset),
-                  child: SizedBox(width: double.infinity, child: VrxChip(label: 'Stop sharing', filled: true, onTap: () => _share(false))),
-                ),
             ]),
           ),
+          // the one action stays in view; the words above scroll on a
+          // panel too short for them (the 58mm disp28a)
+          if (view.offer != UsbOffer.none)
+            Padding(
+              padding: EdgeInsets.all(space.inset),
+              child: SizedBox(
+                width: double.infinity,
+                child: view.offer == UsbOffer.share
+                    ? VrxChip(label: 'Share files', filled: true, onTap: () => _share(true))
+                    : VrxChip(label: 'Stop sharing', filled: true, onTap: () => _share(false)),
+              ),
+            ),
           if (view.error != null) VrxBanner(text: view.error),
         ]),
       ),
