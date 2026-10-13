@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vrx_kit/vrx_kit.dart';
 
@@ -126,34 +125,58 @@ void main() {
     expect(seen.last.lightOff, 30);
   });
 
-  testWidgets('one logind inhibitor while any hold is mounted', (tester) async {
+  // plan 0010 D3, after the bench (2026-10-14): a hold is the model's
+  // state, read by the store after a reduce; no build is involved, so a
+  // hidden applet's ring still takes it
+  test("the store holds the screen while its model says why, through one inhibitor", () async {
     final power = _FakePower();
     VrxSystem.install(power: power);
-    Widget tree({required bool outer, required bool inner}) => Directionality(
-          textDirection: TextDirection.ltr,
-          child: outer
-              ? VrxKeepScreenOn(why: 'a ring', child: inner ? const VrxKeepScreenOn(child: SizedBox()) : const SizedBox())
-              : const SizedBox(),
-        );
-    await tester.pumpWidget(tree(outer: true, inner: false));
-    await tester.pump();
-    expect(VrxKeepScreenOn.holds, 1);
-    await tester.pumpWidget(tree(outer: true, inner: true));
-    await tester.pumpWidget(tree(outer: true, inner: false));
-    await tester.pump();
-    expect(power.open, 1, reason: 'nested holds share one inhibitor');
-    await tester.pumpWidget(tree(outer: false, inner: false));
-    await tester.pump();
-    expect(VrxKeepScreenOn.holds, 0);
+    final keeper = LogindScreenKeeper();
+    Store.keeper = keeper;
+    addTearDown(() => Store.keeper = null);
+    final model = _Ringing();
+    final store = Store<int, String, int>(model);
+    await pumpEventQueue();
     expect(power.open, 0);
-    // a release and a take in one frame: still exactly one, in order
-    await tester.pumpWidget(tree(outer: true, inner: false));
-    await tester.pumpWidget(tree(outer: false, inner: false));
-    await tester.pumpWidget(tree(outer: true, inner: false));
-    await tester.pump();
+    store.dispatch('ring');
+    await pumpEventQueue();
     expect(power.open, 1);
-    await tester.pumpWidget(tree(outer: false, inner: false));
-    await tester.pump();
+    store.dispatch('ring'); // still ringing: no second inhibitor
+    await pumpEventQueue();
+    expect(power.open, 1);
+    store.dispatch('stop');
+    await pumpEventQueue();
+    expect(power.open, 0);
+    // a stop and a ring in one turn: still exactly one, in order
+    store
+      ..dispatch('ring')
+      ..dispatch('stop')
+      ..dispatch('ring');
+    await pumpEventQueue();
+    expect(power.open, 1);
+    store.dispose();
+    await pumpEventQueue();
+    expect(power.open, 0, reason: 'a disposed store lets go');
     expect(power.events, ['take a ring', 'release', 'take a ring', 'release', 'take a ring', 'release']);
   });
+}
+
+class _Ringing extends StoreModel<int, String, int> {
+  bool ringing = false;
+
+  @override
+  int get initial => 0;
+  @override
+  String get bootAction => 'init';
+  @override
+  int reduce(int state, String action) {
+    if (action == 'ring') ringing = true;
+    if (action == 'stop') ringing = false;
+    return ringing ? 1 : 0;
+  }
+
+  @override
+  int get snapshot => 0;
+  @override
+  String? get keepsScreenOn => ringing ? 'a ring' : null;
 }

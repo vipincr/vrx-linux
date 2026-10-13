@@ -37,6 +37,9 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
   @override
   ClockState get snapshot => model.snapshot;
 
+  @override
+  String? get keepsScreenOn => model.keepsScreenOn;
+
   void _do(void Function() change, {bool save = false}) {
     change();
     if (save) _scheduler?.saveSoon();
@@ -86,18 +89,13 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
   Widget build(BuildContext context, ClockView view) {
     final Widget body;
     if (view.ring) {
-      // a ring is watched, not touched: it holds the screen on (a logind
-      // idle inhibitor), and the hold wakes it if it was off (plan 0010
-      // D3); released when the ring ends, after which the idle timeout
-      // runs in full again
-      body = VrxKeepScreenOn(
-        why: 'an alarm or timer is ringing',
-        child: _RingScreen(
-          view: view,
-          flash: flash,
-          onStop: () => _do(model.stopRing, save: true),
-          onSnooze: () => _do(model.snoozeRing, save: true),
-        ),
+      // the ring holds the screen on through the model (keepsScreenOn),
+      // not this build, which does not run while the screen is off
+      body = _RingScreen(
+        view: view,
+        flash: flash,
+        onStop: () => _do(model.stopRing, save: true),
+        onSnooze: () => _do(model.snoozeRing, save: true),
       );
     } else {
       body = switch (view.screen) {

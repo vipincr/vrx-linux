@@ -110,16 +110,22 @@ attribute (udev opens it to that group) and `screen.conf`. G019: the
 scan refuses `/sys/class/backlight` outside the kit's `screen.dart`, and
 `bl_power` and `dpms` everywhere, with no `vrx-allow`.
 
-An applet keeps the screen on with `VrxKeepScreenOn` round what is being
-watched without being touched: a ringing alarm, a viewfinder. It takes a
-logind idle inhibitor (`Inhibit("idle", <applet>, <why>, "block")`, no
-grant needed), one per applet however many are mounted, released on the
-last unmount or with the process (logind drops it with its descriptor);
-`systemd-inhibit --list` shows it. The compositor honours an inhibitor
+A hold belongs to the model's state: an applet keeps the screen on by
+its model saying why (`StoreModel.keepsScreenOn`), true only while
+something is being watched or must be seen (a ringing alarm, a
+viewfinder). The store reads it after every reduce, never in a build: an
+applet behind another or under a dark screen is
+`AppLifecycleState.hidden` and builds nothing, and a widget-held hold
+could never wake the screen (bench, CM4, 2026-10-14: a timer rang behind
+a dark screen and no inhibitor was taken). The store takes a logind idle
+inhibitor (`Inhibit("idle", <applet>, <why>, "block")`, no grant needed),
+one per applet, released when the model's reason goes or with the
+process (logind drops it with its descriptor); `systemd-inhibit --list`
+shows it. The compositor honours an inhibitor
 only while its applet is in front, one that takes effect with the screen
 off wakes it (that is how an alarm lights the screen), and a released
-one restarts the full timeout. Never wrap a whole applet: a screen
-nobody releases never goes off.
+one restarts the full timeout. A reason that is always set is a screen
+that never goes off.
 
 ## The build rungs
 

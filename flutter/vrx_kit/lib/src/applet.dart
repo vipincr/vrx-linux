@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'host.dart';
 import 'input.dart';
 import 'scale.dart';
+import 'screen.dart';
 import 'shell.dart';
 import 'settings.dart';
 import 'store.dart';
@@ -43,6 +44,7 @@ void runApplet<S, A, V>(
 }) {
   WidgetsFlutterBinding.ensureInitialized();
   AppletsService.install();
+  Store.keeper ??= LogindScreenKeeper();
   runApp(AppletHost<S, A, V>(applet: applet, actions: actions));
 }
 

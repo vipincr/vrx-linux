@@ -26,7 +26,7 @@ resident = true
 
 [applet.permissions]
 # time: the home zone. A ring lights the screen by holding it on
-# (VrxKeepScreenOn, plan 0010 D3), which needs no grant
+# (the model's keepsScreenOn, plan 0010 D3), which needs no grant
 system = ["time"]
 
 [applet.intents]

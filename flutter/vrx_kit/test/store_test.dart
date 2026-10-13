@@ -4,7 +4,7 @@ import 'package:vrx_kit/vrx_kit.dart';
 /// The reference applet model: the counter from the plan's harness
 /// example, spelled out. The same model compiles into an applet and a
 /// host test.
-class CounterModel implements StoreModel<int, CounterAction, CounterView> {
+class CounterModel extends StoreModel<int, CounterAction, CounterView> {
   int count = 0;
   bool announced = false;
 

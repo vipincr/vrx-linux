@@ -3,9 +3,10 @@
 /// screen off when idle and on at the next touch, click or key; no applet
 /// switches it. What an applet may do:
 ///
-/// - keep it on while something is being watched, with [VrxKeepScreenOn]:
-///   a logind idle inhibitor, which the compositor honours only while the
-///   applet is in front;
+/// - keep it on while something is being watched or must be seen, by its
+///   model saying why ([StoreModel.keepsScreenOn]): the store opens a
+///   logind idle inhibitor ([LogindScreenKeeper]), which the compositor
+///   honours only while the applet is in front;
 /// - with the `display` grant (Settings, the shell), change how it
 ///   behaves through [ScreenSettings]:
 ///   - the brightness, where the backlight has levels, is the backlight's
@@ -27,6 +28,7 @@ import 'dart:math' as math;
 import 'package:flutter/widgets.dart';
 
 import 'settings.dart';
+import 'store.dart';
 import 'system.dart';
 
 /// Where the compositor's screen settings live: the `display` grant
@@ -260,18 +262,20 @@ class ScreenSettings {
   }
 }
 
-/// One logind idle inhibitor for the whole applet, open while any
-/// [VrxKeepScreenOn] is mounted. Takes and releases run one after another,
-/// so a quick release and take never leave two open or none.
-abstract final class _Holds {
-  static int _count = 0;
-  static Future<ScreenHold?> _held = Future.value();
+/// The store's screen hold on the board: one logind idle inhibitor for
+/// the applet, open while its model says why ([StoreModel.keepsScreenOn]).
+/// Takes and releases run one after another, so a quick release and take
+/// never leave two open or none.
+class LogindScreenKeeper implements ScreenKeeper {
+  LogindScreenKeeper();
+
+  Future<ScreenHold?> _held = Future.value();
 
   /// The applet's id: its unit, `vrx-applet@<id>`, sets VRX_APPLET.
   static String get _who => Platform.environment['VRX_APPLET'] ?? 'vrx';
 
-  static void take(String why) {
-    if (++_count > 1) return;
+  @override
+  void hold(String why) {
     _held = _held.then((open) async {
       if (open != null) return open;
       try {
@@ -285,8 +289,8 @@ abstract final class _Holds {
     });
   }
 
-  static void release() {
-    if (_count == 0 || --_count > 0) return;
+  @override
+  void release() {
     _held = _held.then((open) async {
       try {
         await open?.release();
@@ -297,42 +301,4 @@ abstract final class _Holds {
       return null;
     });
   }
-}
-
-/// Keeps the screen on while it is mounted, and only while this applet is
-/// in front (the compositor's rule). Put it round what is watched without
-/// being touched (a ringing alarm, a viewfinder), never round a whole
-/// applet: a screen nobody releases never goes off. If the screen is off
-/// when the hold takes effect, it comes on.
-class VrxKeepScreenOn extends StatefulWidget {
-  const VrxKeepScreenOn({super.key, required this.child, this.why = 'keep the screen on'});
-
-  final Widget child;
-
-  /// What is being watched, for logind's list (`systemd-inhibit --list`).
-  final String why;
-
-  /// The holds this applet has open now (tests).
-  @visibleForTesting
-  static int get holds => _Holds._count;
-
-  @override
-  State<VrxKeepScreenOn> createState() => _VrxKeepScreenOnState();
-}
-
-class _VrxKeepScreenOnState extends State<VrxKeepScreenOn> {
-  @override
-  void initState() {
-    super.initState();
-    _Holds.take(widget.why);
-  }
-
-  @override
-  void dispose() {
-    _Holds.release();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => widget.child;
 }

@@ -67,10 +67,32 @@ abstract class StoreModel<S, A, V> {
   /// The model's current state, captured after every reduce — what
   /// suspension preserves and eviction loses.
   S get snapshot;
+
+  /// Why the screen must stay on now, or null (plan 0010 D3): true only
+  /// while something is being watched or must be seen (a ringing alarm).
+  /// The store reads it after every reduce and holds or releases the
+  /// screen, so a hold never waits for a build: an applet behind another
+  /// or under a dark screen is hidden and builds nothing, yet its ring
+  /// must still light the screen.
+  String? get keepsScreenOn => null;
+}
+
+/// What a store holds the screen with. The kit installs logind's idle
+/// inhibitor ([Store.keeper]); off the board and in host tests it is
+/// null, or a fake.
+abstract interface class ScreenKeeper {
+  /// Keep the screen on, for [why].
+  void hold(String why);
+
+  /// Let it go.
+  void release();
 }
 
 /// The store loop: the only writer of the state.
 class Store<S, A, V> {
+  /// The screen hold every store uses (one per applet process).
+  static ScreenKeeper? keeper;
+
   Store(this.model) {
     _state = model.initial;
     _apply(model.bootAction);
@@ -86,6 +108,9 @@ class Store<S, A, V> {
   final List<A> _pending = <A>[];
   final List<Effect> _fired = <Effect>[];
   bool _draining = false;
+  // the hold this store has open: its keeper, so a later change of
+  // [keeper] still releases the one that took it
+  ScreenKeeper? _holding;
 
   /// The current view model.
   V get view => _view;
@@ -124,10 +149,21 @@ class Store<S, A, V> {
     _view = model.reduce(_state, action);
     _state = model.snapshot;
     _fired.addAll(model.effects(_state, action));
+    _keep(model.keepsScreenOn);
     _views.add(_view);
   }
 
+  void _keep(String? why) {
+    if (why != null && _holding == null) {
+      _holding = keeper?..hold(why);
+    } else if (why == null && _holding != null) {
+      _holding!.release();
+      _holding = null;
+    }
+  }
+
   void dispose() {
+    _keep(null);
     // nobody waits on a disposed store's stream to drain
     unawaited(_views.close());
   }

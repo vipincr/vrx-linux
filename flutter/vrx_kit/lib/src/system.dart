@@ -129,8 +129,9 @@ abstract class PowerService {
   /// Keep the screen on: a logind idle inhibitor (`Inhibit("idle", who,
   /// why, "block")`), held until [ScreenHold.release], or until the
   /// process ends, since logind drops it with its descriptor. The
-  /// compositor honours it only while [who]'s applet is in front. Use
-  /// `VrxKeepScreenOn`, which counts holds and releases them.
+  /// compositor honours it only while [who]'s applet is in front. An
+  /// applet says why in its model (`StoreModel.keepsScreenOn`); the store
+  /// takes and releases it.
   Future<ScreenHold> holdScreen({required String who, required String why});
 
   /// The supply: true while it is below what the board needs (the Pi's

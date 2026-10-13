@@ -373,6 +373,12 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
   @override
   ClockState get snapshot => const ClockState();
 
+  /// A ring must be seen: it holds the screen on, and the hold wakes a
+  /// dark screen (plan 0010 D3). Released when the ring stops, snoozes or
+  /// gives up, after which the idle timeout runs in full again.
+  @override
+  String? get keepsScreenOn => ring != null ? 'an alarm or timer is ringing' : null;
+
   @override
   ClockView reduce(ClockState state, ClockAction action) {
     final t = now;

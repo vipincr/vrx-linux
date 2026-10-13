@@ -97,9 +97,10 @@ the gate is green.
 12. **Linux first.** Where Linux provides a thing, vrx wraps or extends
     it behind a vrx interface (the kit, the SDK); vrx builds its own only
     where Linux has none, and never a second home beside Linux's. The
-    screen (plan 0010, G019): a hold is `VrxKeepScreenOn`, a logind idle
-    inhibitor, wrapped round what is watched without being touched (a
-    ring, a viewfinder), never round a whole applet; the brightness is
+    screen (plan 0010, G019): a hold belongs to the model's state
+    (`StoreModel.keepsScreenOn`, a logind idle inhibitor the store takes
+    after a reduce, never a build), set only while something is being
+    watched or must be seen (a ring, a viewfinder); the brightness is
     the backlight's sysfs attribute (kept by systemd-backlight) through
     `ScreenSettings`, and only a panel with no levels keeps it in
     `/etc/vrx/display/screen.conf`. No applet or kit code switches the

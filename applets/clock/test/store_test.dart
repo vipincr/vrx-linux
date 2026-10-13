@@ -97,4 +97,45 @@ void main() {
     h.dispatch(ClockAction.changed);
     h.assertView((v) => v.time == '7:00 AM' && v.next == 'Next alarm at 1:05 PM.' && v.h12);
   });
+
+  // plan 0010 D3 after the bench (2026-10-14): the ring holds the screen
+  // through the model, read by the store after a reduce. No widget is
+  // built here (a plain test, no binding), as none is while the screen
+  // is off and Clock is hidden.
+  test('a ring holds the screen from the store, with no build; it lets go when it ends', () {
+    final keeper = _Keeper();
+    Store.keeper = keeper;
+    addTearDown(() => Store.keeper = null);
+    final m = model()
+      ..book.alarms.add(const Alarm(minutes: 7 * 60 + 1, days: daysAll))
+      ..book.checked = clock;
+    final h = StoreHarness(m);
+    expect(keeper.events, isEmpty);
+    clock += 60;
+    expect(m.check(), isTrue); // what the scheduler's Timer does
+    h.dispatch(ClockAction.tick);
+    expect(keeper.events, ['hold an alarm or timer is ringing']);
+    h.dispatch(ClockAction.tick);
+    expect(keeper.events, hasLength(1), reason: 'one hold while it rings');
+    m.stopRing();
+    h.dispatch(ClockAction.changed);
+    expect(keeper.events, ['hold an alarm or timer is ringing', 'release']);
+    // snooze ends a ring too
+    clock += 24 * 3600;
+    m.check();
+    h.dispatch(ClockAction.tick);
+    m.snoozeRing();
+    h.dispatch(ClockAction.changed);
+    expect(keeper.events.last, 'release');
+  });
+}
+
+class _Keeper implements ScreenKeeper {
+  final events = <String>[];
+
+  @override
+  void hold(String why) => events.add('hold $why');
+
+  @override
+  void release() => events.add('release');
 }
