@@ -1,0 +1,29 @@
+# Assistant (plan 0011 D18): a conversation with the local chat model.
+# llama-server answers through /run/vrx-ml/llm.sock (the ml grant); a
+# question is typed, or spoken (sys.stt.listen to stt, the words back as
+# sys.stt.heard). The models arrive by the person's consent (vrx-ml-fetch);
+# nothing leaves the device and nothing needs a key.
+[applet]
+id = "assistant"
+name = "Assistant"
+version = "1.0.0"
+runtime = "flutter"
+
+[applet.display]
+icon = "smart_toy"
+tile = true
+position = 10
+
+[applet.resources]
+heap_mb = 96
+
+[applet.permissions]
+system = ["ml"]
+
+[applet.intents]
+# the words stt heard, for the question being spoken
+handles = [{ name = "sys.stt.heard", priority = 500 }]
+emits = ["sys.stt.listen"]
+
+[applet.command]
+enabled = false
