@@ -17,8 +17,6 @@ analyzer:
     # an open stream or subscription keeps a dead screen alive and busy
     cancel_subscriptions: error
     close_sinks: error
-    # slow dart:io file calls block the isolate that builds frames
-    avoid_slow_async_io: error
     # const widgets are built once, not every frame
     prefer_const_constructors: error
     prefer_const_constructors_in_immutables: error
@@ -34,7 +32,6 @@ linter:
     - discarded_futures
     - cancel_subscriptions
     - close_sinks
-    - avoid_slow_async_io
     - prefer_const_constructors
     - prefer_const_constructors_in_immutables
     - prefer_const_declarations

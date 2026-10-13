@@ -1,104 +1,243 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart' hide Intent; // vrx's Intent
 import 'package:vrx_kit/vrx_kit.dart';
 
 import 'state.dart';
 
-/// The settings applet: renders every applet's declared settings,
-/// grouped by category; a change writes `/data/settings/<key>` (the
-/// state IPC shape) and everyone who cares watches the file.
-class SettingsApplet
-    extends Applet<SettingsState, SettingsAction, SettingsView> {
-  final _model = SettingsModel();
+/// Facts from the system services, for the applet's whole life.
+final _facts = StreamController<SettingsAction>();
+
+/// The settings applet: the system's own settings, each row bound to the
+/// Linux service that owns it (plan 0008 Part D): time and zone through
+/// timedated, the device name through hostnamed, power through logind,
+/// the light through the backlight. A tap asks the service; the row
+/// changes when the service says it changed, so what is shown is what
+/// is true. A refusal (no grant) is shown as the service phrased it.
+class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView> {
+  SettingsApplet(this.model);
+
+  final SettingsModel model;
 
   @override
-  SettingsState get initial => _model.initial;
+  SettingsState get initial => model.initial;
 
   @override
-  SettingsAction get bootAction => _model.bootAction;
+  SettingsAction get bootAction => model.bootAction;
 
   @override
   SettingsView reduce(SettingsState state, SettingsAction action) =>
-      _model.reduce(state, action);
+      model.reduce(state, action);
 
   @override
-  SettingsState get snapshot => _model.snapshot;
+  SettingsState get snapshot => model.snapshot;
+
+  void _go(BuildContext context, void Function() change) {
+    change();
+    AppletScope.dispatch(context, SettingsAction.navigated);
+  }
+
+  Future<void> _ask(BuildContext context, Future<void> Function() call) async {
+    try {
+      await call();
+    } on SystemError catch (err) {
+      model.error = err.denied ? 'Not allowed: ${err.message}' : err.message;
+      _facts.add(SettingsAction.failed);
+    } on Object catch (err) {
+      model.error = '$err';
+      _facts.add(SettingsAction.failed);
+    }
+  }
 
   @override
   Widget build(BuildContext context, SettingsView view) {
-    void act(void Function() change, SettingsAction action) {
-      change();
-      AppletScope.dispatch(context, action);
-    }
-
-    if (view.openCategory == null) {
-      return _CategoryList(
+    final open = view.open;
+    final Widget body;
+    if (open == null) {
+      body = _Categories(view: view, onOpen: (c) => _go(context, () => model.open = c));
+    } else if (view.pickingZone) {
+      body = _ZonePicker(
         view: view,
-        onOpen: (category) =>
-            act(() => _model.openCategory(category), SettingsAction.categoryOpened),
+        onBack: () => _go(context, () => model.pickingZone = false),
+        onPick: (zone) {
+          _go(context, () => model.pickingZone = false);
+          unawaited(_ask(context, () => VrxSystem.time.setZone(zone)));
+        },
+      );
+    } else {
+      body = _Category(
+        view: view,
+        category: open,
+        onBack: () => _go(context, () => model.open = null),
+        onRow: (row) => _onRow(context, row),
       );
     }
-    return _SettingList(
-      view: view,
-      onClose: () => act(_model.closeCategory, SettingsAction.categoryOpened),
-      onCycle: (key) =>
-          act(() => _model.changeValue(key, _model.nextValue(key)), SettingsAction.changed),
+    return Scaffold(
+      body: SafeArea(
+        child: Column(children: [
+          Expanded(child: body),
+          if (view.error != null) VrxBanner(text: view.error),
+        ]),
+      ),
     );
+  }
+
+  void _onRow(BuildContext context, SettingRow row) {
+    switch (row.key) {
+      case 'light':
+        unawaited(_ask(context, () => VrxSystem.power.setLight(!row.on)));
+      case 'automatic':
+        unawaited(_ask(context, () => VrxSystem.time.setAutomatic(!row.on)));
+      case 'zone':
+        _go(context, () => model.pickingZone = true);
+        if (model.zones.isEmpty) {
+          unawaited(_ask(context, () async {
+            model.zones = await VrxSystem.time.zones();
+            _facts.add(SettingsAction.zonesLoaded);
+          }));
+        }
+      case 'restart':
+      case 'power_off':
+        final off = row.key == 'power_off';
+        unawaited(showDialog<void>(
+          context: context,
+          builder: (dialog) => VrxConfirm(
+            title: off ? 'Power off?' : 'Restart?',
+            message: off
+                ? 'The device turns off. It starts again when its power button or supply says so.'
+                : 'Every applet closes and the device starts again.',
+            cancelLabel: 'Cancel',
+            onCancel: () => Navigator.of(dialog).pop(), // vrx-allow: a dialog's own route, not the trail
+            act: VrxModalAction(
+              label: off ? 'Power off' : 'Restart',
+              onTap: () {
+                Navigator.of(dialog).pop(); // vrx-allow: a dialog's own route, not the trail
+                unawaited(_ask(context, off ? VrxSystem.power.powerOff : VrxSystem.power.reboot));
+              },
+            ),
+          ),
+        ));
+    }
   }
 }
 
-class _CategoryList extends StatelessWidget {
-  const _CategoryList({required this.view, required this.onOpen});
+class _Categories extends StatelessWidget {
+  const _Categories({required this.view, required this.onOpen});
 
   final SettingsView view;
-  final void Function(String category) onOpen;
+  final void Function(SettingsCategory) onOpen;
 
   @override
   Widget build(BuildContext context) {
-    final categories = view.rows.map((r) => r.category).toSet().toList();
-    return Scaffold(
-      body: VrxList(children: [
-        // Back leaves the applet: a trail pop, vrxhost's decision
-        const VrxHeader(title: 'Settings', onBack: Nav.pop),
-        for (final category in categories)
-          VrxRow(
-            label: category,
-            value: '›',
-            onTap: () => onOpen(category),
-          ),
-      ]),
-    );
+    return VrxList(children: [
+      // Back leaves the applet: a trail pop, vrxhost's decision
+      const VrxHeader(title: 'Settings', onBack: Nav.pop),
+      for (final c in view.categories)
+        VrxRow(
+          glyph: VrxSymbols.named(c.glyph),
+          label: c.label,
+          value: c.summary.isEmpty ? '›' : '${c.summary}  ›',
+          onTap: () => onOpen(c.category),
+        ),
+    ]);
   }
 }
 
-class _SettingList extends StatelessWidget {
-  const _SettingList({
+class _Category extends StatelessWidget {
+  const _Category({
     required this.view,
-    required this.onClose,
-    required this.onCycle,
+    required this.category,
+    required this.onBack,
+    required this.onRow,
   });
 
   final SettingsView view;
-  final VoidCallback onClose;
-  final void Function(String key) onCycle;
+  final SettingsCategory category;
+  final VoidCallback onBack;
+  final void Function(SettingRow) onRow;
+
+  static const _titles = {
+    SettingsCategory.display: 'Display',
+    SettingsCategory.power: 'Power',
+    SettingsCategory.time: 'Time',
+    SettingsCategory.device: 'Device',
+    SettingsCategory.about: 'About',
+  };
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: VrxList(children: [
-        VrxHeader(
-          title: view.openCategory ?? '',
-          // back within the applet: the category list
-          onBack: onClose,
-        ),
-        for (final row in view.rows)
-          VrxSettingRow(
-            label: row.label,
-            value: row.value,
-            onTap: () => onCycle(row.key),
-          ),
-      ]),
-    );
+    return VrxList(children: [
+      // back within the applet: the category list
+      VrxHeader(title: _titles[category] ?? '', onBack: onBack),
+      for (final row in view.rows)
+        switch (row.kind) {
+          RowKind.toggle => VrxSettingRow(
+              label: row.label,
+              value: row.on ? 'On' : 'Off',
+              onTap: () => onRow(row),
+            ),
+          RowKind.open => VrxRow(label: row.label, value: '${row.value}  ›', onTap: () => onRow(row)),
+          RowKind.confirm => VrxRow(label: row.label, value: '', onTap: () => onRow(row)),
+          RowKind.info => VrxRow(label: row.label, value: row.value),
+        },
+    ]);
   }
 }
 
-void main() => runApplet(SettingsApplet());
+class _ZonePicker extends StatelessWidget {
+  const _ZonePicker({required this.view, required this.onBack, required this.onPick});
+
+  final SettingsView view;
+  final VoidCallback onBack;
+  final void Function(String) onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+      VrxHeader(title: 'Time zone', onBack: onBack),
+      Expanded(
+        child: view.zones.isEmpty
+            ? const Center(child: CircularProgressIndicator())
+            // hundreds of zones: built as they scroll into view
+            : ListView.builder(
+                itemCount: view.zones.length,
+                itemBuilder: (context, i) => VrxRow(
+                  label: view.zones[i].replaceAll('_', ' '),
+                  value: '',
+                  onTap: () => onPick(view.zones[i]),
+                ),
+              ),
+      ),
+    ]);
+  }
+}
+
+Future<void> main() async {
+  final model = SettingsModel();
+  runApplet(SettingsApplet(model), actions: _facts.stream);
+  void fact(void Function() change) {
+    change();
+    _facts.add(SettingsAction.factsChanged);
+  }
+
+  void failed(Object err) {
+    model.error = '$err';
+    _facts.add(SettingsAction.failed);
+  }
+
+  // each service on its own: one that is absent (a desktop run, a board
+  // without a backlight) leaves the others working
+  VrxSystem.time.watch().listen((t) => fact(() => model.time = t), onError: failed);
+  VrxSystem.device.watch().listen((d) => fact(() => model.device = d), onError: failed);
+  VrxSystem.power.watchLight().listen((on) => fact(() => model.light = on), onError: failed);
+  try {
+    final levels = await VrxSystem.power.lightLevels();
+    final canOff = await VrxSystem.power.canPowerOff();
+    fact(() {
+      model.lightLevels = levels;
+      model.canPowerOff = canOff;
+    });
+  } on Object catch (err) {
+    failed(err);
+  }
+}

@@ -4,41 +4,43 @@ import 'package:vrx_kit/vrx_kit.dart';
 import 'package:settings_applet/state.dart';
 
 void main() {
-  test('the boot action lists every declared setting', () {
-    final harness = StoreHarness(SettingsModel());
-    harness.assertView(
-      (v) => v.rows.length == 2 && v.openCategory == null,
-      because: 'two declared settings, no category open',
-    );
-  });
-
-  test('a value change is reflected in its row', () {
+  test('a device offers only what it has (plan 0008 D12)', () {
     final model = SettingsModel();
     final harness = StoreHarness(model);
-    model.changeValue('clock_format', '12h');
-    harness.dispatch(SettingsAction.changed);
-    final row =
-        harness.view.rows.firstWhere((r) => r.key == 'clock_format');
-    expect(row.value, '12h');
+    // no backlight, no power grant: no Display, no Power
+    harness.assertView((v) => v.categories.map((c) => c.category).toList().toString() ==
+        [SettingsCategory.time, SettingsCategory.device, SettingsCategory.about].toString());
+    model
+      ..lightLevels = 2
+      ..light = true
+      ..canPowerOff = true;
+    harness.dispatch(SettingsAction.factsChanged);
+    harness.assertView((v) => v.categories.first.category == SettingsCategory.display &&
+        v.categories.first.summary == 'Light on' &&
+        v.categories.any((c) => c.category == SettingsCategory.power));
   });
 
-  test('an unknown key is refused, not invented', () {
-    final model = SettingsModel();
-    model.changeValue('no_such_setting', 'x');
+  test('the time rows read the time service', () {
+    final model = SettingsModel()..open = SettingsCategory.time;
     final harness = StoreHarness(model);
-    expect(
-      harness.view.rows.where((r) => r.key == 'no_such_setting'),
-      isEmpty,
-    );
+    harness.assertView((v) => v.rows.first.value == '…', because: 'nothing read yet');
+    model.time = const TimeState(zone: 'Asia/Kolkata', automatic: true, synced: true);
+    harness.dispatch(SettingsAction.factsChanged);
+    final rows = harness.view.rows;
+    expect(rows.firstWhere((r) => r.key == 'zone').value, 'Asia/Kolkata');
+    expect(rows.firstWhere((r) => r.key == 'automatic').on, isTrue);
+    expect(rows.firstWhere((r) => r.key == 'synced').value, 'Synchronised');
   });
 
-  test('opening a category filters the rows', () {
+  test('a failure shows until the person moves on', () {
     final model = SettingsModel();
-    model.openCategory('Clock');
     final harness = StoreHarness(model);
-    harness.dispatch(SettingsAction.categoryOpened);
-    harness.assertView(
-      (v) => v.rows.length == 1 && v.rows.single.category == 'Clock',
-    );
+    model.error = 'not allowed';
+    harness.dispatch(SettingsAction.failed);
+    harness.assertView((v) => v.error == 'not allowed');
+    harness.dispatch(SettingsAction.factsChanged);
+    harness.assertView((v) => v.error == 'not allowed', because: 'a fact change is not the person moving on');
+    harness.dispatch(SettingsAction.navigated);
+    harness.assertView((v) => v.error == null);
   });
 }

@@ -45,6 +45,21 @@ fn flutter_gate(repo: &std::path::Path) -> bool {
         dirs.extend(applets);
     }
     for dir in dirs {
+        // the lockfile must already resolve the package (the Yocto build
+        // resolves offline with --enforce-lockfile): a stale lockfile fails
+        // here, not in the image build
+        let shown = dir.strip_prefix(repo).unwrap_or(&dir).display().to_string();
+        println!("gate: flutter pub get --enforce-lockfile ({shown})");
+        let resolved = Command::new("flutter")
+            .args(["pub", "get", "--enforce-lockfile"])
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !resolved {
+            eprintln!("gate: FAILED: {shown}/pubspec.lock does not resolve its pubspec (run flutter pub get there)");
+            return false;
+        }
         for args in [["analyze", "--no-pub"], ["test", "--no-pub"]] {
             let shown = dir.strip_prefix(repo).unwrap_or(&dir).display().to_string();
             println!("gate: flutter {} ({shown})", args[0]);

@@ -3,132 +3,190 @@ import 'package:vrx_kit/vrx_kit.dart';
 /// Everything settings reacts to.
 enum SettingsAction {
   init,
-  categoryOpened,
-  changed,
-  resetAll,
+
+  /// A system fact changed (time, device, light, power): re-derive.
+  factsChanged,
+
+  /// A category was opened or closed, or the zone picker toggled.
+  navigated,
+
+  /// The zone list arrived.
+  zonesLoaded,
+
+  /// A system call failed; the banner says why.
+  failed,
 }
 
-/// One settings row: what the UI renders for a declared setting.
-class SettingsRow {
-  const SettingsRow({
+/// The settings categories, in the order evrx-rt's Settings lists them.
+enum SettingsCategory { display, power, time, device, about }
+
+/// What a row does when tapped.
+enum RowKind {
+  /// A reading; nothing happens.
+  info,
+
+  /// Opens something (the zone picker).
+  open,
+
+  /// A two-state switch.
+  toggle,
+
+  /// A destructive act behind a confirmation.
+  confirm,
+}
+
+/// One rendered row.
+class SettingRow {
+  const SettingRow({
     required this.key,
     required this.label,
-    required this.category,
     required this.value,
-    required this.options,
+    required this.kind,
+    this.on = false,
   });
 
   final String key;
   final String label;
-  final String category;
   final String value;
-  final List<String> options;
+  final RowKind kind;
+
+  /// A toggle's state.
+  final bool on;
+}
+
+/// One category in the list.
+class CategoryRow {
+  const CategoryRow(this.category, this.label, this.glyph, this.summary);
+
+  final SettingsCategory category;
+  final String label;
+
+  /// A VrxSymbols name.
+  final String glyph;
+  final String summary;
 }
 
 /// What settings draws.
 class SettingsView {
-  const SettingsView({required this.rows, required this.openCategory});
+  const SettingsView({
+    required this.categories,
+    required this.open,
+    required this.rows,
+    required this.zones,
+    required this.pickingZone,
+    required this.error,
+  });
 
-  /// The visible rows, in declaration order.
-  final List<SettingsRow> rows;
-
-  /// The open category (null: the category list).
-  final String? openCategory;
+  final List<CategoryRow> categories;
+  final SettingsCategory? open;
+  final List<SettingRow> rows;
+  final List<String> zones;
+  final bool pickingZone;
+  final String? error;
 }
 
-/// The settings model. Declared settings come from the applet
-/// manifests (the registry feeds them in); values live in
-/// `/data/settings` — a file per key, the state IPC shape, watched by
-/// everyone who cares.
-class SettingsModel
-    extends StoreModel<SettingsState, SettingsAction, SettingsView> {
-  SettingsModel({Map<String, String> declared = const {
-    'clock_format': '24h',
-    'theme': 'dark',
-  }})
-      : _declared = {
-          'clock_format': ('Time format', 'Clock', ['12h', '24h']),
-          'theme': ('Theme', 'Appearance', ['dark', 'light']),
-        },
-        _values = Map.of(declared),
-        _openCategory = null {
-    assert(_declared.keys.toSet().containsAll(_values.keys));
-  }
-
-  final Map<String, (String, String, List<String>)> _declared;
-  final Map<String, String> _values;
-  String? _openCategory;
+/// The settings model: the system's facts as its state, the rows derived
+/// from them. Rows a device cannot offer are not offered (plan 0008 D12):
+/// no Display without a backlight, no Power when this applet may not
+/// power off. Applets' own declared settings join with plan 0008 D5.
+class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsView> {
+  TimeState? time;
+  DeviceState? device;
+  bool? light;
+  int lightLevels = 0;
+  bool canPowerOff = false;
+  SettingsCategory? open;
+  bool pickingZone = false;
+  List<String> zones = const [];
+  String? error;
 
   @override
-  SettingsState get initial =>
-      SettingsState(values: Map.of(_values), openCategory: _openCategory);
+  SettingsState get initial => SettingsState(open: open, pickingZone: pickingZone);
 
   @override
   SettingsAction get bootAction => SettingsAction.init;
 
   @override
   SettingsView reduce(SettingsState state, SettingsAction action) {
-    switch (action) {
-      case SettingsAction.init:
-        break;
-      case SettingsAction.categoryOpened:
-        break; // openCategory/closeCategory set it; this re-derives
-      case SettingsAction.changed:
-        break;
-      case SettingsAction.resetAll:
-        for (final key in _values.keys.toList()) {
-          _values[key] = _declared[key]?.$3.last ?? _values[key]!;
-        }
-    }
-    return SettingsView(rows: _rows(), openCategory: _openCategory);
+    if (action == SettingsAction.navigated) error = null;
+    return SettingsView(
+      categories: _categories(),
+      open: open,
+      rows: open == null ? const [] : _rows(open!),
+      zones: zones,
+      pickingZone: pickingZone,
+      error: error,
+    );
   }
 
-  /// A setting changed: apply it, derive the view. This is the action
-  /// the settings store's file-watcher dispatches when another applet
-  /// or the host writes a value.
-  void changeValue(String key, String value) {
-    if (_declared.containsKey(key)) {
-      _values[key] = value;
+  List<CategoryRow> _categories() => [
+        if (lightLevels > 0)
+          CategoryRow(SettingsCategory.display, 'Display', 'brightness_6',
+              light == true ? 'Light on' : 'Light off'),
+        if (canPowerOff) const CategoryRow(SettingsCategory.power, 'Power', 'power_settings_new', ''),
+        CategoryRow(SettingsCategory.time, 'Time', 'schedule', time?.zone ?? ''),
+        CategoryRow(SettingsCategory.device, 'Device', 'developer_board', device?.name ?? ''),
+        const CategoryRow(SettingsCategory.about, 'About', 'info', ''),
+      ];
+
+  List<SettingRow> _rows(SettingsCategory category) {
+    switch (category) {
+      case SettingsCategory.display:
+        return [
+          SettingRow(
+            key: 'light',
+            label: 'Light',
+            value: light == true ? 'On' : 'Off',
+            kind: RowKind.toggle,
+            on: light == true,
+          ),
+        ];
+      case SettingsCategory.power:
+        return const [
+          SettingRow(key: 'restart', label: 'Restart', value: '', kind: RowKind.confirm),
+          SettingRow(key: 'power_off', label: 'Power off', value: '', kind: RowKind.confirm),
+        ];
+      case SettingsCategory.time:
+        final t = time;
+        return [
+          SettingRow(key: 'zone', label: 'Time zone', value: t?.zone ?? '…', kind: RowKind.open),
+          SettingRow(
+            key: 'automatic',
+            label: 'Network time',
+            value: t == null ? '…' : (t.automatic ? 'On' : 'Off'),
+            kind: RowKind.toggle,
+            on: t?.automatic ?? false,
+          ),
+          SettingRow(
+            key: 'synced',
+            label: 'Clock',
+            value: t == null ? '…' : (t.synced ? 'Synchronised' : 'Not synchronised'),
+            kind: RowKind.info,
+          ),
+        ];
+      case SettingsCategory.device:
+        final d = device;
+        return [
+          SettingRow(key: 'name', label: 'Name', value: d?.name ?? '…', kind: RowKind.info),
+          SettingRow(key: 'hostname', label: 'Network name', value: d?.hostname ?? '…', kind: RowKind.info),
+        ];
+      case SettingsCategory.about:
+        final d = device;
+        return [
+          SettingRow(key: 'system', label: 'System', value: d?.system ?? '…', kind: RowKind.info),
+          SettingRow(key: 'model', label: 'Hardware', value: d?.model ?? '…', kind: RowKind.info),
+        ];
     }
-  }
-
-  void openCategory(String category) => _openCategory = category;
-
-  void closeCategory() => _openCategory = null;
-
-  /// The next declared option after the current value (wrapping).
-  String nextValue(String key) {
-    final options = _declared[key]?.$3 ?? const <String>[];
-    if (options.isEmpty) return _values[key] ?? '';
-    final at = options.indexOf(_values[key] ?? options.first);
-    return options[(at + 1) % options.length];
-  }
-
-  List<SettingsRow> _rows() {
-    final rows = <SettingsRow>[];
-    for (final entry in _declared.entries) {
-      if (_openCategory != null && entry.value.$2 != _openCategory) continue;
-      rows.add(SettingsRow(
-        key: entry.key,
-        label: entry.value.$1,
-        category: entry.value.$2,
-        value: _values[entry.key] ?? entry.value.$3.first,
-        options: entry.value.$3,
-      ));
-    }
-    return rows;
   }
 
   @override
-  SettingsState get snapshot =>
-      SettingsState(values: Map.of(_values), openCategory: _openCategory);
+  SettingsState get snapshot => SettingsState(open: open, pickingZone: pickingZone);
 }
 
-/// The settings state snapshot: the values (what /data/settings
-/// holds) and where the user was.
+/// What suspension keeps: where the person was.
 class SettingsState {
-  const SettingsState({required this.values, required this.openCategory});
+  const SettingsState({required this.open, required this.pickingZone});
 
-  final Map<String, String> values;
-  final String? openCategory;
+  final SettingsCategory? open;
+  final bool pickingZone;
 }
