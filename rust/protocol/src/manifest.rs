@@ -78,6 +78,9 @@ pub enum SystemGrant {
     Iio,
     /// Write any applet's settings file (plan 0008 D5).
     Settings,
+    /// The local model servers' sockets, and asking for a model to be
+    /// fetched (plan 0011 D18).
+    Ml,
 }
 
 impl SystemGrant {
@@ -102,11 +105,12 @@ impl SystemGrant {
             SystemGrant::Input => "input",
             SystemGrant::Iio => "iio",
             SystemGrant::Settings => "settings",
+            SystemGrant::Ml => "ml",
         }
     }
 
     /// Every grant, for table checks.
-    pub const ALL: [SystemGrant; 18] = [
+    pub const ALL: [SystemGrant; 19] = [
         SystemGrant::Network,
         SystemGrant::Bluetooth,
         SystemGrant::Time,
@@ -125,6 +129,7 @@ impl SystemGrant {
         SystemGrant::Input,
         SystemGrant::Iio,
         SystemGrant::Settings,
+        SystemGrant::Ml,
     ];
 }
 
