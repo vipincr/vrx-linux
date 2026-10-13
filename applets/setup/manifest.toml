@@ -1,0 +1,26 @@
+# Setup: the first-boot walk (licence, name, Wi-Fi, time zone, done).
+# vrxhost opens it at boot until /var/lib/vrx/setup/done exists (its own
+# state directory, so a factory reset, which wipes /data, brings it back);
+# Settings > Device opens it again. Grants: the device name and the zone.
+[applet]
+id = "setup"
+name = "Setup"
+version = "1.0.0"
+runtime = "flutter"
+
+[applet.display]
+icon = "rocket_launch"
+tile = false
+
+[applet.resources]
+heap_mb = 64
+
+[applet.permissions]
+system = ["hostname", "time"]
+
+[applet.routes]
+first = {}
+again = {}
+
+[applet.command]
+enabled = false

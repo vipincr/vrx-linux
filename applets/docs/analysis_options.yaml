@@ -1,0 +1,2 @@
+# The vrx applet lint set (plan 0008 D19): errors fail the gate.
+include: package:vrx_kit/analysis_options.yaml

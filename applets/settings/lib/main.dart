@@ -85,8 +85,11 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
   void _onRow(BuildContext context, SettingRow row) {
     switch (row.key) {
       case 'wifi':
-        // Wi-Fi is its own applet (no tile): a trail push, vrxhost starts it
-        Nav.push('wifi');
+      case 'setup':
+        // their own applets (no tile): a trail push, vrxhost starts them
+        Nav.push(row.key);
+      case 'licences':
+        Nav.push('docs');
       case 'light':
         unawaited(_ask(context, () => VrxSystem.power.setLight(!row.on)));
       case 'automatic':

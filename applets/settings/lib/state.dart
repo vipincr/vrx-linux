@@ -184,12 +184,14 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         return [
           SettingRow(key: 'name', label: 'Name', value: d?.name ?? '…', kind: RowKind.info),
           SettingRow(key: 'hostname', label: 'Network name', value: d?.hostname ?? '…', kind: RowKind.info),
+          const SettingRow(key: 'setup', label: 'Set up again', value: '', kind: RowKind.open),
         ];
       case SettingsCategory.about:
         final d = device;
         return [
           SettingRow(key: 'system', label: 'System', value: d?.system ?? '…', kind: RowKind.info),
           SettingRow(key: 'model', label: 'Hardware', value: d?.model ?? '…', kind: RowKind.info),
+          const SettingRow(key: 'licences', label: 'Licences', value: '', kind: RowKind.open),
         ];
     }
   }

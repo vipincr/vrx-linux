@@ -11,7 +11,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 use vrx_host::applets::{Applets, Event};
 use vrx_host::compositor::{self, LinkEvent};
-use vrx_host::session::{Order, Session};
+use vrx_host::session::{NavOp, Order, Session};
 use vrx_host::varlink::{self, Front, NavRequest};
 use vrx_host::{paths, registry};
 use vrx_protocol::Registry;
@@ -88,6 +88,10 @@ async fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// The first-boot applet and the marker it writes when the walk is done.
+const SETUP: &str = "setup";
+const SETUP_DONE: &str = "/var/lib/vrx/setup/done";
+
 /// What carries the session's orders out.
 struct Host {
     registry: Arc<Registry>,
@@ -105,7 +109,22 @@ impl Host {
         mut link: mpsc::UnboundedReceiver<LinkEvent>,
         mut nav: mpsc::UnboundedReceiver<NavRequest>,
     ) {
-        let orders = session.boot(&self.registry);
+        let mut orders = session.boot(&self.registry);
+        // first boot (plan 0008 D10): Setup over Home until it has written
+        // its marker in its own state directory (a factory reset, which
+        // wipes /data, brings it back)
+        if self.registry.find(SETUP).is_some()
+            && !std::path::Path::new(SETUP_DONE).exists()
+        {
+            tracing::info!("first boot: opening setup");
+            let push = NavOp::Push {
+                applet: SETUP.to_owned(),
+                route: 0,
+            };
+            if let Ok(more) = session.nav(&self.registry, push) {
+                orders.extend(more);
+            }
+        }
         self.carry_out(&mut session, orders);
         loop {
             let orders = tokio::select! {
