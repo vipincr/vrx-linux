@@ -29,7 +29,7 @@ trap restore EXIT
 cat >> $D/scripts/manifest.toml <<'M'
 
 [applet.channels]
-offers = ["echo"]
+offers = ["echo", "frames"]
 M
 # a told handler: no route
 python3 - <<'P'
@@ -45,14 +45,14 @@ P
 cat >> $D/web/manifest.toml <<'M'
 
 [applet.channels]
-opens = ["scripts.echo"]
+opens = ["scripts.echo", "scripts.frames"]
 M
 systemctl restart vrxhost
 sleep 8
 
 cat > /tmp/bridge.py <<'P'
 # A Varlink client with SCM_RIGHTS, placed in an applet's cgroup.
-import array, json, os, socket, sys, time
+import array, fcntl, json, mmap, os, socket, sys, time
 role = sys.argv[1]
 cg = {"listen": "scripts", "open": "web"}[role]
 import subprocess
@@ -88,6 +88,27 @@ if role == "listen":
         if p.get("kind") == "intent" and p.get("id") is not None:
             a = conn(); send(a, "io.vrx.Host.Answer", {"id": p["id"], "verdict": "handled"}); recv(a)
             print("listener: answered", p["name"], flush=True)
+        elif p.get("kind") == "channel" and p.get("channel") == "frames":
+            # a buffer queue: the offer line arrives with the buffers
+            ch = socket.socket(fileno=fds.pop(0))
+            got = b""; bufs = []
+            while not got.endswith(b"\n"):
+                data, anc, _, _ = ch.recvmsg(1, socket.CMSG_SPACE(4 * 16))
+                for level, kind, d in anc:
+                    a = array.array("i"); a.frombytes(d[: len(d) - len(d) % 4]); bufs.extend(a)
+                got += data
+            offer = json.loads(got)
+            maps = [mmap.mmap(fd, offer["size"]) for fd in bufs]
+            stream_bytes = len(got); n = 0; ok = True
+            f = ch.makefile("rwb", buffering=0)
+            for line in f:
+                stream_bytes += len(line)
+                r = json.loads(line)
+                # the frame is read from the shared buffer, not the stream
+                ok = ok and int.from_bytes(maps[r["index"]][:8], "little") == r["sequence"]
+                n += 1
+                f.write(json.dumps({"index": r["index"]}).encode() + b"\n")
+            print(f"queue: {offer['buffers']} buffers of {offer['size']} bytes, {n} frames read from shared memory, contents {'right' if ok else 'WRONG'}, {stream_bytes} bytes on the stream", flush=True)
         elif p.get("kind") == "channel":
             ch = socket.socket(fileno=fds.pop(0))
             line = ch.recv(4096)
@@ -104,6 +125,38 @@ else:
     ch.settimeout(3)
     print("channel:", ch.recv(4096).decode().strip(), flush=True)
     s = conn(); send(s, "io.vrx.Host.Open", {"to": "scripts", "channel": "nope"}); print("undeclared:", json.dumps(recv(s)), flush=True)
+    # a plain file is not a buffer another applet may map
+    s = conn(); plain = os.open("/etc/hostname", os.O_RDONLY)
+    s.sendmsg([json.dumps({"method": "io.vrx.Host.Open", "parameters": {"to": "scripts", "channel": "echo"}}).encode() + b"\0"],
+               [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array("i", [plain]))])
+    print("plain fd:", json.dumps(recv(s)), flush=True)
+    # a buffer queue: four sealed memfds handed once, then 1000 frames by index
+    s = conn(); send(s, "io.vrx.Host.Open", {"to": "scripts", "channel": "frames"}); r = recv(s)
+    q = socket.socket(fileno=fds.pop(0))
+    size, count = 4096, 4
+    bufs = []
+    for i in range(count):
+        fd = os.memfd_create(f"frame{i}", os.MFD_ALLOW_SEALING)
+        os.ftruncate(fd, size)
+        fcntl.fcntl(fd, fcntl.F_ADD_SEALS, fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_GROW)
+        bufs.append(fd)
+    maps = [mmap.mmap(fd, size) for fd in bufs]
+    q.sendmsg([json.dumps({"buffers": count, "size": size}).encode() + b"\n"],
+              [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array("i", bufs))])
+    f = q.makefile("rwb", buffering=0)
+    free = list(range(count)); outstanding = 0
+    for seq in range(1, 1001):
+        if not free:
+            free.append(json.loads(f.readline())["index"]); outstanding -= 1
+        i = free.pop(0)
+        maps[i][:8] = seq.to_bytes(8, "little")
+        f.write(json.dumps({"index": i, "bytes": 8, "sequence": seq}).encode() + b"\n")
+        outstanding += 1
+    while outstanding:
+        f.readline(); outstanding -= 1
+    q.shutdown(socket.SHUT_WR)
+    time.sleep(1)
+    print("queue sent: 1000 frames", flush=True)
 P
 python3 /tmp/bridge.py listen > /tmp/listen.log 2>&1 &
 LP=$!
@@ -115,6 +168,9 @@ grep -q '"verdict": "handled", "handled_by": "scripts"\|"handled_by": "scripts",
     && ok "a told handler answered inside the budget: handled by scripts" || bad "told intent not handled"
 grep -q 'channel: .*pong' /tmp/open.log && ok "web opened scripts.echo; the stream carried a record both ways" || bad "channel"
 grep -q 'undeclared: .*NotDeclared' /tmp/open.log && ok "an undeclared channel is refused by name" || bad "undeclared channel not refused"
+grep -q 'plain fd: .*NotShareable' /tmp/open.log && ok "a plain file passed as a buffer is refused NotShareable" || bad "plain fd not refused"
+grep -q 'queue: 4 buffers of 4096 bytes, 1000 frames read from shared memory, contents right' /tmp/listen.log \
+    && ok "a buffer queue: 4 buffers handed once, 1000 frames read from shared memory, indices only on the stream" || bad "buffer queue"
 echo
 [ "$fails" -eq 0 ] && echo "bridge-check: all passed" || { echo "bridge-check: $fails failed"; exit 1; }
 EOF

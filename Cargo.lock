@@ -906,6 +906,7 @@ name = "vrx-host"
 version = "0.1.0"
 dependencies = [
  "futures-util",
+ "rustix",
  "serde",
  "serde_json",
  "socket2",

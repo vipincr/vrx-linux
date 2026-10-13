@@ -184,6 +184,13 @@ impl Channel {
         &self.name
     }
 
+    /// The stream itself, for a buffer queue: before any record is read, so
+    /// nothing sits in the reader's buffer.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn into_stream(self) -> UnixStream {
+        self.writer
+    }
+
     /// Write one JSON record.
     pub fn write(&mut self, record: vrx_protocol::IntentPayload) -> Result<(), IpcError> {
         let message = PipeMessage::new(self.name.clone(), record)

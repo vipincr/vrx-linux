@@ -41,7 +41,18 @@ file names the reality.
 | State | a value that stays true until it changes, watchable by anyone | a file (/etc/vrx/*, /sys), watched; system state is the services' own D-Bus properties behind vrx_kit's domain services |
 | Signal | something happened or is asked; small; has a verdict | an intent through `io.vrx.Host.Intent` (Varlink); a running handler receives it on its `Listen` call |
 | Stream | ordered records, one writer to one reader, backpressure | a socket pair vrxhost hands to both ends (`io.vrx.Host.Open`) |
-| Device data | frames/samples too large to copy | a sealed memfd or dmabuf passed the same way |
+| Device data | frames/samples too large to copy | buffers by index: a dmabuf or a memfd sealed against shrinking passed once (on `Open`, or N of them over the stream as a buffer queue: SDK `BufferQueue`, vrx_kit `VrxBufferQueue`), then only `{index, bytes, sequence}` records |
+
+**Buffers belong to the driver that fills them** (plan 0009 D10, after evrx-rt's plans 0037
+and 0063). A device's data stays in buffers its kernel driver owns: V4L2's streaming I/O
+(`REQBUFS`, `QBUF`/`DQBUF` by index, `EXPBUF` to a dmabuf), ALSA's mmap ring, DRM and GBM for
+the panel (the compositor imports every app frame as a dmabuf). Above the driver, everything
+exchanges which buffer moved, never the bytes. Between two applets, which the kernel has no
+node for, the buffer queue does the same: the producer hands its buffers once, the consumer
+gives indices back, and a frame with no free buffer is dropped and shows as a gap in the
+sequence. vrxhost refuses a passed descriptor that is neither a dmabuf nor a sealed memfd
+(`NotShareable`), so a receiver's mapping cannot lose its pages. No vrx code copies a frame or
+a period the hardware could have moved. `tools/bench/bridge-check.sh` proves it on a board.
 
 ## The intent chain
 

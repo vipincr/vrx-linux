@@ -47,12 +47,93 @@ class VrxIntentDelivery extends VrxDelivery {
   final Object? payload;
 }
 
-/// Another applet opened one of this applet's channels.
+/// Another applet opened one of this applet's channels: the stream's end,
+/// to read as records ([asChannel]) or as a buffer queue ([asBufferQueue]),
+/// whichever the channel carries (the manifests agree on it).
 class VrxChannelDelivery extends VrxDelivery {
-  const VrxChannelDelivery({required this.from, required this.channel});
+  const VrxChannelDelivery({required this.from, required this.name, required this.handle});
 
   final String from;
-  final VrxChannel channel;
+
+  /// `<from>.<channel>`.
+  final String name;
+  final ResourceHandle handle;
+
+  VrxChannel asChannel() => VrxChannel(name, handle.toSocket());
+
+  Future<VrxBufferQueue> asBufferQueue() => VrxBufferQueue.accept(name, handle.toRawSocket());
+}
+
+/// A filled buffer: which one, how many bytes, and its frame number (a gap
+/// is a frame the producer dropped for want of a free buffer).
+class VrxBufferFilled {
+  const VrxBufferFilled(this.index, this.bytes, this.sequence);
+
+  final int index;
+  final int bytes;
+  final int sequence;
+}
+
+/// The consumer's side of a buffer queue (plan 0009 D10; the wire is
+/// vrx_protocol::bufq): the buffers arrived once, as handles with the
+/// producer's offer; after that only indices move. Hand a buffer's handle to
+/// whatever reads it, and give the index back when done.
+class VrxBufferQueue {
+  VrxBufferQueue._(this.name, this._socket, this.buffers, this.size, this._filled);
+
+  final String name;
+  final RawSocket _socket;
+
+  /// The buffers' handles (memfds or dmabufs), by index.
+  final List<ResourceHandle> buffers;
+
+  /// Each buffer's size in bytes.
+  final int size;
+  final Stream<VrxBufferFilled> _filled;
+
+  /// Filled buffers as the producer queues them, until it closes.
+  Stream<VrxBufferFilled> get filled => _filled;
+
+  static Future<VrxBufferQueue> accept(String name, RawSocket socket) async {
+    final frames = StreamController<VrxBufferFilled>();
+    final offer = Completer<(int, int, List<ResourceHandle>)>();
+    final handles = <ResourceHandle>[];
+    final pending = <int>[];
+    late StreamSubscription<RawSocketEvent> sub;
+    sub = socket.listen((event) {
+      if (event == RawSocketEvent.readClosed || event == RawSocketEvent.closed) {
+        if (!offer.isCompleted) offer.completeError(StateError('$name: closed before its offer'));
+        unawaited(frames.close());
+        unawaited(sub.cancel());
+        return;
+      }
+      if (event != RawSocketEvent.read) return;
+      final message = socket.readMessage();
+      if (message == null) return;
+      for (final control in message.controlMessages) {
+        handles.addAll(control.extractHandles());
+      }
+      pending.addAll(message.data);
+      while (true) {
+        final end = pending.indexOf(10);
+        if (end < 0) break;
+        final line = jsonDecode(utf8.decode(pending.sublist(0, end))) as Map<String, dynamic>;
+        pending.removeRange(0, end + 1);
+        if (!offer.isCompleted) {
+          offer.complete(((line['buffers'] as num).toInt(), (line['size'] as num).toInt(), List.of(handles)));
+        } else {
+          frames.add(VrxBufferFilled(
+              (line['index'] as num).toInt(), (line['bytes'] as num).toInt(), (line['sequence'] as num).toInt()));
+        }
+      }
+    });
+    final (count, size, got) = await offer.future;
+    if (got.length != count) throw StateError('$name: the offer names $count buffers, ${got.length} came with it');
+    return VrxBufferQueue._(name, socket, got, size, frames.stream);
+  }
+
+  /// Buffer [index] is free again.
+  void giveBack(int index) => _socket.write(utf8.encode('${jsonEncode({'index': index})}\n'));
 }
 
 /// Varlink's framing: messages are JSON objects, each ending in a NUL.
@@ -77,17 +158,16 @@ class VarlinkFrames {
 
 /// A Listen reply as a delivery, given the stream that came with it.
 /// Null for a reply that is neither (an error is thrown by the caller).
-VrxDelivery? deliveryOf(Map<String, dynamic> reply, Socket? Function() stream) {
+VrxDelivery? deliveryOf(Map<String, dynamic> reply, ResourceHandle? Function() stream) {
   final p = (reply['parameters'] as Map<String, dynamic>?) ?? const {};
   switch (p['kind']) {
     case 'intent':
       return VrxIntentDelivery(id: (p['id'] as num?)?.toInt(), name: p['name'] as String? ?? '', payload: p['payload']);
     case 'channel':
-      // ignore: close_sinks, the VrxChannel below owns it and the applet closes it
-      final socket = stream();
-      if (socket == null) return null;
+      final handle = stream();
+      if (handle == null) return null;
       final from = p['from'] as String? ?? '';
-      return VrxChannelDelivery(from: from, channel: VrxChannel('$from.${p['channel'] ?? ''}', socket));
+      return VrxChannelDelivery(from: from, name: '$from.${p['channel'] ?? ''}', handle: handle);
   }
   return null;
 }
@@ -151,7 +231,7 @@ abstract final class VrxBridge {
     final socket = await _connect('io.vrx.Host.Listen', const {}, more: true);
     try {
       await for (final (reply, handles) in _replies(socket)) {
-        final d = deliveryOf(reply, () => handles.isEmpty ? null : handles.first.toSocket());
+        final d = deliveryOf(reply, () => handles.isEmpty ? null : handles.first);
         if (d != null) yield d;
       }
     } finally {

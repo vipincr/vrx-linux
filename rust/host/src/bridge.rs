@@ -158,6 +158,28 @@ impl Bridge {
     }
 }
 
+/// A descriptor another applet may safely take as a buffer: a dmabuf (a
+/// driver's buffer, exported) or a memfd sealed against shrinking, so the
+/// receiver's mapping cannot lose its pages under it (SIGBUS). A plain file
+/// or a socket is neither (plan 0009 D10).
+#[cfg(target_os = "linux")]
+pub fn shareable(fd: &OwnedFd) -> bool {
+    use std::os::fd::AsRawFd;
+    let info = std::fs::read_to_string(format!("/proc/self/fdinfo/{}", fd.as_raw_fd()))
+        .unwrap_or_default();
+    if info.lines().any(|l| l.starts_with("exp_name:")) {
+        return true;
+    }
+    rustix::fs::fcntl_get_seals(fd)
+        .is_ok_and(|seals| seals.contains(rustix::fs::SealFlags::SHRINK))
+}
+
+/// Seals and dmabufs are Linux's; nothing is shareable on a host build.
+#[cfg(not(target_os = "linux"))]
+pub fn shareable(_fd: &OwnedFd) -> bool {
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,6 +233,24 @@ mod tests {
             None
         );
         assert!(started.elapsed() >= Duration::from_millis(30));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn only_a_sealed_memfd_or_a_dmabuf_is_shareable() {
+        use rustix::fs::{
+            fcntl_add_seals, ftruncate, memfd_create, MemfdFlags, SealFlags,
+        };
+        let fd = memfd_create("t", MemfdFlags::ALLOW_SEALING).unwrap();
+        ftruncate(&fd, 4096).unwrap();
+        assert!(
+            !shareable(&fd),
+            "an unsealed memfd can shrink under its reader"
+        );
+        fcntl_add_seals(&fd, SealFlags::SHRINK).unwrap();
+        assert!(shareable(&fd));
+        let file = OwnedFd::from(std::fs::File::open("/proc/self/status").unwrap());
+        assert!(!shareable(&file));
     }
 
     #[test]

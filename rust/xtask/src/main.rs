@@ -262,6 +262,61 @@ fn applet_user_clash(repo: &std::path::Path) -> Option<String> {
     None
 }
 
+/// `cargo test` for the picked crates on Linux, in the official Rust image
+/// at the host's rustc version, under podman or docker (whichever the vrx
+/// build uses; on a Mac its VM is the Linux). The gate refuses to pass
+/// silently without one.
+fn linux_tests(repo: &std::path::Path, picked: &[&str]) -> bool {
+    let engine = ["podman", "docker"].into_iter().find(|e| {
+        Command::new(e)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    });
+    let Some(engine) = engine else {
+        eprintln!("gate: FAILED — the Linux tests need podman or docker (the vrx build's container engine)");
+        return false;
+    };
+    let version = Command::new("rustc")
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .and_then(|v| v.split_whitespace().nth(1).map(str::to_owned))
+        .unwrap_or_else(|| "latest".into());
+    let mount = format!("{}:/src", repo.display());
+    let mut args: Vec<String> = [
+        "run",
+        "--rm",
+        "-v",
+        &mount,
+        "-v",
+        "vrx-cargo-target:/target",
+        "-w",
+        "/src",
+        "-e",
+        "CARGO_TARGET_DIR=/target",
+    ]
+    .iter()
+    .map(|s| (*s).to_owned())
+    .collect();
+    args.push(format!("rust:{version}"));
+    args.extend(["cargo", "test", "-q"].map(str::to_owned));
+    args.extend(picked.iter().map(|s| (*s).to_owned()));
+    println!("gate: cargo test on Linux ({engine}, rust:{version})");
+    let ok = Command::new(engine)
+        .args(&args)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !ok {
+        eprintln!("gate: FAILED at the Linux tests");
+    }
+    ok
+}
+
 fn run(program: &str, args: &[&str]) -> bool {
     println!("gate: {program} {}", args.join(" "));
     let ok = Command::new(program)
@@ -319,6 +374,11 @@ fn gate(all: bool) -> ExitCode {
         .concat();
         let test = [&["test"][..], &picked].concat();
         if !run("cargo", &fmt) || !run("cargo", &clippy) || !run("cargo", &test) {
+            return ExitCode::FAILURE;
+        }
+        // the code under cfg(target_os = "linux") (descriptor passing, the
+        // buffer queue, the USB watcher) is tested where it runs
+        if !linux_tests(&repo, &picked) {
             return ExitCode::FAILURE;
         }
         for (_, check, hash) in &stale {

@@ -11,6 +11,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod applet;
+pub mod bufq;
 pub mod ipc;
 pub mod kit;
 pub mod layout;
@@ -75,6 +76,8 @@ impl store::EffectSink for RuntimeSink {
 /// Everything an applet needs, from one import.
 pub mod prelude {
     pub use crate::applet::Applet;
+    #[cfg(target_os = "linux")]
+    pub use crate::bufq::BufferQueue;
     pub use crate::ipc::{answer, intent_send, Channel, Delivery, File, Listener};
     pub use crate::kit::{button, screen, text_body, text_row, text_title, Screen};
     pub use crate::layout::{assert_clean_layout, check as check_layout, displays};

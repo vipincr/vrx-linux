@@ -58,8 +58,9 @@ method Answer(id: int, verdict: string) -> ()
 # Open a channel another applet offers (its manifest's channels.offers;
 # yours must list <to>.<channel> in channels.opens): a stream socket, one
 # end in the reply as a file descriptor, the other handed to that applet's
-# Listen. A descriptor sent with the call (a memfd, a dmabuf) is handed
-# instead, and the reply carries none.
+# Listen. A descriptor sent with the call is handed instead, and the reply
+# carries none: a dmabuf, or a memfd sealed against shrinking (anything else
+# is NotShareable). A buffer queue passes its buffers over the stream itself.
 method Open(to: string, channel: string) -> ()
 
 # The applets the launcher shows (display.tile), in position order.
@@ -79,6 +80,7 @@ error NoHandler (name: string)
 error NotDeclared (channel: string)
 error NotOffered (applet: string, channel: string)
 error NotListening (applet: string)
+error NotShareable (channel: string)
 error NotAnApplet ()
 error Unavailable ()
 ";
@@ -327,8 +329,12 @@ fn open(
     }
     let not_listening = || Failure::host("NotListening", json!({ "applet": to }));
     if !fds.is_empty() {
-        // the caller's own descriptor (device data): handed as it came
+        // the caller's own descriptor (device data): handed as it came, if
+        // it is a buffer the other side can safely map
         let fd = fds.swap_remove(0);
+        if !crate::bridge::shareable(&fd) {
+            return Err(Failure::host("NotShareable", json!({ "channel": channel })));
+        }
         return if host.bridge.hand(to, caller, channel, fd) {
             Ok(Vec::new())
         } else {
