@@ -23,7 +23,7 @@ fn main() -> ExitCode {
         "gate" => gate(),
         "crates-inc" => crates_inc::run(&args),
         _ => {
-            eprintln!("usage: cargo xtask gate | crates-inc <crate> [out.inc]");
+            eprintln!("usage: cargo xtask gate | crates-inc");
             ExitCode::from(64)
         }
     }
@@ -54,6 +54,21 @@ fn gate() -> ExitCode {
             .unwrap_or(false);
         if !ok {
             eprintln!("gate: FAILED at {program} {}", args.join(" "));
+            return ExitCode::FAILURE;
+        }
+    }
+
+    // the layer's crates manifest must match Cargo.lock, or the Yocto
+    // build fails offline (--frozen) far from the change that caused it
+    println!("gate: crates manifest matches Cargo.lock");
+    match crates_inc::is_current() {
+        Ok(true) => {}
+        Ok(false) => {
+            eprintln!("gate: FAILED — layer/recipes-core/vrx-workspace-crates.inc is stale: run `cargo xtask crates-inc`");
+            return ExitCode::FAILURE;
+        }
+        Err(err) => {
+            eprintln!("gate: FAILED reading the crates manifest: {err}");
             return ExitCode::FAILURE;
         }
     }

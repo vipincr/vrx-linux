@@ -1,24 +1,32 @@
-// `cargo xtask crates-inc`: generate the bitbake crates manifest for a
-// workspace crate — the `SRC_URI += "crate://..."` list every cargo
-// recipe needs, straight from Cargo.lock (deterministic, sorted).
+// `cargo xtask crates-inc`: generate the bitbake crates manifest, the
+// `SRC_URI += "crate://..."` list, straight from Cargo.lock
+// (deterministic, sorted). It is the whole workspace's list, because
+// cargo --frozen resolves the whole workspace lockfile whichever member
+// a recipe builds; so there is ONE manifest, layer/recipes-core/
+// vrx-workspace-crates.inc, required by every cargo recipe, and the gate
+// fails when it falls behind Cargo.lock.
 //
 // Why not cargo-bitbake: 0.3.16 cannot read lock file v4 (the format
 // rustc 1.9x writes). The output is identical for this purpose.
 
 use std::path::Path;
 
-pub fn run(args: &[String]) -> std::process::ExitCode {
-    let Some(crate_name) = args.first() else {
-        eprintln!("usage: cargo xtask crates-inc <crate-name> [out.inc]");
-        return std::process::ExitCode::from(64);
-    };
-    let out = args
-        .get(1)
-        .cloned()
-        .unwrap_or_else(|| format!("{crate_name}-crates.inc"));
-    match generate(Path::new(&out)) {
+/// The one crates manifest every cargo recipe in the layer requires.
+pub fn manifest_path() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../layer/recipes-core/vrx-workspace-crates.inc")
+}
+
+pub fn run(_args: &[String]) -> std::process::ExitCode {
+    let out = manifest_path();
+    let written = render().and_then(|(body, count)| {
+        std::fs::write(&out, body)
+            .map_err(|e| format!("writing {}: {e}", out.display()))?;
+        Ok(count)
+    });
+    match written {
         Ok(count) => {
-            println!("wrote {out}: {count} crates");
+            println!("wrote {}: {count} crates", out.display());
             std::process::ExitCode::SUCCESS
         }
         Err(err) => {
@@ -28,7 +36,15 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
     }
 }
 
-fn generate(out: &Path) -> Result<usize, String> {
+/// The gate's check: the committed manifest is what Cargo.lock renders.
+pub fn is_current() -> Result<bool, String> {
+    let (body, _) = render()?;
+    let committed = std::fs::read_to_string(manifest_path())
+        .map_err(|e| format!("reading {}: {e}", manifest_path().display()))?;
+    Ok(committed == body)
+}
+
+fn render() -> Result<(String, usize), String> {
     // the workspace lock sits at rust/../Cargo.lock
     let lock = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.lock");
     let text = std::fs::read_to_string(&lock)
@@ -79,6 +95,5 @@ fn generate(out: &Path) -> Result<usize, String> {
             "SRC_URI[{name}-{version}.sha256sum] = \"{checksum}\"\n"
         ));
     }
-    std::fs::write(out, body).map_err(|e| format!("writing {}: {e}", out.display()))?;
-    Ok(crates.len())
+    Ok((body, crates.len()))
 }
