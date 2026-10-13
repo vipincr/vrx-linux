@@ -31,14 +31,29 @@ const APP_STATE_LEN: usize = 4 + 4 + ID_LEN;
 /// start after vrxhost, or restart under it.
 const RETRY: Duration = Duration::from_millis(500);
 
+/// An app's state at the compositor (vrx_ipc.h `enum vrx_app_state`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppState {
+    /// Disconnected.
+    Gone,
+    /// Registered: connected and sized.
+    Registered,
+    /// Its first frame is on the panel: the UI is up.
+    Shown,
+}
+
 /// What the link reports.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkEvent {
     /// Connected and accepted as controller. Whatever focus vrxhost
     /// wants must be (re)sent now: a restarted compositor knows none.
     Connected,
-    /// An app registered with the compositor (alive) or disconnected.
-    App { pid: u32, alive: bool, id: String },
+    /// An app's state at the compositor changed.
+    App {
+        pid: u32,
+        state: AppState,
+        id: String,
+    },
     /// The connection dropped; the link is reconnecting.
     Lost,
 }
@@ -71,13 +86,18 @@ pub fn decode(msg: &[u8]) -> Option<LinkEvent> {
         return None;
     }
     let pid = i32::from_ne_bytes(word(HEADER_LEN)?.to_ne_bytes());
-    let alive = word(HEADER_LEN + 4)? != 0;
+    let state = match word(HEADER_LEN + 4)? {
+        0 => AppState::Gone,
+        1 => AppState::Registered,
+        2 => AppState::Shown,
+        _ => return None,
+    };
     let raw = msg.get(HEADER_LEN + 8..HEADER_LEN + 8 + ID_LEN)?;
     let end = raw.iter().position(|&b| b == 0).unwrap_or(ID_LEN);
     let id = String::from_utf8_lossy(&raw[..end]).into_owned();
     Some(LinkEvent::App {
         pid: u32::try_from(pid).ok()?,
-        alive,
+        state,
         id,
     })
 }
@@ -190,10 +210,10 @@ async fn send(fd: &AsyncFd<Socket>, msg: &[u8]) -> io::Result<()> {
 mod tests {
     use super::*;
 
-    fn app_state(pid: i32, alive: u32, id: &str) -> Vec<u8> {
+    fn app_state(pid: i32, state: u32, id: &str) -> Vec<u8> {
         let mut payload = Vec::new();
         payload.extend_from_slice(&pid.to_ne_bytes());
-        payload.extend_from_slice(&alive.to_ne_bytes());
+        payload.extend_from_slice(&state.to_ne_bytes());
         let mut name = [0u8; ID_LEN];
         name[..id.len()].copy_from_slice(id.as_bytes());
         payload.extend_from_slice(&name);
@@ -208,7 +228,7 @@ mod tests {
         assert_eq!(&msg[0..4], &10u32.to_ne_bytes());
         assert_eq!(&msg[4..8], &4u32.to_ne_bytes());
         assert_eq!(&msg[8..12], &412i32.to_ne_bytes());
-        // struct vrx_msg_app_state {int32 pid; u32 alive; char id[64]}
+        // struct vrx_msg_app_state {int32 pid; u32 state; char id[64]}
         assert_eq!(app_state(1, 1, "x").len(), HEADER_LEN + 72);
         let control = encode(MSG_CONTROL, &[]);
         assert_eq!(control.len(), HEADER_LEN);
@@ -222,7 +242,7 @@ mod tests {
             decode(&app_state(394, 1, "launcher")),
             Some(LinkEvent::App {
                 pid: 394,
-                alive: true,
+                state: AppState::Registered,
                 id: "launcher".into()
             })
         );
@@ -230,7 +250,7 @@ mod tests {
             decode(&app_state(394, 0, "launcher")),
             Some(LinkEvent::App {
                 pid: 394,
-                alive: false,
+                state: AppState::Gone,
                 id: "launcher".into()
             })
         );

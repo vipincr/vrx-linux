@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use vrx_protocol::Registry;
 
 use crate::applets::Event;
-use crate::compositor::LinkEvent;
+use crate::compositor::{AppState, LinkEvent};
 use crate::trail::{Trail, TrailEntry};
 
 /// A navigation request (Nav in vrx_kit, over the intent socket).
@@ -209,7 +209,23 @@ impl Session {
                 self.sent = None;
                 Vec::new()
             }
-            LinkEvent::App { .. } => Vec::new(),
+            LinkEvent::App { pid, state, .. } => {
+                // Home's first frame is on the panel: now the tiles may
+                // start without competing with it (D17)
+                let home_pid = self.home.as_ref().and_then(|h| match self.procs.get(h) {
+                    Some(Proc::Running(p)) => Some(*p),
+                    _ => None,
+                });
+                if *state == AppState::Shown
+                    && home_pid == Some(*pid)
+                    && !self.warm.is_empty()
+                {
+                    let warm = std::mem::take(&mut self.warm);
+                    warm.iter().flat_map(|a| self.start(a)).collect()
+                } else {
+                    Vec::new()
+                }
+            }
         }
     }
 
