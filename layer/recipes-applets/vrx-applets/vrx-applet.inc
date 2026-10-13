@@ -21,7 +21,7 @@ SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master"
 # The one source commit every built-in applet builds from (they share a
 # checkout: applets/ plus flutter/vrx_kit); bumped with every change to
 # either, the same flow as vrxhost's SRCREV.
-SRCREV = "2c6db582537ea4f4db1d751a40736bd806c1ee48"
+SRCREV = "04de227f824702f5b2eb23ec50933f47ba530f8d"
 PV = "1.0+git${SRCPV}"
 
 COMPATIBLE_MACHINE = "^vrxboard-"
