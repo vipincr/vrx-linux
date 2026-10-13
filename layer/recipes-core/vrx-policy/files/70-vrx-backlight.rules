@@ -1,0 +1,4 @@
+# Plan 0008 D2: the display grant is group video. The shell applet turns
+# the light on and off through sysfs, so the brightness attribute is
+# group-writable by video (root-only by default).
+SUBSYSTEM=="backlight", ACTION=="add", RUN+="/bin/chgrp video /sys%p/brightness", RUN+="/bin/chmod g+w /sys%p/brightness"

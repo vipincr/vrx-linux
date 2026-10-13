@@ -1,0 +1,41 @@
+/* Plan 0008 D2: the polkit half of vrx's grants. A grant is a group;
+ * each rule gives one group exactly its actions and nothing else. The
+ * time grant is meta-oe's own datetime group rule (adopted, not
+ * restated). polkit runs these with duktape: ES5 only (no let, no
+ * arrow functions, no includes()); a syntax error denies everything,
+ * so the bench checks every grant after a change. */
+
+polkit.addRule(function (action, subject) {
+    var id = action.id;
+
+    if (subject.isInGroup("vrx-hostname") &&
+        (id === "org.freedesktop.hostname1.set-hostname" ||
+         id === "org.freedesktop.hostname1.set-static-hostname" ||
+         id === "org.freedesktop.hostname1.set-machine-info")) {
+        return polkit.Result.YES;
+    }
+
+    if (subject.isInGroup("vrx-power") &&
+        (id === "org.freedesktop.login1.power-off" ||
+         id === "org.freedesktop.login1.power-off-multiple-sessions" ||
+         id === "org.freedesktop.login1.reboot" ||
+         id === "org.freedesktop.login1.reboot-multiple-sessions")) {
+        return polkit.Result.YES;
+    }
+
+    /* unit control, limited to the units each grant exists for */
+    if (id === "org.freedesktop.systemd1.manage-units") {
+        var unit = action.lookup("unit") || "";
+        var verb = action.lookup("verb") || "";
+        var startStop = (verb === "start" || verb === "stop");
+        if (subject.isInGroup("vrx-usb") && startStop &&
+            (unit === "vrx-usb-console.service" || unit === "vrx-usb-files.service")) {
+            return polkit.Result.YES;
+        }
+        if (subject.isInGroup("vrx-serve") && startStop && unit === "vrx-manage.socket") {
+            return polkit.Result.YES;
+        }
+    }
+
+    return polkit.Result.NOT_HANDLED;
+});

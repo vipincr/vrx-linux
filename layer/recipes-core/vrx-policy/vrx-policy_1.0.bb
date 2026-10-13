@@ -1,14 +1,18 @@
-# The groups vrx's system grants map to (plan 0008 D2, D16). Every group
-# named in grants.conf exists on the image, so an applet unit naming one
-# can always start; `-f` makes a group the base system already has (video,
-# audio, input, dialout) a no-op. The D-Bus bus policy and polkit rules
-# that make these groups mean something land with them (plan 0008 Part B).
+# What vrx's system grants mean (plan 0008 D2, D16): the groups (every
+# group named in grants.conf exists on the image, so an applet unit naming
+# one can always start; `-f` makes a group the base system already has a
+# no-op), the D-Bus bus policy (network, bluetooth), the polkit rules
+# (hostname, power, usb, serve; time is meta-oe's datetime rule) and the
+# backlight udev rule (display).
 #
 # SPDX-License-Identifier: MIT
 
 SUMMARY = "vrx grant groups"
 LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
+
+SRC_URI = "file://zz-vrx.conf file://50-vrx.rules file://70-vrx-backlight.rules"
+S = "${UNPACKDIR}"
 
 inherit allarch useradd
 
@@ -30,9 +34,18 @@ GROUPADD_PARAM:${PN} = "${@vrx_grant_groups(d)}"
 # parse-time read: re-parse when the mapping changes
 VRX_POLICY_GRANTS_STAMP := "${@bb.parse.mark_dependency(d, d.getVar('VRX_GRANTS_CONF'))}"
 
-ALLOW_EMPTY:${PN} = "1"
 do_configure[noexec] = "1"
 do_compile[noexec] = "1"
 do_install() {
-    :
+    install -D -m 0644 ${UNPACKDIR}/zz-vrx.conf ${D}${sysconfdir}/dbus-1/system.d/zz-vrx.conf
+    # polkitd reads rules.d as its own user: 0644, directory 0755 is the
+    # polkit recipe's
+    install -D -m 0644 ${UNPACKDIR}/50-vrx.rules ${D}${datadir}/polkit-1/rules.d/50-vrx.rules
+    install -D -m 0644 ${UNPACKDIR}/70-vrx-backlight.rules ${D}${nonarch_base_libdir}/udev/rules.d/70-vrx-backlight.rules
 }
+
+FILES:${PN} = "${sysconfdir}/dbus-1/system.d/zz-vrx.conf \
+               ${datadir}/polkit-1/rules.d/50-vrx.rules \
+               ${nonarch_base_libdir}/udev/rules.d/70-vrx-backlight.rules"
+# polkit evaluates the rules; the time grant is meta-oe's own rule
+RDEPENDS:${PN} = "polkit polkit-group-rule-datetime"
