@@ -130,18 +130,20 @@ class _Shortcut extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = VrxTheme.of(context);
+    // a control: the touch minimum on a touch display, 4mm elsewhere
+    final side = (Chrome.statusButton * VrxScale.of(context)).clamp(ScaledSpacing.minInteractive(context), double.infinity);
     return VrxPress(
       onTap: onTap,
       child: Container(
-        width: Chrome.statusButton,
-        height: Chrome.statusButton,
+        width: side,
+        height: side,
         decoration: BoxDecoration(
           color: filled ? palette.fill : null,
           border: Border.all(color: palette.line, width: Strokes.hairline),
         ),
         child: Icon(
           glyph,
-          size: Chrome.statusButton * 0.6,
+          size: side * 0.5,
           color: filled ? palette.onFill : palette.secondary,
         ),
       ),

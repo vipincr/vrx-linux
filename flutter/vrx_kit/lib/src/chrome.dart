@@ -62,10 +62,16 @@ class VrxStatusStrip extends StatelessWidget {
     final palette = VrxTheme.of(context);
     final s = ScaledSpacing.of(context);
     return Container(
-      height: Chrome.statusHeight * VrxScale.of(context),
+      // evrx-rt's 6mm strip, but never under the touch minimum on a
+      // touch display: its Back is a control (the layout check found it
+      // at 4mm on every touch panel); the hairline under it is extra
+      height: (Chrome.statusHeight * VrxScale.of(context))
+          .clamp(ScaledSpacing.minInteractive(context) + Strokes.hairline, double.infinity),
+      // no breathing room above and below a touch-height strip: it would
+      // squeeze the Back control under the minimum again
       padding: EdgeInsets.symmetric(
         horizontal: s.inset,
-        vertical: s.xs,
+        vertical: ScaledSpacing.minInteractive(context) > 0 ? 0 : s.xs,
       ),
       decoration: BoxDecoration(
         border: Border(
