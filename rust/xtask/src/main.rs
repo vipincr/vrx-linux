@@ -67,8 +67,11 @@ fn rust_applets_gate(repo: &std::path::Path, stamps: &impact::Stamps) -> bool {
             );
             return false;
         }
-        let mut inputs = vec![dir.clone(), repo.join(DISPLAYS)];
-        inputs.extend(impact::path_deps(&dir));
+        let mut inputs = vec![dir.clone()];
+        for dep in impact::path_deps(&dir).into_iter().chain([dir.clone()]) {
+            inputs.extend(impact::included_files(&dep));
+            inputs.push(dep);
+        }
         let hash = impact::hash(repo, &inputs);
         let check = format!("rust {shown}");
         if stamps.fresh(&check, hash) {
@@ -97,10 +100,6 @@ fn rust_applets_gate(repo: &std::path::Path, stamps: &impact::Stamps) -> bool {
     }
     true
 }
-
-/// The display table both layout checks read (Dart through vrx_check,
-/// Rust through rust/sdk's include_str!, which is no path dependency).
-const DISPLAYS: &str = "flutter/vrx_check/lib/displays.json";
 
 /// The Flutter SDK's version file: an SDK upgrade changes every package's
 /// analysis and tests.
@@ -208,6 +207,51 @@ fn workspace_crates(repo: &std::path::Path) -> Vec<(std::path::PathBuf, String)>
         .collect()
 }
 
+/// An applet whose user (vrx-<id>) is a grant's group, named.
+fn applet_user_clash(repo: &std::path::Path) -> Option<String> {
+    let grants = std::fs::read_to_string(
+        repo.join("layer/recipes-applets/vrx-applets/files/grants.conf"),
+    )
+    .ok()?;
+    let groups: Vec<&str> = grants
+        .lines()
+        .filter_map(|l| {
+            l.split('#')
+                .next()?
+                .split_once('=')?
+                .1
+                .split_whitespace()
+                .next()
+        })
+        .collect();
+    let mut entries: Vec<_> = std::fs::read_dir(repo.join("applets"))
+        .ok()?
+        .flatten()
+        .collect();
+    entries.sort_by_key(|e| e.path());
+    for entry in entries {
+        let Ok(manifest) = std::fs::read_to_string(entry.path().join("manifest.toml"))
+        else {
+            continue;
+        };
+        let id = manifest.lines().find_map(|l| {
+            l.trim()
+                .strip_prefix("id = \"")?
+                .strip_suffix('"')
+                .map(str::to_owned)
+        });
+        if let Some(id) = id {
+            let user = format!("vrx-{id}");
+            if groups.contains(&user.as_str()) {
+                return Some(format!(
+                    "applet {id:?} would run as {user}, the group of a grant in grants.conf: choose another id"
+                ));
+            }
+        }
+    }
+    None
+}
+
 fn run(program: &str, args: &[&str]) -> bool {
     println!("gate: {program} {}", args.join(" "));
     let ok = Command::new(program)
@@ -234,13 +278,14 @@ fn gate(all: bool) -> ExitCode {
     // against, the lockfile or the workspace manifest changed
     let mut stale = Vec::new();
     for (dir, name) in workspace_crates(&repo) {
-        let mut inputs = vec![
-            dir.clone(),
-            repo.join("Cargo.lock"),
-            repo.join("Cargo.toml"),
-            repo.join(DISPLAYS),
-        ];
-        inputs.extend(impact::path_deps(&dir));
+        let mut inputs = vec![repo.join("Cargo.lock"), repo.join("Cargo.toml")];
+        // the crate, what it builds against, and what any of them reads
+        // with include_str! (rust/sdk's display table, rust/protocol's
+        // grants.conf)
+        for dep in impact::path_deps(&dir).into_iter().chain([dir.clone()]) {
+            inputs.extend(impact::included_files(&dep));
+            inputs.push(dep);
+        }
         let hash = impact::hash(&repo, &inputs);
         let check = format!("crate {name}");
         if stamps.fresh(&check, hash) {
@@ -305,6 +350,14 @@ fn gate(all: bool) -> ExitCode {
     }
     if !found.is_empty() {
         eprintln!("gate: FAILED at the responsiveness scan");
+        return ExitCode::FAILURE;
+    }
+    // an applet runs as user vrx-<id> (plan 0008 D1); a grant is a group
+    // vrx-…: an id whose user is a grant's group would hold that grant by
+    // name (the image build refuses it in do_install; caught here first)
+    println!("gate: applet users are not grant groups");
+    if let Some(clash) = applet_user_clash(&repo) {
+        eprintln!("gate: FAILED — {clash}");
         return ExitCode::FAILURE;
     }
     // the layout tests measure text in the image's fonts (vrx_check)

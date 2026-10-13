@@ -100,6 +100,38 @@ pub fn path_deps(dir: &Path) -> Vec<PathBuf> {
     seen
 }
 
+/// Files a Rust crate reads at compile time from outside its tree:
+/// every `include_str!("…")` and `include_bytes!("…")` in its sources,
+/// resolved against the source file (rust/sdk's display table,
+/// rust/protocol's grants.conf).
+pub fn included_files(dir: &Path) -> Vec<PathBuf> {
+    let mut sources = Vec::new();
+    walk(&dir.join("src"), &mut sources);
+    walk(&dir.join("tests"), &mut sources);
+    let mut found = Vec::new();
+    for src in sources
+        .iter()
+        .filter(|p| p.extension().is_some_and(|e| e == "rs"))
+    {
+        let Ok(text) = std::fs::read_to_string(src) else {
+            continue;
+        };
+        for marker in ["include_str!(\"", "include_bytes!(\""] {
+            for piece in text.split(marker).skip(1) {
+                let Some(end) = piece.find('"') else { continue };
+                let target = src.parent().unwrap_or(dir).join(&piece[..end]);
+                if let Ok(target) = target.canonicalize() {
+                    if !found.contains(&target) {
+                        found.push(target);
+                    }
+                }
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
 /// The records of green runs.
 pub struct Stamps {
     dir: PathBuf,
@@ -185,6 +217,24 @@ mod tests {
         );
         assert_eq!(path_deps(&repo.join("sdk")), vec![canon("proto")]);
         assert!(path_deps(&repo.join("kit")).is_empty());
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn included_files_are_inputs() {
+        let repo = std::env::temp_dir().join(format!("vrx-incl-{}", std::process::id()));
+        std::fs::create_dir_all(repo.join("data")).unwrap();
+        std::fs::create_dir_all(repo.join("krate/src")).unwrap();
+        std::fs::write(repo.join("data/table.json"), "{}").unwrap();
+        std::fs::write(
+            repo.join("krate/src/lib.rs"),
+            "const T: &str = include_str!(\"../../data/table.json\");\nconst M: &str = include_str!(\"missing\");\n",
+        )
+        .unwrap();
+        assert_eq!(
+            included_files(&repo.join("krate")),
+            vec![repo.join("data/table.json").canonicalize().unwrap()]
+        );
         let _ = std::fs::remove_dir_all(&repo);
     }
 
