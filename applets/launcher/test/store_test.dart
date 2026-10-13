@@ -39,4 +39,28 @@ void main() {
     final harness = StoreHarness(model);
     harness.assertView((v) => v.tiles.isEmpty);
   });
+
+  // plan 0011 D16: installs with consent, worded for what happens
+  test('offers: installable and refused ones show; older and same do not', () {
+    final model = LauncherModel()
+      ..offers = const [
+        AppOffer(file: 'a.raw', id: 'a', name: 'A', version: '1', build: 'x', kind: 'install'),
+        AppOffer(file: 'b.raw', id: 'b', name: 'B', version: '1', build: 'y', kind: 'same', installed: '1'),
+        AppOffer(file: 'c.raw', id: 'c', name: 'C', version: '0.9', build: 'z', kind: 'older', installed: '1'),
+        AppOffer(file: 'd.raw', id: 'd', name: 'D', version: '1', build: 'w', kind: 'install', problem: 'release'),
+      ];
+    final h = StoreHarness(model);
+    h.dispatch(LauncherAction.offersChanged);
+    h.assertView((v) => v.offers.map((o) => o.id).join() == 'ad');
+  });
+
+  test('consent names the act and says the app is unsigned', () {
+    const base = AppOffer(file: 'n.raw', id: 'n', name: 'Notes', version: '1.3.0', build: 'x', kind: 'install');
+    expect(consentFor(base).title, 'Install Notes 1.3.0?');
+    expect(consentFor(base).message, contains('not signed'));
+    expect(consentFor(const AppOffer(file: 'n.raw', id: 'n', name: 'Notes', version: '1.3.0', build: 'x', kind: 'update')).title,
+        'Update Notes to 1.3.0?');
+    expect(consentFor(const AppOffer(file: 'n.raw', id: 'n', name: 'Notes', version: '1.2.0', build: 'x', kind: 'replace')).act, 'Replace');
+    expect(VrxWords.offerProblem('paths'), contains('outside its own folder'));
+  });
 }

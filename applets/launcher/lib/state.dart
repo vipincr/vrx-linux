@@ -7,6 +7,12 @@ enum LauncherAction {
   appLaunched,
   appFinished,
   searchChanged,
+
+  /// The offers were read again (plan 0011 D16).
+  offersChanged,
+
+  /// Something asked for failed; the banner says why.
+  failed,
 }
 
 /// One launcher tile.
@@ -33,14 +39,39 @@ class Tile {
 
 /// What the launcher draws.
 class LauncherView {
-  const LauncherView({required this.tiles, required this.query});
+  const LauncherView({required this.tiles, required this.query, this.offers = const [], this.error});
 
   /// The visible tiles: query-filtered, position-ordered.
   final List<Tile> tiles;
 
   /// The active filter (empty: everything).
   final String query;
+
+  /// Apps offered for installing, after the tiles: those that can be
+  /// installed, updated or replaced, and those that cannot (with why).
+  final List<AppOffer> offers;
+  final String? error;
 }
+
+/// The consent question for an offer (plan 0011 D16): named for what
+/// happens, with what will change.
+({String title, String message, String act}) consentFor(AppOffer o) => switch (o.kind) {
+      'update' => (
+          title: 'Update ${o.name} to ${o.version}?',
+          message: 'Its saved data stays. Nothing proves who made this app: it is not signed.',
+          act: 'Update',
+        ),
+      'replace' => (
+          title: 'Replace ${o.name} ${o.version} with a different build?',
+          message: 'The version is the same but the app is not. Its saved data stays. It is not signed.',
+          act: 'Replace',
+        ),
+      _ => (
+          title: 'Install ${o.name} ${o.version}?',
+          message: 'It runs on its own, with none of the system\'s permissions. Nothing proves who made it: it is not signed.',
+          act: 'Install',
+        ),
+    };
 
 /// The launcher model. The registry (vrxhost) feeds the applet list;
 /// a registry change (install, remove) is an action like any other.
@@ -57,6 +88,10 @@ class LauncherModel
   final Map<String, Tile> _registry;
   String _query;
   String? _openApp;
+
+  /// What vrxhost offers for installing (older and same builds left out).
+  List<AppOffer> offers = const [];
+  String? error;
 
   @override
   LauncherState get initial => LauncherState(
@@ -86,9 +121,17 @@ class LauncherModel
       case LauncherAction.appFinished:
         _openApp = null;
       case LauncherAction.searchChanged:
+      case LauncherAction.offersChanged:
+      case LauncherAction.failed:
         break;
     }
-    return LauncherView(tiles: _visible(), query: _query);
+    if (action == LauncherAction.registryChanged) error = null;
+    return LauncherView(
+      tiles: _visible(),
+      query: _query,
+      offers: [for (final o in offers) if (o.installable || o.problem != null) o],
+      error: error,
+    );
   }
 
   List<Tile> _visible() {

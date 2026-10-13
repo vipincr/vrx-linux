@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vrx_check/vrx_check.dart';
+import 'package:vrx_kit/vrx_kit.dart';
 
 import 'package:launcher_applet/main.dart';
 import 'package:launcher_applet/state.dart';
@@ -29,7 +30,17 @@ void main() {
       for (final m in repoManifests())
         if (m.tile) m.id: Tile(id: m.id, name: m.name, position: m.position, icon: m.icon),
     });
+  // offers after the tiles: one to install, an update, one refused
+  LauncherApplet offered() => home()
+    ..replaceOffers(const [
+      AppOffer(file: 'notes.raw', id: 'notes', name: 'Notes', version: '1.2.0', build: 'a', kind: 'install'),
+      AppOffer(file: 'tasks.raw', id: 'tasks', name: 'Tasks for the week', version: '2.0.0', build: 'b', kind: 'update', installed: '1.9.0'),
+      AppOffer(file: 'bad.raw', id: 'bad', name: 'Bad', version: '1.0.0', build: 'c', kind: 'install', problem: 'paths'),
+    ]);
   for (final display in allDisplays) {
+    testWidgets('home with offers on ${display.name}', (tester) async {
+      await expectCleanLayout(tester, offered(), display: display);
+    });
     testWidgets('home with every repo applet on ${display.name}', (tester) async {
       await expectCleanLayout(tester, repoHome(), display: display);
     });

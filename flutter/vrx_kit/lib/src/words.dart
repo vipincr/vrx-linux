@@ -48,9 +48,31 @@ abstract final class VrxWords {
         return 'That was too much to send at once.';
       case 'NotListening':
         return 'The other applet is not running.';
+      case 'NotPermitted':
+        return notAllowed;
+      case 'OfferChanged':
+        return 'That app changed after it was offered. Look at it again before installing it.';
+      case 'OfferRefused':
+        return offerProblem('${err.parameters['reason'] ?? ''}');
+      case 'NotInstalled':
+        return 'That applet is part of the system, so it cannot be uninstalled.';
+      case 'InstallFailed':
+        return 'The app did not install. The details are in the log.';
     }
     return failed;
   }
+
+  /// Why an offered app cannot be installed (vrxhost's reasons).
+  static String offerProblem(String reason) => switch (reason) {
+        'name' => 'That app is named like something else on this device.',
+        'paths' => 'That app would change files outside its own folder, so it is refused.',
+        'release' => 'That app was made for another version of this system.',
+        'manifest' => 'That app asks for more than an installed app may have.',
+        'builtin' => 'That app has the name of one of the system\'s own.',
+        'flutter' => 'That app was built for another version of the system\'s Flutter.',
+        'unreadable' => 'That file is not an app this device can read.',
+        _ => 'That app cannot be installed on this device.',
+      };
 
   /// An error from a system service (connman, timedated, hostnamed,
   /// logind, localed, BlueZ, systemd).

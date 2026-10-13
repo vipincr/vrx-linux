@@ -31,6 +31,49 @@ class RegistryApplet {
   final String? icon;
 }
 
+/// An applet offered for installing (plan 0011 D16): an extension image
+/// in /var/lib/vrx/offers, read and checked by vrxhost without merging it.
+class AppOffer {
+  const AppOffer({
+    required this.file,
+    required this.id,
+    required this.name,
+    required this.version,
+    required this.build,
+    required this.kind,
+    this.installed,
+    this.problem,
+  });
+
+  factory AppOffer.fromJson(Map<String, dynamic> j) => AppOffer(
+        file: '${j['file'] ?? ''}',
+        id: '${j['id'] ?? ''}',
+        name: '${j['name'] ?? ''}',
+        version: '${j['version'] ?? ''}',
+        build: '${j['build'] ?? ''}',
+        kind: '${j['kind'] ?? ''}',
+        installed: j['installed'] as String?,
+        problem: j['problem'] as String?,
+      );
+
+  final String file, id, name, version;
+
+  /// The image's SHA-256: what the person agrees to.
+  final String build;
+
+  /// install, update, replace, older or same.
+  final String kind;
+
+  /// The installed version, when one is.
+  final String? installed;
+
+  /// Why it cannot be installed (vrxhost's key), when it cannot.
+  final String? problem;
+
+  /// It can be installed now, and doing so changes something.
+  bool get installable => problem == null && (kind == 'install' || kind == 'update' || kind == 'replace');
+}
+
 /// What is on screen: the front applet and the trail depth.
 class FrontApplet {
   const FrontApplet({required this.front, required this.depth, this.stopped});
@@ -71,6 +114,17 @@ abstract class AppletsService implements IntentTransport, NavDelegate {
 
   /// Every applet's declared settings (plan 0008 D5).
   Future<List<AppletSettingsDecl>> settings();
+
+  /// The applets offered for installing (plan 0011 D16; the apps grant).
+  Future<List<AppOffer>> offers();
+
+  /// Install [offer], refused if its build is no longer the one agreed
+  /// to. Answers the installed applet's id.
+  Future<String> installOffer(AppOffer offer);
+
+  /// Uninstall an installed applet: its image, unit drop-in, saved state,
+  /// cache and settings go.
+  Future<void> uninstall(String applet);
 
   /// Where this applet was last opened (plan 0011 D5): the route ('' is
   /// the root; one it does not declare arrives as ''), and the payload of
@@ -214,6 +268,23 @@ class VarlinkAppletsService extends AppletsService {
         ),
     ];
   }
+
+  @override
+  Future<List<AppOffer>> offers() async {
+    final reply = await _client.call('io.vrx.Host.Offers');
+    final list = reply['offers'];
+    if (list is! List) return const [];
+    return [for (final o in list.whereType<Map<String, dynamic>>()) AppOffer.fromJson(o)];
+  }
+
+  @override
+  Future<String> installOffer(AppOffer offer) async {
+    final reply = await _client.call('io.vrx.Host.Install', {'file': offer.file, 'build': offer.build});
+    return '${reply['id'] ?? offer.id}';
+  }
+
+  @override
+  Future<void> uninstall(String applet) => _client.call('io.vrx.Host.Uninstall', {'applet': applet});
 
   @override
   Future<({String route, Object? payload})> route() async {
