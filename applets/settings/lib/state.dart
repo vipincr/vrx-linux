@@ -101,6 +101,9 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
   bool? light;
   int lightLevels = 0;
   bool canPowerOff = false;
+
+  /// The supply is too low (null: the board has no supply sensor).
+  bool? supplyLow;
   SettingsCategory? open;
   bool pickingZone = false;
   bool renaming = false;
@@ -131,7 +134,8 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         if (lightLevels > 0)
           CategoryRow(SettingsCategory.display, 'Display', 'brightness_6',
               light == true ? 'Light on' : 'Light off'),
-        if (canPowerOff) const CategoryRow(SettingsCategory.power, 'Power', 'power_settings_new', ''),
+        if (canPowerOff || supplyLow != null)
+          CategoryRow(SettingsCategory.power, 'Power', 'power_settings_new', supplyLow == true ? 'Supply too low' : ''),
         CategoryRow(SettingsCategory.time, 'Time', 'schedule', time?.zone ?? ''),
         CategoryRow(SettingsCategory.network, 'Network', 'wifi', network?.connected?.name ?? (network?.ethernet == 'online' || network?.ethernet == 'ready' ? 'Wired' : '')),
         CategoryRow(SettingsCategory.device, 'Device', 'developer_board', device?.name ?? ''),
@@ -150,9 +154,20 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
           ),
         ];
       case SettingsCategory.power:
-        return const [
-          SettingRow(key: 'restart', label: 'Restart', value: '', kind: RowKind.confirm),
-          SettingRow(key: 'power_off', label: 'Power off', value: '', kind: RowKind.confirm),
+        return [
+          // a supply under ~4.63 V stalls storage and can hang the board
+          // (bench 2026-10-13): said where someone looks for power
+          if (supplyLow != null)
+            SettingRow(
+              key: 'supply',
+              label: 'Supply',
+              value: supplyLow! ? 'Too low: use a 5 V 3 A supply' : 'OK',
+              kind: RowKind.info,
+            ),
+          if (canPowerOff) ...const [
+            SettingRow(key: 'restart', label: 'Restart', value: '', kind: RowKind.confirm),
+            SettingRow(key: 'power_off', label: 'Power off', value: '', kind: RowKind.confirm),
+          ],
         ];
       case SettingsCategory.time:
         final t = time;

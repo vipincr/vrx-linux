@@ -29,6 +29,7 @@ void main() {
     ..lightLevels = 2
     ..light = true
     ..canPowerOff = true
+    ..supplyLow = true
     ..zones = ['America/Argentina/Buenos_Aires', 'Asia/Kolkata', 'Europe/London'];
   final screens = <String, SettingsModel Function()>{
     'categories': model,

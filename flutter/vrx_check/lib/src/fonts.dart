@@ -33,5 +33,10 @@ Future<void> loadVrxFonts() async {
 
   await family('Roboto', ['Roboto-Regular.ttf', 'Roboto-Medium.ttf', 'Roboto-Light.ttf']);
   await family('Liberation Mono', ['LiberationMono-Regular.ttf']);
+  // icons for screenshots only (an icon's box is its size either way):
+  // MaterialSymbolsRounded.ttf when someone has put it there
+  if (File('$dir/MaterialSymbolsRounded.ttf').existsSync()) {
+    await family('Material Symbols Rounded', ['MaterialSymbolsRounded.ttf']);
+  }
   _loaded = true;
 }

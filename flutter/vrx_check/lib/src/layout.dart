@@ -86,6 +86,17 @@ Future<List<LayoutIssue>> checkApplet<S, A, V>(
   return issues;
 }
 
+/// Mount [applet] on [display] as runApplet would and leave it mounted,
+/// for a test's own measurements (proportions an applet promises).
+Future<void> shotLayout<S, A, V>(WidgetTester tester, Applet<S, A, V> applet, {Display display = disp28a}) async {
+  await loadVrxFonts();
+  tester.view.physicalSize = Size(display.width, display.height);
+  tester.view.devicePixelRatio = display.pixelRatio;
+  addTearDown(tester.view.reset);
+  await tester.pumpWidget(AppletHost<S, A, V>(applet: applet));
+  await tester.pump(const Duration(seconds: 1));
+}
+
 /// Run [checkApplet] and fail the test with every issue, one per line.
 Future<void> expectCleanLayout<S, A, V>(
   WidgetTester tester,

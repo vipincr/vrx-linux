@@ -130,6 +130,11 @@ abstract class PowerService {
 
   /// How many brightness levels the panel has; 2 means on/off only.
   Future<int> lightLevels();
+
+  /// The supply: true while it is below what the board needs (the Pi's
+  /// rpi_volt alarm), false while it is fine; nothing on a board without
+  /// a supply sensor. Now and on every change.
+  Stream<bool> watchSupplyLow();
 }
 
 // ── network ───────────────────────────────────────────────────────────
@@ -592,7 +597,7 @@ class DBusDeviceService implements DeviceService {
 
 /// logind for power, the sysfs backlight for the light.
 class LinuxPowerService implements PowerService {
-  LinuxPowerService(DBusClient bus, {this.backlightRoot = '/sys/class/backlight'})
+  LinuxPowerService(DBusClient bus, {this.backlightRoot = '/sys/class/backlight', this.hwmonRoot = '/sys/class/hwmon'})
       : _login = DBusRemoteObject(bus,
             name: 'org.freedesktop.login1',
             path: DBusObjectPath('/org/freedesktop/login1'));
@@ -600,6 +605,33 @@ class LinuxPowerService implements PowerService {
   static const _manager = 'org.freedesktop.login1.Manager';
   final DBusRemoteObject _login;
   final String backlightRoot;
+  final String hwmonRoot;
+
+  @override
+  Stream<bool> watchSupplyLow() async* {
+    // the Raspberry Pi firmware's under-voltage alarm (hwmon "rpi_volt",
+    // in0_lcrit_alarm): set below about 4.63 V at the module
+    File? alarm;
+    final root = Directory(hwmonRoot);
+    if (!await root.exists()) return;
+    await for (final dir in root.list()) {
+      final name = File('${dir.path}/name');
+      if (await name.exists() && (await name.readAsString()).trim() == 'rpi_volt') {
+        alarm = File('${dir.path}/in0_lcrit_alarm');
+      }
+    }
+    final file = alarm;
+    if (file == null || !await file.exists()) return;
+    Future<bool> read() async => (await file.readAsString()).trim() == '1';
+    var last = await read();
+    yield last;
+    // like the backlight, a sysfs attribute with no inotify: a small read
+    // every 2 s (the firmware re-checks about that often)
+    await for (final _ in Stream<void>.periodic(const Duration(seconds: 2))) {
+      final now = await read();
+      if (now != last) yield last = now;
+    }
+  }
 
   @override
   Future<bool> canPowerOff() => _call(() async {

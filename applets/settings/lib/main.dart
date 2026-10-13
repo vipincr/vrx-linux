@@ -224,6 +224,7 @@ Future<void> main() async {
   VrxSystem.network.watch().listen((n) => fact(() => model.network = n), onError: failed);
   VrxSystem.device.watch().listen((d) => fact(() => model.device = d), onError: failed);
   VrxSystem.power.watchLight().listen((on) => fact(() => model.light = on), onError: failed);
+  VrxSystem.power.watchSupplyLow().listen((low) => fact(() => model.supplyLow = low), onError: failed);
   try {
     final levels = await VrxSystem.power.lightLevels();
     final canOff = await VrxSystem.power.canPowerOff();

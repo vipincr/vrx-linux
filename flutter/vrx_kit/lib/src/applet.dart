@@ -100,6 +100,7 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: vrxThemeData(palette),
+        scrollBehavior: const VrxScrollBehavior(),
         // dialogs too: the frame wraps the navigator
         builder: (context, child) => VrxInputRoot(child: VrxFrame(child: child ?? const SizedBox.shrink())),
         home: VrxScale.install(
