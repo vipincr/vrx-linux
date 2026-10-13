@@ -19,7 +19,7 @@ SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master \
            file://vrxhost-tmpfiles.conf \
            file://vrx-applet@.service \
            "
-SRCREV = "ed7be83d62de536409294e5d5a3fe74a563f91af"
+SRCREV = "0363f68218a74a16f4e87fb7b49047b0a8614c77"
 
 # the workspace member this recipe builds (the root manifest is the
 # workspace, not a package); the lock is the workspace's, not the
