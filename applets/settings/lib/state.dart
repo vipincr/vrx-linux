@@ -18,14 +18,14 @@ enum SettingsAction {
 }
 
 /// The settings categories, in the order evrx-rt's Settings lists them.
-enum SettingsCategory { display, power, time, device, about }
+enum SettingsCategory { display, power, time, network, device, about }
 
 /// What a row does when tapped.
 enum RowKind {
   /// A reading; nothing happens.
   info,
 
-  /// Opens something (the zone picker).
+  /// Opens something (the zone picker, another applet).
   open,
 
   /// A two-state switch.
@@ -91,6 +91,7 @@ class SettingsView {
 /// power off. Applets' own declared settings join with plan 0008 D5.
 class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsView> {
   TimeState? time;
+  NetworkState? network;
   DeviceState? device;
   bool? light;
   int lightLevels = 0;
@@ -125,6 +126,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
               light == true ? 'Light on' : 'Light off'),
         if (canPowerOff) const CategoryRow(SettingsCategory.power, 'Power', 'power_settings_new', ''),
         CategoryRow(SettingsCategory.time, 'Time', 'schedule', time?.zone ?? ''),
+        CategoryRow(SettingsCategory.network, 'Network', 'wifi', network?.connected?.name ?? (network?.ethernet == 'online' || network?.ethernet == 'ready' ? 'Wired' : '')),
         CategoryRow(SettingsCategory.device, 'Device', 'developer_board', device?.name ?? ''),
         const CategoryRow(SettingsCategory.about, 'About', 'info', ''),
       ];
@@ -163,6 +165,19 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
             value: t == null ? '…' : (t.synced ? 'Synchronised' : 'Not synchronised'),
             kind: RowKind.info,
           ),
+        ];
+      case SettingsCategory.network:
+        final n = network;
+        return [
+          if (n == null || n.wifiPresent)
+            SettingRow(key: 'wifi', label: 'Wi-Fi', value: n?.connected?.name ?? (n?.wifiOn == true ? 'On' : 'Off'), kind: RowKind.open),
+          SettingRow(
+            key: 'ethernet',
+            label: 'Wired',
+            value: n == null || n.ethernet.isEmpty ? 'Not connected' : (n.ethernet == 'online' || n.ethernet == 'ready' ? 'Connected' : n.ethernet),
+            kind: RowKind.info,
+          ),
+          SettingRow(key: 'address', label: 'Address', value: n?.address.isNotEmpty == true ? n!.address : '—', kind: RowKind.info),
         ];
       case SettingsCategory.device:
         final d = device;

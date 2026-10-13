@@ -122,6 +122,269 @@ abstract class PowerService {
   Future<int> lightLevels();
 }
 
+// ── network ───────────────────────────────────────────────────────────
+
+/// One network connman knows: in range, saved, or both.
+class WifiNetwork {
+  const WifiNetwork({
+    required this.id,
+    required this.name,
+    required this.strength,
+    required this.secured,
+    required this.state,
+    required this.saved,
+  });
+
+  /// connman's service path: what connect/forget take.
+  final String id;
+  final String name;
+
+  /// 0-100.
+  final int strength;
+  final bool secured;
+
+  /// idle, association, configuration, ready, online, disconnect, failure.
+  final String state;
+
+  /// connman remembers it (it joins on its own when in range).
+  final bool saved;
+
+  bool get connected => state == 'ready' || state == 'online';
+  bool get connecting => state == 'association' || state == 'configuration';
+}
+
+/// The network as connman sees it.
+class NetworkState {
+  const NetworkState({
+    required this.wifiPresent,
+    required this.wifiOn,
+    required this.networks,
+    required this.ethernet,
+    required this.address,
+  });
+
+  /// The device has Wi-Fi at all (plan 0008 D12).
+  final bool wifiPresent;
+  final bool wifiOn;
+
+  /// Wi-Fi networks, strongest first; the connected one first of all.
+  final List<WifiNetwork> networks;
+
+  /// The wired link's state ('' when there is no wired link).
+  final String ethernet;
+
+  /// The device's address on whichever link is up, or ''.
+  final String address;
+
+  WifiNetwork? get connected {
+    for (final n in networks) {
+      if (n.connected) return n;
+    }
+    return null;
+  }
+}
+
+/// Wi-Fi and the wired link. Needs the `network` grant.
+abstract class NetworkService {
+  Stream<NetworkState> watch();
+  Future<void> setWifi(bool on);
+  Future<void> scan();
+
+  /// Join a network. connman asks for a passphrase when it needs one;
+  /// [passphrase] is called then, and null cancels the join.
+  Future<void> connect(String id, {Future<String?> Function(String network)? passphrase});
+  Future<void> disconnect(String id);
+
+  /// Forget a saved network (connman drops its passphrase).
+  Future<void> forget(String id);
+}
+
+/// connman over D-Bus. connman keeps its own property protocol
+/// (GetProperties, PropertyChanged, Manager.ServicesChanged) rather than
+/// org.freedesktop.DBus.Properties, and asks for passphrases through an
+/// agent object the client exports (net.connman.Agent).
+class ConnmanNetworkService implements NetworkService {
+  ConnmanNetworkService(this._bus)
+      : _manager = DBusRemoteObject(_bus, name: 'net.connman', path: DBusObjectPath('/'));
+
+  final DBusClient _bus;
+  final DBusRemoteObject _manager;
+  _ConnmanAgent? _agent;
+
+  static const _mgr = 'net.connman.Manager';
+
+  DBusRemoteObject _object(String path) =>
+      DBusRemoteObject(_bus, name: 'net.connman', path: DBusObjectPath(path));
+
+  Future<NetworkState> _read() async {
+    final techs = await _manager.callMethod(_mgr, 'GetTechnologies', const [],
+        replySignature: DBusSignature('a(oa{sv})'));
+    var wifiPresent = false, wifiOn = false;
+    for (final t in techs.returnValues.first.asArray()) {
+      final props = t.asStruct()[1].asStringVariantDict();
+      if (props['Type']?.asString() == 'wifi') {
+        wifiPresent = true;
+        wifiOn = props['Powered']?.asBoolean() ?? false;
+      }
+    }
+    final services = await _manager.callMethod(_mgr, 'GetServices', const [],
+        replySignature: DBusSignature('a(oa{sv})'));
+    final networks = <WifiNetwork>[];
+    var ethernet = '', address = '';
+    for (final entry in services.returnValues.first.asArray()) {
+      final fields = entry.asStruct();
+      final path = fields[0].asObjectPath().value;
+      final p = fields[1].asStringVariantDict();
+      final state = p['State']?.asString() ?? 'idle';
+      final ipv4 = p['IPv4']?.asStringVariantDict();
+      if ((state == 'ready' || state == 'online') && address.isEmpty) {
+        address = ipv4?['Address']?.asString() ?? '';
+      }
+      switch (p['Type']?.asString()) {
+        case 'ethernet':
+          ethernet = state;
+        case 'wifi':
+          final name = p['Name']?.asString() ?? '';
+          if (name.isEmpty) continue; // a hidden network: not listed
+          final security = p['Security']?.asStringArray().toList() ?? const [];
+          networks.add(WifiNetwork(
+            id: path,
+            name: name,
+            strength: (p['Strength']?.toNative() as int?) ?? 0,
+            secured: security.any((s) => s != 'none'),
+            state: state,
+            saved: p['Favorite']?.asBoolean() ?? false,
+          ));
+      }
+    }
+    networks.sort((a, b) {
+      if (a.connected != b.connected) return a.connected ? -1 : 1;
+      return b.strength.compareTo(a.strength);
+    });
+    return NetworkState(
+      wifiPresent: wifiPresent,
+      wifiOn: wifiOn,
+      networks: networks,
+      ethernet: ethernet,
+      address: address,
+    );
+  }
+
+  @override
+  Stream<NetworkState> watch() {
+    late StreamController<NetworkState> out;
+    final subscriptions = <StreamSubscription<Object?>>[];
+    Future<void> read() async {
+      try {
+        out.add(await _read());
+      } on DBusMethodResponseException catch (err) {
+        out.addError(SystemError(err.errorName, '${err.response.values.firstOrNull?.toNative() ?? ''}'));
+      } on Object catch (err) {
+        out.addError(err);
+      }
+    }
+
+    out = StreamController<NetworkState>(
+      onListen: () {
+        for (final signal in ['ServicesChanged', 'TechnologyAdded', 'TechnologyRemoved', 'PropertyChanged']) {
+          subscriptions.add(
+              DBusRemoteObjectSignalStream(object: _manager, interface: _mgr, name: signal)
+                  .listen((_) => unawaited(read())));
+        }
+        // a service's own state (association, ready) and a technology's
+        // Powered arrive as PropertyChanged on their own objects
+        subscriptions
+          ..add(DBusSignalStream(_bus, sender: 'net.connman', interface: 'net.connman.Service', name: 'PropertyChanged')
+              .listen((_) => unawaited(read())))
+          ..add(DBusSignalStream(_bus, sender: 'net.connman', interface: 'net.connman.Technology', name: 'PropertyChanged')
+              .listen((_) => unawaited(read())))
+          ..add(_bus.nameOwnerChanged
+              .where((e) => e.name == 'net.connman' && e.newOwner != null)
+              .listen((_) => unawaited(read())));
+        unawaited(read());
+      },
+      onCancel: () async {
+        for (final s in subscriptions) {
+          await s.cancel();
+        }
+        await out.close();
+      },
+    );
+    return out.stream;
+  }
+
+  @override
+  Future<void> setWifi(bool on) => _call(() => _object('/net/connman/technology/wifi').callMethod(
+      'net.connman.Technology', 'SetProperty', [const DBusString('Powered'), DBusVariant(DBusBoolean(on))],
+      replySignature: DBusSignature('')));
+
+  @override
+  Future<void> scan() => _call(() => _object('/net/connman/technology/wifi')
+      .callMethod('net.connman.Technology', 'Scan', const [], replySignature: DBusSignature('')));
+
+  @override
+  Future<void> connect(String id, {Future<String?> Function(String network)? passphrase}) => _call(() async {
+        final agent = await _ensureAgent();
+        agent.pending = passphrase;
+        try {
+          await _object(id).callMethod('net.connman.Service', 'Connect', const [],
+              replySignature: DBusSignature(''), noAutoStart: true);
+        } finally {
+          agent.pending = null;
+        }
+      });
+
+  @override
+  Future<void> disconnect(String id) => _call(() =>
+      _object(id).callMethod('net.connman.Service', 'Disconnect', const [], replySignature: DBusSignature('')));
+
+  @override
+  Future<void> forget(String id) => _call(() =>
+      _object(id).callMethod('net.connman.Service', 'Remove', const [], replySignature: DBusSignature('')));
+
+  Future<_ConnmanAgent> _ensureAgent() async {
+    final existing = _agent;
+    if (existing != null) return existing;
+    final agent = _ConnmanAgent(DBusObjectPath('/io/vrx/connman/agent$pid'));
+    await _bus.registerObject(agent);
+    await _manager.callMethod(_mgr, 'RegisterAgent', [agent.path], replySignature: DBusSignature(''));
+    return _agent = agent;
+  }
+}
+
+/// connman's agent: answers RequestInput with the passphrase the applet
+/// supplies for the join in progress; anything else is canceled.
+class _ConnmanAgent extends DBusObject {
+  _ConnmanAgent(super.path);
+
+  Future<String?> Function(String network)? pending;
+
+  @override
+  Future<DBusMethodResponse> handleMethodCall(DBusMethodCall call) async {
+    if (call.interface != 'net.connman.Agent') return DBusMethodErrorResponse.unknownInterface();
+    switch (call.name) {
+      case 'RequestInput':
+        final ask = pending;
+        final fields = call.values[1].asStringVariantDict();
+        if (ask == null || !fields.containsKey('Passphrase')) {
+          return DBusMethodErrorResponse('net.connman.Agent.Error.Canceled');
+        }
+        final service = call.values[0].asObjectPath().value;
+        final answer = await ask(service);
+        if (answer == null) return DBusMethodErrorResponse('net.connman.Agent.Error.Canceled');
+        return DBusMethodSuccessResponse([
+          DBusDict.stringVariant({'Passphrase': DBusString(answer)}),
+        ]);
+      case 'ReportError':
+      case 'Cancel':
+      case 'Release':
+        return DBusMethodSuccessResponse();
+      default:
+        return DBusMethodErrorResponse.unknownMethod();
+    }
+  }
+}
+
 // ── the installed set ─────────────────────────────────────────────────
 
 /// The system services an applet uses. On a device they are the D-Bus
@@ -132,15 +395,23 @@ abstract final class VrxSystem {
   static TimeService? _time;
   static DeviceService? _device;
   static PowerService? _power;
+  static NetworkService? _network;
 
   static DBusClient get _system => _bus ??= DBusClient.system();
 
   static TimeService get time => _time ??= DBusTimeService(_system);
   static DeviceService get device => _device ??= DBusDeviceService(_system);
   static PowerService get power => _power ??= LinuxPowerService(_system);
+  static NetworkService get network => _network ??= ConnmanNetworkService(_system);
 
   /// Replace any of the services (tests, a desktop `flutter run`).
-  static void install({TimeService? time, DeviceService? device, PowerService? power}) {
+  static void install({
+    TimeService? time,
+    DeviceService? device,
+    PowerService? power,
+    NetworkService? network,
+  }) {
+    _network = network ?? _network;
     _time = time ?? _time;
     _device = device ?? _device;
     _power = power ?? _power;

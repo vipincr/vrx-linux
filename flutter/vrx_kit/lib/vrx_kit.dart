@@ -13,6 +13,7 @@ export 'src/components.dart';
 export 'src/file.dart';
 export 'src/host.dart';
 export 'src/intent.dart';
+export 'src/keyboard.dart';
 export 'src/metrics.dart';
 export 'src/modals.dart';
 export 'src/motion.dart';

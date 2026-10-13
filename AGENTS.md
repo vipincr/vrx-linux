@@ -58,6 +58,8 @@ change is not "done" until the gate is green.
       goes into effects, I/O is async;
     - timers tick no faster than the manifest's `repaints_per_min`
       allows, and stop when the applet is not focused;
+    - touch targets are 9mm; the one exception is VrxKeyboard's key
+      width (ten keys across a 43mm panel), which keeps the 9mm height;
     - lists build lazily (`ListView.builder`, never a list of all rows);
       `build` does no work beyond describing widgets; const where it can;
     - every future is awaited or explicitly `unawaited`, every stream and

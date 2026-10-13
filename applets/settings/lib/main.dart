@@ -84,6 +84,9 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
 
   void _onRow(BuildContext context, SettingRow row) {
     switch (row.key) {
+      case 'wifi':
+        // Wi-Fi is its own applet (no tile): a trail push, vrxhost starts it
+        Nav.push('wifi');
       case 'light':
         unawaited(_ask(context, () => VrxSystem.power.setLight(!row.on)));
       case 'automatic':
@@ -160,6 +163,7 @@ class _Category extends StatelessWidget {
     SettingsCategory.display: 'Display',
     SettingsCategory.power: 'Power',
     SettingsCategory.time: 'Time',
+    SettingsCategory.network: 'Network',
     SettingsCategory.device: 'Device',
     SettingsCategory.about: 'About',
   };
@@ -228,6 +232,7 @@ Future<void> main() async {
   // each service on its own: one that is absent (a desktop run, a board
   // without a backlight) leaves the others working
   VrxSystem.time.watch().listen((t) => fact(() => model.time = t), onError: failed);
+  VrxSystem.network.watch().listen((n) => fact(() => model.network = n), onError: failed);
   VrxSystem.device.watch().listen((d) => fact(() => model.device = d), onError: failed);
   VrxSystem.power.watchLight().listen((on) => fact(() => model.light = on), onError: failed);
   try {

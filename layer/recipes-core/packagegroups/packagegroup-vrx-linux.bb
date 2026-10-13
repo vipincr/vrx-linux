@@ -20,7 +20,7 @@ RDEPENDS:${PN} = "\
     vrxhost \
     vrxinit \
     vrx-policy \
-    ${@'vrx-applet-launcher vrx-applet-clock vrx-applet-settings' if d.getVar('VRX_UI') == 'flutter' else ''} \
+    ${@'vrx-applet-launcher vrx-applet-clock vrx-applet-settings vrx-applet-wifi' if d.getVar('VRX_UI') == 'flutter' else ''} \
 "
 
 # The built-in applets render through flutter-vrx, so they ride only on

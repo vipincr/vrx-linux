@@ -9,7 +9,7 @@ void main() {
     final harness = StoreHarness(model);
     // no backlight, no power grant: no Display, no Power
     harness.assertView((v) => v.categories.map((c) => c.category).toList().toString() ==
-        [SettingsCategory.time, SettingsCategory.device, SettingsCategory.about].toString());
+        [SettingsCategory.time, SettingsCategory.network, SettingsCategory.device, SettingsCategory.about].toString());
     model
       ..lightLevels = 2
       ..light = true
@@ -30,6 +30,16 @@ void main() {
     expect(rows.firstWhere((r) => r.key == 'zone').value, 'Asia/Kolkata');
     expect(rows.firstWhere((r) => r.key == 'automatic').on, isTrue);
     expect(rows.firstWhere((r) => r.key == 'synced').value, 'Synchronised');
+  });
+
+  test('the network rows read connman; no Wi-Fi row without Wi-Fi', () {
+    final model = SettingsModel()..open = SettingsCategory.network;
+    final harness = StoreHarness(model);
+    model.network = const NetworkState(wifiPresent: false, wifiOn: false, networks: [], ethernet: 'online', address: '10.10.10.8');
+    harness.dispatch(SettingsAction.factsChanged);
+    final keys = harness.view.rows.map((r) => r.key).toList();
+    expect(keys, ['ethernet', 'address']);
+    expect(harness.view.rows.first.value, 'Connected');
   });
 
   test('a failure shows until the person moves on', () {
