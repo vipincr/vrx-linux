@@ -182,7 +182,10 @@ Future<void> main() async {
   final model = SetupModel();
   runApplet(SetupApplet(model), actions: _events.stream);
   VrxSystem.network.watch().listen((n) {
-    model.network = n.connected?.name ?? (n.address.isNotEmpty ? 'Wired (${n.address})' : '');
+    final wifi = n.connected;
+    model.network = wifi != null
+        ? '${wifi.name} (${wifi.address})'
+        : (n.wired ? 'Wired (${n.ethernetAddress})' : '');
     _events.add(SetupAction.factsChanged);
   }, onError: (Object _) {});
   VrxSystem.time.watch().listen((t) {

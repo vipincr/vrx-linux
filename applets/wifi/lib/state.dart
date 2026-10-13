@@ -20,7 +20,6 @@ class WifiView {
     required this.present,
     required this.on,
     required this.connected,
-    required this.address,
     required this.nearby,
     required this.asking,
     required this.error,
@@ -29,8 +28,8 @@ class WifiView {
   /// The device has Wi-Fi.
   final bool present;
   final bool on;
+  /// The joined network; its own address is connected.address.
   final WifiNetwork? connected;
-  final String address;
 
   /// Everything else in range, strongest first.
   final List<WifiNetwork> nearby;
@@ -61,7 +60,6 @@ class WifiModel extends StoreModel<WifiState, WifiAction, WifiView> {
       present: n?.wifiPresent ?? true,
       on: n?.wifiOn ?? false,
       connected: connected,
-      address: n?.address ?? '',
       nearby: [
         for (final w in n?.networks ?? const <WifiNetwork>[])
           if (!w.connected) w,

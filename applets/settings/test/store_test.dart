@@ -9,7 +9,7 @@ void main() {
     final harness = StoreHarness(model);
     // no backlight, no power grant: no Display, no Power
     harness.assertView((v) => v.categories.map((c) => c.category).toList().toString() ==
-        [SettingsCategory.time, SettingsCategory.network, SettingsCategory.device, SettingsCategory.about].toString());
+        [SettingsCategory.time, SettingsCategory.network, SettingsCategory.device].toString());
     model
       ..lightLevels = 2
       ..light = true
@@ -35,11 +35,23 @@ void main() {
   test('the network rows read connman; no Wi-Fi row without Wi-Fi', () {
     final model = SettingsModel()..open = SettingsCategory.network;
     final harness = StoreHarness(model);
-    model.network = const NetworkState(wifiPresent: false, wifiOn: false, networks: [], ethernet: 'online', address: '10.10.10.8');
+    model.network = const NetworkState(wifiPresent: false, wifiOn: false, networks: [], ethernet: 'online', ethernetAddress: '10.10.10.8');
     harness.dispatch(SettingsAction.factsChanged);
     final keys = harness.view.rows.map((r) => r.key).toList();
-    expect(keys, ['ethernet', 'address']);
-    expect(harness.view.rows.first.value, 'Connected');
+    expect(keys, ['ethernet']);
+    expect(harness.view.rows.first.value, '10.10.10.8');
+  });
+
+  test('Device lists only what the device reports, no placeholders', () {
+    final model = SettingsModel()..open = SettingsCategory.device;
+    final harness = StoreHarness(model);
+    harness.assertView((v) => v.rows.isEmpty, because: 'nothing read yet: nothing shown');
+    model.device = const DeviceState(name: 'vrxboard-cm4', hostname: 'vrxboard-cm4', model: 'Raspberry Pi Compute Module 4 Rev 1.1', version: '0.1.0074 (cm4-bcm2711)', memoryMb: 1843);
+    harness.dispatch(SettingsAction.factsChanged);
+    final keys = harness.view.rows.map((r) => r.key).toList();
+    // no network-name row when it equals the name; no serial when unknown
+    expect(keys, ['name', 'model', 'version', 'memory', 'licences', 'setup']);
+    expect(harness.view.rows.firstWhere((r) => r.key == 'memory').value, '1.8 GB');
   });
 
   test('a failure shows until the person moves on', () {

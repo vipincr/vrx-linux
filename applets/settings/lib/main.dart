@@ -55,6 +55,15 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
     final Widget body;
     if (open == null) {
       body = _Categories(view: view, onOpen: (c) => _go(context, () => model.open = c));
+    } else if (view.renaming) {
+      body = _RenameScreen(
+        name: model.device?.name ?? '',
+        onBack: () => _go(context, () => model.renaming = false),
+        onDone: (name) {
+          _go(context, () => model.renaming = false);
+          if (name.trim().isNotEmpty) unawaited(_ask(context, () => VrxSystem.device.setName(name.trim())));
+        },
+      );
     } else if (view.pickingZone) {
       body = _ZonePicker(
         view: view,
@@ -90,6 +99,8 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
         Nav.push(row.key);
       case 'licences':
         Nav.push('docs');
+      case 'name':
+        _go(context, () => model.renaming = true);
       case 'light':
         unawaited(_ask(context, () => VrxSystem.power.setLight(!row.on)));
       case 'automatic':
@@ -168,7 +179,6 @@ class _Category extends StatelessWidget {
     SettingsCategory.time: 'Time',
     SettingsCategory.network: 'Network',
     SettingsCategory.device: 'Device',
-    SettingsCategory.about: 'About',
   };
 
   @override
@@ -187,6 +197,59 @@ class _Category extends StatelessWidget {
           RowKind.confirm => VrxRow(label: row.label, value: '', onTap: () => onRow(row)),
           RowKind.info => VrxRow(label: row.label, value: row.value),
         },
+    ]);
+  }
+}
+
+class _RenameScreen extends StatefulWidget {
+  const _RenameScreen({required this.name, required this.onBack, required this.onDone});
+
+  final String name;
+  final VoidCallback onBack;
+  final void Function(String) onDone;
+
+  @override
+  State<_RenameScreen> createState() => _RenameScreenState();
+}
+
+class _RenameScreenState extends State<_RenameScreen> {
+  late final _controller = TextEditingController(text: widget.name);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final space = ScaledSpacing.of(context);
+    return Column(children: [
+      VrxHeader(title: 'Name', onBack: widget.onBack),
+      Expanded(
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: space.md),
+          child: Center(
+            // the keyboard writes the controller directly; the helper
+            // follows it
+            child: ListenableBuilder(
+              listenable: _controller,
+              builder: (context, _) => TextField(
+                controller: _controller,
+                readOnly: true, // typed on the keyboard below
+                showCursor: true,
+                autofocus: true,
+                style: TypeRole.body(context),
+                decoration: InputDecoration(
+                  isDense: true,
+                  helperText: 'Network name: ${hostnameFor(_controller.text)}',
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      VrxKeyboard(controller: _controller, onDone: () => widget.onDone(_controller.text)),
     ]);
   }
 }

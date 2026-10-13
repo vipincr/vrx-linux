@@ -13,12 +13,15 @@ enum SettingsAction {
   /// The zone list arrived.
   zonesLoaded,
 
+  /// The rename screen opened or closed.
+  renaming,
+
   /// A system call failed; the banner says why.
   failed,
 }
 
 /// The settings categories, in the order evrx-rt's Settings lists them.
-enum SettingsCategory { display, power, time, network, device, about }
+enum SettingsCategory { display, power, time, network, device }
 
 /// What a row does when tapped.
 enum RowKind {
@@ -74,6 +77,7 @@ class SettingsView {
     required this.rows,
     required this.zones,
     required this.pickingZone,
+    required this.renaming,
     required this.error,
   });
 
@@ -82,6 +86,7 @@ class SettingsView {
   final List<SettingRow> rows;
   final List<String> zones;
   final bool pickingZone;
+  final bool renaming;
   final String? error;
 }
 
@@ -98,6 +103,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
   bool canPowerOff = false;
   SettingsCategory? open;
   bool pickingZone = false;
+  bool renaming = false;
   List<String> zones = const [];
   String? error;
 
@@ -116,6 +122,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
       rows: open == null ? const [] : _rows(open!),
       zones: zones,
       pickingZone: pickingZone,
+      renaming: renaming,
       error: error,
     );
   }
@@ -128,7 +135,6 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         CategoryRow(SettingsCategory.time, 'Time', 'schedule', time?.zone ?? ''),
         CategoryRow(SettingsCategory.network, 'Network', 'wifi', network?.connected?.name ?? (network?.ethernet == 'online' || network?.ethernet == 'ready' ? 'Wired' : '')),
         CategoryRow(SettingsCategory.device, 'Device', 'developer_board', device?.name ?? ''),
-        const CategoryRow(SettingsCategory.about, 'About', 'info', ''),
       ];
 
   List<SettingRow> _rows(SettingsCategory category) {
@@ -168,30 +174,42 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         ];
       case SettingsCategory.network:
         final n = network;
+        final wifi = n?.connected;
         return [
+          // each link with its own address: with a cable and Wi-Fi both up
+          // there is no single "the address"
           if (n == null || n.wifiPresent)
-            SettingRow(key: 'wifi', label: 'Wi-Fi', value: n?.connected?.name ?? (n?.wifiOn == true ? 'On' : 'Off'), kind: RowKind.open),
+            SettingRow(
+              key: 'wifi',
+              label: 'Wi-Fi',
+              value: wifi != null ? '${wifi.name} · ${wifi.address}' : (n?.wifiOn == true ? 'Not connected' : 'Off'),
+              kind: RowKind.open,
+            ),
           SettingRow(
             key: 'ethernet',
             label: 'Wired',
-            value: n == null || n.ethernet.isEmpty ? 'Not connected' : (n.ethernet == 'online' || n.ethernet == 'ready' ? 'Connected' : n.ethernet),
+            value: n != null && n.wired ? n.ethernetAddress : 'Not connected',
             kind: RowKind.info,
           ),
-          SettingRow(key: 'address', label: 'Address', value: n?.address.isNotEmpty == true ? n!.address : '—', kind: RowKind.info),
         ];
       case SettingsCategory.device:
+        // one screen of what the device is: its name (renamed here; the
+        // network name follows it, shown only when it differs), the board
+        // and its software. A fact the device does not report is left out,
+        // never shown as a placeholder.
         final d = device;
+        if (d == null) return const [];
         return [
-          SettingRow(key: 'name', label: 'Name', value: d?.name ?? '…', kind: RowKind.info),
-          SettingRow(key: 'hostname', label: 'Network name', value: d?.hostname ?? '…', kind: RowKind.info),
-          const SettingRow(key: 'setup', label: 'Set up again', value: '', kind: RowKind.open),
-        ];
-      case SettingsCategory.about:
-        final d = device;
-        return [
-          SettingRow(key: 'system', label: 'System', value: d?.system ?? '…', kind: RowKind.info),
-          SettingRow(key: 'model', label: 'Hardware', value: d?.model ?? '…', kind: RowKind.info),
+          SettingRow(key: 'name', label: 'Name', value: d.name, kind: RowKind.open),
+          if (d.hostname.isNotEmpty && d.hostname != d.name)
+            SettingRow(key: 'hostname', label: 'Network name', value: d.hostname, kind: RowKind.info),
+          if (d.model.isNotEmpty) SettingRow(key: 'model', label: 'Board', value: d.model, kind: RowKind.info),
+          if (d.version.isNotEmpty) SettingRow(key: 'version', label: 'vrx', value: d.version, kind: RowKind.info),
+          if (d.memoryMb > 0)
+            SettingRow(key: 'memory', label: 'Memory', value: '${(d.memoryMb / 1024).toStringAsFixed(1)} GB', kind: RowKind.info),
+          if (d.serial.isNotEmpty) SettingRow(key: 'serial', label: 'Serial', value: d.serial, kind: RowKind.info),
           const SettingRow(key: 'licences', label: 'Licences', value: '', kind: RowKind.open),
+          const SettingRow(key: 'setup', label: 'Set up again', value: '', kind: RowKind.open),
         ];
     }
   }

@@ -13,12 +13,18 @@ void main() {
     model.network = NetworkState(
       wifiPresent: true,
       wifiOn: true,
-      networks: [net('home', 80, state: 'online', saved: true), net('cafe', 60), net('far', 10)],
+      networks: [
+        const WifiNetwork(id: '/h', name: 'home', strength: 80, secured: true, state: 'online', saved: true, address: '192.168.1.42'),
+        net('cafe', 60),
+        net('far', 10),
+      ],
       ethernet: 'ready',
-      address: '10.10.10.8',
+      ethernetAddress: '10.10.10.8',
     );
     harness.dispatch(WifiAction.networkChanged);
     harness.assertView((v) => v.connected?.name == 'home' && v.nearby.map((n) => n.name).join(',') == 'cafe,far');
+    // the Wi-Fi link's own address, never the cable's (the bench bug)
+    harness.assertView((v) => v.connected?.address == '192.168.1.42');
   });
 
   test('signal glyphs bucket by strength', () {

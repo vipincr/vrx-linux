@@ -63,26 +63,36 @@ abstract class TimeService {
 
 // ── device ────────────────────────────────────────────────────────────
 
-/// What the device is called and what it is.
+/// What the device is called and what it is. Each fact from where Linux
+/// keeps it: the names from hostnamed, the rest from files the kernel
+/// and the image already publish.
 class DeviceState {
   const DeviceState({
     required this.name,
     required this.hostname,
-    required this.system,
-    required this.model,
+    this.version = '',
+    this.model = '',
+    this.serial = '',
+    this.memoryMb = 0,
   });
 
   /// The name a person gave it (pretty hostname), or the hostname.
   final String name;
 
-  /// The network name (static hostname).
+  /// The network name (static hostname), derived from [name].
   final String hostname;
 
-  /// The OS (`vrx 0.1.0074 (cm4-bcm2711)`).
-  final String system;
+  /// The vrx release (/etc/os-release VERSION: `0.1.0074 (cm4-bcm2711)`).
+  final String version;
 
-  /// The hardware, from the device tree when the firmware says.
+  /// The board (/proc/device-tree/model).
   final String model;
+
+  /// The board's serial (/proc/device-tree/serial-number).
+  final String serial;
+
+  /// Installed memory (/proc/meminfo MemTotal).
+  final int memoryMb;
 }
 
 /// The device's name. Needs the `hostname` grant to change it.
@@ -133,6 +143,7 @@ class WifiNetwork {
     required this.secured,
     required this.state,
     required this.saved,
+    this.address = '',
   });
 
   /// connman's service path: what connect/forget take.
@@ -149,6 +160,9 @@ class WifiNetwork {
   /// connman remembers it (it joins on its own when in range).
   final bool saved;
 
+  /// This network's own IPv4 address while connected, else ''.
+  final String address;
+
   bool get connected => state == 'ready' || state == 'online';
   bool get connecting => state == 'association' || state == 'configuration';
 }
@@ -160,7 +174,7 @@ class NetworkState {
     required this.wifiOn,
     required this.networks,
     required this.ethernet,
-    required this.address,
+    this.ethernetAddress = '',
   });
 
   /// The device has Wi-Fi at all (plan 0008 D12).
@@ -173,8 +187,13 @@ class NetworkState {
   /// The wired link's state ('' when there is no wired link).
   final String ethernet;
 
-  /// The device's address on whichever link is up, or ''.
-  final String address;
+  /// The wired link's own IPv4 address while it is up, else ''. Each link
+  /// carries its own address: with a cable and Wi-Fi both up there is no
+  /// single "the address" (the bench showed the wired one on the Wi-Fi
+  /// screen).
+  final String ethernetAddress;
+
+  bool get wired => ethernet == 'ready' || ethernet == 'online';
 
   WifiNetwork? get connected {
     for (final n in networks) {
@@ -230,19 +249,18 @@ class ConnmanNetworkService implements NetworkService {
     final services = await _manager.callMethod(_mgr, 'GetServices', const [],
         replySignature: DBusSignature('a(oa{sv})'));
     final networks = <WifiNetwork>[];
-    var ethernet = '', address = '';
+    var ethernet = '', ethernetAddress = '';
     for (final entry in services.returnValues.first.asArray()) {
       final fields = entry.asStruct();
       final path = fields[0].asObjectPath().value;
       final p = fields[1].asStringVariantDict();
       final state = p['State']?.asString() ?? 'idle';
-      final ipv4 = p['IPv4']?.asStringVariantDict();
-      if ((state == 'ready' || state == 'online') && address.isEmpty) {
-        address = ipv4?['Address']?.asString() ?? '';
-      }
+      final up = state == 'ready' || state == 'online';
+      final address = up ? (p['IPv4']?.asStringVariantDict()['Address']?.asString() ?? '') : '';
       switch (p['Type']?.asString()) {
         case 'ethernet':
           ethernet = state;
+          ethernetAddress = address;
         case 'wifi':
           final name = p['Name']?.asString() ?? '';
           if (name.isEmpty) continue; // a hidden network: not listed
@@ -254,6 +272,7 @@ class ConnmanNetworkService implements NetworkService {
             secured: security.any((s) => s != 'none'),
             state: state,
             saved: p['Favorite']?.asBoolean() ?? false,
+            address: address,
           ));
       }
     }
@@ -266,7 +285,7 @@ class ConnmanNetworkService implements NetworkService {
       wifiOn: wifiOn,
       networks: networks,
       ethernet: ethernet,
-      address: address,
+      ethernetAddress: ethernetAddress,
     );
   }
 
@@ -521,15 +540,43 @@ class DBusDeviceService implements DeviceService {
   static const _iface = 'org.freedesktop.hostname1';
   final DBusRemoteObject _object;
 
+  /// The facts that do not change while the device runs, read once.
+  late final Future<({String version, String model, String serial, int memoryMb})> _facts = () async {
+    Future<String> read(String path) async {
+      try {
+        // device-tree strings end in NUL
+        return (await File(path).readAsString()).replaceAll('\u0000', '').trim();
+      } on FileSystemException {
+        return '';
+      }
+    }
+
+    final release = await read('/etc/os-release');
+    final version = RegExp(r'^VERSION="?([^"\n]*)"?', multiLine: true).firstMatch(release)?.group(1) ?? '';
+    final meminfo = await read('/proc/meminfo');
+    final kb = int.tryParse(RegExp(r'^MemTotal:\s+(\d+)', multiLine: true).firstMatch(meminfo)?.group(1) ?? '') ?? 0;
+    return (
+      version: version,
+      model: await read('/proc/device-tree/model'),
+      serial: await read('/proc/device-tree/serial-number'),
+      memoryMb: kb ~/ 1024,
+    );
+  }();
+
   @override
   Stream<DeviceState> watch() => _watch(_object, _iface, (p) {
         final hostname = p['StaticHostname']?.asString() ?? p['Hostname']?.asString() ?? '';
         final pretty = p['PrettyHostname']?.asString() ?? '';
+        return (hostname: hostname, name: pretty.isEmpty ? hostname : pretty);
+      }).asyncMap((names) async {
+        final f = await _facts;
         return DeviceState(
-          name: pretty.isEmpty ? hostname : pretty,
-          hostname: hostname,
-          system: p['OperatingSystemPrettyName']?.asString() ?? '',
-          model: p['HardwareModel']?.asString() ?? '',
+          name: names.name,
+          hostname: names.hostname,
+          version: f.version,
+          model: f.model,
+          serial: f.serial,
+          memoryMb: f.memoryMb,
         );
       });
 

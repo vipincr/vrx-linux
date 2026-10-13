@@ -137,7 +137,8 @@ class _Networks extends StatelessWidget {
             VrxRow(
               glyph: VrxSymbols.named(signalGlyph(connected.strength)),
               label: connected.name,
-              value: view.address.isEmpty ? 'Connected' : view.address,
+              // the Wi-Fi link's own address, not whichever link is first
+              value: connected.address.isEmpty ? 'Connecting…' : connected.address,
               onTap: () => onForget(connected),
             ),
           if (view.on) const VrxSection(title: 'Nearby'),
