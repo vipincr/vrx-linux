@@ -15,6 +15,11 @@ polkit.addRule(function (action, subject) {
         return polkit.Result.YES;
     }
 
+    /* the locale, which the time format follows (plan 0011 D7) */
+    if (subject.isInGroup("vrx-locale") && id === "org.freedesktop.locale1.set-locale") {
+        return polkit.Result.YES;
+    }
+
     if (subject.isInGroup("vrx-power") &&
         (id === "org.freedesktop.login1.power-off" ||
          id === "org.freedesktop.login1.power-off-multiple-sessions" ||

@@ -17,7 +17,7 @@ heap_mb = 96
 installs = false
 
 [applet.permissions]
-system = ["network", "bluetooth", "time", "hostname", "display", "power", "settings"]
+system = ["network", "bluetooth", "time", "hostname", "display", "power", "settings", "locale"]
 fs = ["/data/settings"]
 
 [applet.intents]

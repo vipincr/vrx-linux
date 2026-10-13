@@ -81,6 +81,9 @@ pub enum SystemGrant {
     /// The local model servers' sockets, and asking for a model to be
     /// fetched (plan 0011 D18).
     Ml,
+    /// The system's locale, which the time format follows (systemd-localed's
+    /// SetLocale, plan 0011 D7).
+    Locale,
 }
 
 impl SystemGrant {
@@ -106,11 +109,12 @@ impl SystemGrant {
             SystemGrant::Iio => "iio",
             SystemGrant::Settings => "settings",
             SystemGrant::Ml => "ml",
+            SystemGrant::Locale => "locale",
         }
     }
 
     /// Every grant, for table checks.
-    pub const ALL: [SystemGrant; 19] = [
+    pub const ALL: [SystemGrant; 20] = [
         SystemGrant::Network,
         SystemGrant::Bluetooth,
         SystemGrant::Time,
@@ -130,6 +134,7 @@ impl SystemGrant {
         SystemGrant::Iio,
         SystemGrant::Settings,
         SystemGrant::Ml,
+        SystemGrant::Locale,
     ];
 }
 
