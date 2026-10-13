@@ -15,7 +15,6 @@ void main() {
             const Scaffold(body: Text('behind')),
             VrxQuickDrawer(
               version: 'vrx 0.1.0',
-              lightOn: true,
               wifiUp: true,
               bleUp: false,
               onDismiss: () => dismissed++,
@@ -44,7 +43,6 @@ void main() {
             Scaffold(),
             VrxQuickDrawer(
               version: 'v',
-              lightOn: false,
               wifiUp: true,
               bleUp: false,
             ),
@@ -71,6 +69,21 @@ void main() {
       isNotEmpty,
       reason: 'the ble shortcut stays outlined',
     );
+  });
+
+  testWidgets('no light switch; the brightness slider only where the screen dims', (tester) async {
+    Future<void> mount(int? brightness) => tester.pumpWidget(MaterialApp(
+          home: Stack(children: [
+            const Scaffold(),
+            VrxQuickDrawer(version: 'v', brightness: brightness, wifiUp: false, bleUp: false),
+          ]),
+        ));
+    await mount(null);
+    expect(find.byType(VrxSlider), findsNothing);
+    expect(find.byIcon(VrxSymbols.light_mode), findsNothing);
+    expect(find.byIcon(VrxSymbols.dark_mode), findsNothing);
+    await mount(40);
+    expect(tester.widget<VrxSlider>(find.byType(VrxSlider)).value, 40);
   });
 
   testWidgets('the setup walk counts its steps and finishes',

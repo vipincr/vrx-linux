@@ -99,44 +99,53 @@ class AppletSettings {
     }
   }
 
-  /// [applet]'s settings now, and again whenever its file changes. A
-  /// controller, not an async* generator: cancelling a generator parked
-  /// in an await-for waits for the next file event.
-  Stream<Map<String, String>> watch(String applet) {
-    StreamSubscription<FileSystemEvent>? events;
-    late final StreamController<Map<String, String>> out;
-    out = StreamController(
-      onListen: () async {
-        out.add(await read(applet));
-        final d = Directory(dir);
-        if (!await d.exists() || out.isClosed) return;
-        // the directory, not the file: a write is a new file renamed over it
-        events = d.watch().listen((ev) async {
-          // a write is a rename: on Linux a move event whose path is the
-          // temporary name and whose destination is the file
-          final name = '/$applet.conf';
-          final hit = ev.path.endsWith(name) || (ev is FileSystemMoveEvent && (ev.destination ?? '').endsWith(name));
-          if (hit && !out.isClosed) out.add(await read(applet));
-        });
-      },
-      onCancel: () async {
-        await events?.cancel();
-        await out.close();
-      },
-    );
-    return out.stream;
-  }
+  /// [applet]'s settings now, and again whenever its file changes.
+  Stream<Map<String, String>> watch(String applet) => watchSettingsFile(dir, '$applet.conf', () => read(applet));
 
   /// Set one key (the settings grant): a new file renamed over the old,
   /// so a reader never sees half of one.
   Future<void> set(String applet, String key, String value) async {
     final values = Map.of(await read(applet))..[key] = value;
-    final tmp = File('$dir/.$applet.conf.new');
-    await tmp.writeAsString(formatSettings(applet, values), flush: true);
-    // the applet's unit has UMask=0077: the file must stay readable by
-    // the applet it belongs to (0664, the directory's group by setgid)
-    final chmod = await Process.run('chmod', ['0664', tmp.path]);
-    if (chmod.exitCode != 0) throw FileSystemException('chmod: ${chmod.stderr}'.trim(), tmp.path);
-    await tmp.rename(_file(applet).path);
+    await replaceSettingsFile(dir, '$applet.conf', formatSettings(applet, values));
   }
+}
+
+/// A key=value file in [dir] read now by [read], and again whenever it
+/// changes. A controller, not an async* generator: cancelling a generator
+/// parked in an await-for waits for the next file event.
+Stream<Map<String, String>> watchSettingsFile(String dir, String name, Future<Map<String, String>> Function() read) {
+  StreamSubscription<FileSystemEvent>? events;
+  late final StreamController<Map<String, String>> out;
+  out = StreamController(
+    onListen: () async {
+      out.add(await read());
+      final d = Directory(dir);
+      if (!await d.exists() || out.isClosed) return;
+      // the directory, not the file: a write is a new file renamed over it
+      events = d.watch().listen((ev) async {
+        // a write is a rename: on Linux a move event whose path is the
+        // temporary name and whose destination is the file
+        final hit = ev.path.endsWith('/$name') || (ev is FileSystemMoveEvent && (ev.destination ?? '').endsWith('/$name'));
+        if (hit && !out.isClosed) out.add(await read());
+      });
+    },
+    onCancel: () async {
+      await events?.cancel();
+      await out.close();
+    },
+  );
+  return out.stream;
+}
+
+/// Replace [dir]/[name] with [text]: a new file renamed over the old, so
+/// a reader never sees half of one. The one way vrx writes a settings
+/// file.
+Future<void> replaceSettingsFile(String dir, String name, String text) async {
+  final tmp = File('$dir/.$name.new');
+  await tmp.writeAsString(text, flush: true);
+  // an applet's unit has UMask=0077: the file must stay readable by
+  // whoever reads it (0664, the directory's group by setgid)
+  final chmod = await Process.run('chmod', ['0664', tmp.path]);
+  if (chmod.exitCode != 0) throw FileSystemException('chmod: ${chmod.stderr}'.trim(), tmp.path);
+  await tmp.rename('$dir/$name');
 }

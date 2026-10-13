@@ -26,11 +26,11 @@ void main() {
       serial: '10000000a1b2c3d4',
       memoryMb: 3796,
     )
-    ..lightLevels = 2
-    ..light = true
+    ..dimming = VrxDimming.alpha
+    ..screen = const ScreenState(brightness: 40, lightOff: 600)
     // a colour panel drawing scheme 12, with 13 chosen: the longest Display
     ..runningScheme = 12
-    ..values['vrx'] = {'scheme': '13', 'polarity': 'light', 'light_off': '600'}
+    ..values['vrx'] = {'scheme': '13', 'polarity': 'light'}
     ..canPowerOff = true
     ..supplyLow = true
     ..zones = ['America/Argentina/Buenos_Aires', 'Asia/Kolkata', 'Europe/London']

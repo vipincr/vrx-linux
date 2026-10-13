@@ -27,4 +27,15 @@ void main() {
     h.dispatch(ShellAction.powerDismissed);
     h.assertView((v) => !v.drawer && !v.askingPower);
   });
+
+  test('the brightness slider is offered only where the screen dims (plan 0010 D8)', () {
+    final model = ShellModel();
+    final h = StoreHarness(model);
+    h.assertView((v) => v.brightness == null, because: 'the compositor has not said it can dim');
+    model
+      ..dimming = VrxDimming.alpha
+      ..brightness = 30;
+    h.dispatch(ShellAction.factsChanged);
+    h.assertView((v) => v.brightness == 30);
+  });
 }

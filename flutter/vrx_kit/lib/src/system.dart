@@ -114,22 +114,16 @@ String hostnameFor(String name) {
   return cut.isEmpty ? 'vrx' : cut.replaceAll(RegExp(r'-+$'), '');
 }
 
-// ── power and light ───────────────────────────────────────────────────
+// ── power ─────────────────────────────────────────────────────────────
 
-/// Power off, restart, and the display light. Needs the `power` grant
-/// (logind) and the `display` grant (the backlight).
+/// Power off, restart, and the supply. Needs the `power` grant (logind).
+/// The screen is the compositor's alone (plan 0010): its brightness and
+/// timeout are `ScreenSettings`, a hold is `VrxKeepScreenOn`.
 abstract class PowerService {
   /// Whether this applet may power off (logind's answer, without acting).
   Future<bool> canPowerOff();
   Future<void> powerOff();
   Future<void> reboot();
-
-  /// The light: on/off now and on every change.
-  Stream<bool> watchLight();
-  Future<void> setLight(bool on);
-
-  /// How many brightness levels the panel has; 2 means on/off only.
-  Future<int> lightLevels();
 
   /// The supply: true while it is below what the board needs (the Pi's
   /// rpi_volt alarm), false while it is fine; nothing on a board without
@@ -638,16 +632,15 @@ class DBusDeviceService implements DeviceService {
       });
 }
 
-/// logind for power, the sysfs backlight for the light.
+/// logind for power, hwmon for the supply.
 class LinuxPowerService implements PowerService {
-  LinuxPowerService(DBusClient bus, {this.backlightRoot = '/sys/class/backlight', this.hwmonRoot = '/sys/class/hwmon'})
+  LinuxPowerService(DBusClient bus, {this.hwmonRoot = '/sys/class/hwmon'})
       : _login = DBusRemoteObject(bus,
             name: 'org.freedesktop.login1',
             path: DBusObjectPath('/org/freedesktop/login1'));
 
   static const _manager = 'org.freedesktop.login1.Manager';
   final DBusRemoteObject _login;
-  final String backlightRoot;
   final String hwmonRoot;
 
   @override
@@ -668,8 +661,8 @@ class LinuxPowerService implements PowerService {
     Future<bool> read() async => (await file.readAsString()).trim() == '1';
     var last = await read();
     yield last;
-    // like the backlight, a sysfs attribute with no inotify: a small read
-    // every 2 s (the firmware re-checks about that often)
+    // a sysfs attribute raises no inotify event: a small read every 2 s
+    // (the firmware re-checks about that often)
     await for (final _ in Stream<void>.periodic(const Duration(seconds: 2))) {
       final now = await read();
       if (now != last) yield last = now;
@@ -692,51 +685,6 @@ class LinuxPowerService implements PowerService {
   Future<void> reboot() => _call(() => _login.callMethod(
       _manager, 'Reboot', [const DBusBoolean(false)],
       replySignature: DBusSignature('')));
-
-  Future<Directory?> _backlight() async {
-    final root = Directory(backlightRoot);
-    if (!await root.exists()) return null;
-    final entries = await root.list().toList();
-    return entries.isEmpty ? null : Directory(entries.first.path);
-  }
-
-  @override
-  Future<int> lightLevels() async {
-    final dir = await _backlight();
-    if (dir == null) return 0;
-    final max = int.tryParse((await File('${dir.path}/max_brightness').readAsString()).trim()) ?? 0;
-    return max + 1;
-  }
-
-  @override
-  Stream<bool> watchLight() async* {
-    final dir = await _backlight();
-    if (dir == null) return;
-    final file = File('${dir.path}/brightness');
-    Future<bool> read() async => (int.tryParse((await file.readAsString()).trim()) ?? 0) > 0;
-    var last = await read();
-    yield last;
-    // sysfs attributes raise no inotify events, and the backlight core's
-    // change uevent needs a netlink socket Dart does not have; the light
-    // is changed by this service and by the compositor's idle timer, so a
-    // 1 Hz read (one small sysfs read) catches the timer's changes
-    await for (final _ in Stream<void>.periodic(const Duration(seconds: 1))) {
-      final now = await read();
-      if (now != last) yield last = now;
-    }
-  }
-
-  @override
-  Future<void> setLight(bool on) async {
-    final dir = await _backlight();
-    if (dir == null) throw const SystemError('vrx.NoBacklight', 'this device has no backlight');
-    final max = (await File('${dir.path}/max_brightness').readAsString()).trim();
-    try {
-      await File('${dir.path}/brightness').writeAsString(on ? max : '0');
-    } on FileSystemException catch (err) {
-      throw SystemError('vrx.AccessDenied', 'the light needs the display grant: ${err.message}');
-    }
-  }
 }
 
 /// A system unit an applet may start and stop (its grant's polkit rule

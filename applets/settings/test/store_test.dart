@@ -7,46 +7,54 @@ void main() {
   test('a device offers only what it has (plan 0008 D12)', () {
     final model = SettingsModel();
     final harness = StoreHarness(model);
-    // no backlight, no power grant: no Display, no Power
+    // no power grant: no Power. Display is always there (Settings is on a
+    // screen), whatever the backlight (plan 0010 D9)
     harness.assertView((v) => v.categories.map((c) => c.category).toList().toString() ==
-        [SettingsCategory.time, SettingsCategory.network, SettingsCategory.device].toString());
-    model
-      ..lightLevels = 2
-      ..light = true
-      ..canPowerOff = true;
+        [SettingsCategory.display, SettingsCategory.time, SettingsCategory.network, SettingsCategory.device].toString());
+    model.canPowerOff = true;
     harness.dispatch(SettingsAction.factsChanged);
     harness.assertView((v) => v.categories.first.category == SettingsCategory.display &&
-        v.categories.first.summary == 'Light on' &&
+        v.categories.first.summary == 'Off after 2 min' &&
         v.categories.any((c) => c.category == SettingsCategory.power));
   });
 
-  test('the light-off row reads the system settings file and steps through the choices', () {
-    final model = SettingsModel()
-      ..lightLevels = 2
-      ..light = true
-      ..open = SettingsCategory.display;
+  test('no light switch; brightness only where the screen dims (plan 0010 D1, D8)', () {
+    final model = SettingsModel()..open = SettingsCategory.display;
+    final h = StoreHarness(model);
+    Iterable<String> keys() => h.view.rows.map((r) => r.key);
+    expect(keys(), isNot(contains('light')), reason: 'the screen is never made dark by hand');
+    expect(keys(), isNot(contains('brightness')), reason: 'the compositor has not said it can dim');
+    model
+      ..dimming = VrxDimming.alpha
+      ..screen = const ScreenState(brightness: 0, lightOff: 60);
+    h.dispatch(SettingsAction.factsChanged);
+    final row = h.view.rows.firstWhere((r) => r.key == 'brightness');
+    expect(row.kind, RowKind.slider);
+    expect(row.level, 0, reason: '0 is the floor the compositor keeps visible');
+    expect(keys(), isNot(contains('light')));
+  });
+
+  test('the screen-off row reads the screen settings and steps through the choices', () {
+    final model = SettingsModel()..open = SettingsCategory.display;
     final harness = StoreHarness(model);
     String row() => harness.view.rows.firstWhere((r) => r.key == 'light_off').value;
-    // no file yet: never, as the compositor reads it
+    // no file yet: the compositor's default
+    expect(row(), '2 min');
+    expect(model.nextLightOff, 300);
+    model.screen = const ScreenState(lightOff: 0);
+    harness.dispatch(SettingsAction.factsChanged);
     expect(row(), 'Never');
     expect(model.nextLightOff, 30);
-    model.values['vrx'] = {'light_off': '120'};
-    harness.dispatch(SettingsAction.factsChanged);
-    expect(row(), 'After 2 min');
-    expect(model.nextLightOff, 300);
-    model.values['vrx'] = {'light_off': '600'};
+    model.screen = const ScreenState(lightOff: 600);
     expect(model.nextLightOff, 0, reason: 'the last choice wraps to never');
     // a value written by hand that is not a choice steps to the first
-    model.values['vrx'] = {'light_off': '45'};
+    model.screen = const ScreenState(lightOff: 45);
     expect(model.nextLightOff, 0);
     expect(lightOffLabel(45), '45 s');
   });
 
     test('the colour scheme: offered on a colour panel, pending until a restart', () {
-    final model = SettingsModel()
-      ..lightLevels = 2
-      ..light = true
-      ..open = SettingsCategory.display;
+    final model = SettingsModel()..open = SettingsCategory.display;
     final h = StoreHarness(model);
     expect(h.view.rows.map((r) => r.key), isNot(contains('scheme')), reason: 'a grey panel draws no scheme');
     model.runningScheme = 12;

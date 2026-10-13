@@ -25,8 +25,9 @@ installs = false
 resident = true
 
 [applet.permissions]
-# time: the home zone; display: the light comes on when it rings
-system = ["time", "display"]
+# time: the home zone. A ring lights the screen by holding it on
+# (VrxKeepScreenOn, plan 0010 D3), which needs no grant
+system = ["time"]
 
 [applet.intents]
 handles = [

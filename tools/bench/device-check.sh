@@ -1,5 +1,6 @@
 #!/bin/sh
-# Plan 0008 D16 on a board: devices are grants like the rest. An applet
+# Plan 0008 D16 on a board: devices are grants like the rest; and plan
+# 0010's G019, the backlight writable by the compositor alone. An applet
 # unit has DevicePolicy=closed, so a device its grants do not name cannot
 # be opened even when its groups would allow it; each grant's device
 # classes (grants.conf) open it.
@@ -83,6 +84,28 @@ for manifest in sorted(glob.glob("/system/defaults/*/manifest.toml")):
         print(f"  ok    {applet}: closed, {sorted(want) or 'no device grant'} beyond the base {sorted(base)}")
 sys.exit(1 if bad else 0)
 EOF3
+
+echo "== the screen is the compositor's alone (plan 0010 G019)"
+found=0
+for b in /sys/class/backlight/*/brightness; do
+    [ -e "$b" ] || continue
+    found=1
+    # no group or world write: the compositor (root) is its only writer
+    if [ -n "$(find "$b" -perm /022)" ]; then
+        bad "$b is writable beyond root: $(ls -l "$b" | cut -c1-10)"
+    else
+        ok "$b is root's alone"
+    fi
+    # an applet holding the display grant still cannot open it for
+    # writing (it writes back what is there: a failure dims nothing)
+    if systemd-run --quiet --wait --pipe -p User=vrx-clock -p SupplementaryGroups="video vrx-display" \
+        -- sh -c "v=\$(cat $b); echo \$v > $b" >/dev/null 2>&1; then
+        bad "an applet user wrote $b"
+    else
+        ok "an applet user cannot write $b"
+    fi
+done
+[ "$found" -eq 1 ] || echo "  skip  no backlight on this board"
 echo
 [ "$fails" -eq 0 ] && echo "device-check: all passed" || { echo "device-check: $fails failed"; exit 1; }
 EOF2

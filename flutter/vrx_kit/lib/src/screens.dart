@@ -8,21 +8,26 @@ import 'package:flutter/material.dart';
 import 'components.dart';
 import 'metrics.dart';
 import 'scale.dart';
+import 'slider.dart';
 import 'symbols.dart';
 import 'theme.dart';
 
 /// The quick drawer: an overlay pulled from the top — an opaque scrim
-/// (a tap dismisses it) and an opaque panel: the version row, the
-/// light toggle and power at its right, and the shortcut row (wifi,
-/// ble — filled when up) across the bottom with a hairline above it.
-/// Every control closes the drawer before acting (a drawer's answer
-/// is an effect, never a state it lingers to show).
+/// (a tap dismisses it) and an opaque panel: the version row with power
+/// at its right, the brightness slider (where the screen dims), and the
+/// shortcut row (wifi, ble — filled when up) across the bottom with a
+/// hairline above it. A shortcut closes the drawer before acting (a
+/// drawer's answer is an effect, never a state it lingers to show); the
+/// slider is the one control that stays, so the screen can be watched
+/// as it dims. There is no light switch: the screen is never made dark
+/// by hand (plan 0010 D1).
 class VrxQuickDrawer extends StatelessWidget {
   const VrxQuickDrawer({
     super.key,
     required this.version,
-    required this.lightOn,
-    this.onLightToggle,
+    this.brightness,
+    this.onBrightness,
+    this.onBrightnessEnd,
     this.onPower,
     required this.wifiUp,
     required this.bleUp,
@@ -32,8 +37,12 @@ class VrxQuickDrawer extends StatelessWidget {
   });
 
   final String version;
-  final bool lightOn;
-  final VoidCallback? onLightToggle;
+
+  /// The brightness slider's position (0 to 100); no slider when null
+  /// (the screen does not dim).
+  final int? brightness;
+  final ValueChanged<int>? onBrightness;
+  final ValueChanged<int>? onBrightnessEnd;
   /// The power menu (restart, power off): a CM4 does not suspend, so
   /// this is never sleep on vrx.
   final VoidCallback? onPower;
@@ -75,16 +84,26 @@ class VrxQuickDrawer extends StatelessWidget {
                           ),
                         ),
                         VrxIconButton(
-                          glyph: lightOn ? VrxSymbols.light_mode : VrxSymbols.dark_mode,
-                          onTap: onLightToggle,
-                        ),
-                        SizedBox(width: s.xs),
-                        VrxIconButton(
                           glyph: VrxSymbols.power_settings_new,
                           onTap: onPower,
                         ),
                       ],
                     ),
+                    // the gutter between the power button and the slider
+                    if (brightness != null) SizedBox(height: s.sm),
+                    if (brightness != null)
+                      Row(children: [
+                        Icon(VrxSymbols.brightness_low, color: colors.text, size: VrxTypeRole.body.dp * VrxScale.of(context)),
+                        Expanded(
+                          child: VrxSlider(
+                            label: 'Brightness',
+                            value: brightness!,
+                            onChanged: onBrightness,
+                            onChangeEnd: onBrightnessEnd,
+                          ),
+                        ),
+                        Icon(VrxSymbols.brightness_high, color: colors.text, size: VrxTypeRole.body.dp * VrxScale.of(context)),
+                      ]),
                     SizedBox(height: s.sm),
                     Container(
                       decoration: BoxDecoration(

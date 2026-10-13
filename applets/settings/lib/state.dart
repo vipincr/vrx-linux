@@ -4,7 +4,7 @@ import 'package:vrx_kit/vrx_kit.dart';
 enum SettingsAction {
   init,
 
-  /// A system fact changed (time, device, light, power): re-derive.
+  /// A system fact changed (time, device, screen, power): re-derive.
   factsChanged,
 
   /// A category was opened or closed, or the zone picker toggled.
@@ -31,8 +31,11 @@ enum RowKind {
   /// Opens something (the zone picker, another applet).
   open,
 
-  /// A two-state switch.
+  /// A two-state switch, or a tap that steps through choices.
   toggle,
+
+  /// A slider (the brightness); [SettingRow.level] is its position.
+  slider,
 
   /// A destructive act behind a confirmation.
   confirm,
@@ -46,6 +49,7 @@ class SettingRow {
     required this.value,
     required this.kind,
     this.on = false,
+    this.level = 0,
   });
 
   final String key;
@@ -55,6 +59,9 @@ class SettingRow {
 
   /// A toggle's state.
   final bool on;
+
+  /// A slider's position, 0 to 100.
+  final int level;
 }
 
 /// One category in the list.
@@ -90,9 +97,9 @@ class SettingsView {
   final String? error;
 }
 
-/// The light-off choices, in seconds (0 = never), and how each reads. The
-/// compositor reads the system's settings file (`vrx.conf`, the OS's
-/// reserved id) for `light_off`; vrx-policy seeds it.
+/// The screen-off choices, in seconds (0 = never), and how each reads.
+/// The compositor reads `light_off` from the screen's settings file
+/// (/etc/vrx/display/screen.conf, plan 0010 D7); vrx-policy seeds it.
 const lightOffChoices = [0, 30, 60, 120, 300, 600];
 
 String lightOffLabel(int seconds) => switch (seconds) {
@@ -103,14 +110,17 @@ String lightOffLabel(int seconds) => switch (seconds) {
 
 /// The settings model: the system's facts as its state, the rows derived
 /// from them. Rows a device cannot offer are not offered (plan 0008 D12):
-/// no Display without a backlight, no Power when this applet may not
-/// power off. Applets' own declared settings join with plan 0008 D5.
+/// no Brightness where the screen does not dim, no Power when this applet
+/// may not power off. Display is always there: Settings is on a screen.
+/// Applets' own declared settings join with plan 0008 D5.
 class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsView> {
   TimeState? time;
   NetworkState? network;
   DeviceState? device;
-  bool? light;
-  int lightLevels = 0;
+
+  /// The screen's settings and how the compositor dims (plan 0010).
+  ScreenState screen = const ScreenState();
+  VrxDimming dimming = VrxDimming.none;
   bool canPowerOff = false;
 
   /// The board has a USB device port (a UDC): the USB row.
@@ -151,9 +161,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
   }
 
   List<CategoryRow> _categories() => [
-        if (lightLevels > 0)
-          CategoryRow(SettingsCategory.display, 'Display', 'brightness_6',
-              light == true ? 'Light on' : 'Light off'),
+        CategoryRow(SettingsCategory.display, 'Display', 'brightness_6', _screenOffText),
         if (canPowerOff || supplyLow != null)
           CategoryRow(SettingsCategory.power, 'Power', 'power_settings_new', supplyLow == true ? 'Supply too low' : ''),
         CategoryRow(SettingsCategory.time, 'Time', 'schedule', time?.zone ?? ''),
@@ -184,8 +192,10 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
 
   bool pickingScheme = false;
 
-  /// The light-off timeout now (absent: never, as the compositor reads it).
-  int get lightOff => int.tryParse(values['vrx']?['light_off'] ?? '') ?? 0;
+  /// The screen-off timeout now.
+  int get lightOff => screen.lightOff;
+
+  String get _screenOffText => lightOff == 0 ? 'Stays on' : 'Off after ${lightOffLabel(lightOff)}';
 
   /// What a tap on the light-off row sets: the next choice.
   int get nextLightOff {
@@ -219,18 +229,21 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
     switch (category) {
       case SettingsCategory.display:
         return [
-          SettingRow(
-            key: 'light',
-            label: 'Light',
-            value: light == true ? 'On' : 'Off',
-            kind: RowKind.toggle,
-            on: light == true,
-          ),
+          // no light switch: the screen is never made dark by hand, only
+          // dimmed to the compositor's floor (plan 0010 D1, D8)
+          if (dimming != VrxDimming.none)
+            SettingRow(
+              key: 'brightness',
+              label: 'Brightness',
+              value: '${screen.brightness}',
+              kind: RowKind.slider,
+              level: screen.brightness,
+            ),
           // a tap steps through the choices; the compositor watches the file
           SettingRow(
             key: 'light_off',
-            label: 'Light off when idle',
-            value: lightOff == 0 ? 'Never' : 'After ${lightOffLabel(lightOff)}',
+            label: 'Screen off after',
+            value: lightOffLabel(lightOff),
             kind: RowKind.toggle,
           ),
           // the scheme, on a panel that draws one; it changes at the next boot

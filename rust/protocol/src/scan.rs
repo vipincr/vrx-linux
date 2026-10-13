@@ -37,6 +37,11 @@ const NO_COLOUR: &str =
     "colour is a slot (VrxTheme.of(context).<slot>, VrxHue, VrxSignal), never a literal";
 const NO_CLASS: &str =
     "an applet never knows what panel it is on (plan 0009 D4): the kit answers by class";
+const NO_SCREEN_POWER: &str = "G019: the screen's light and power are the compositor's alone (plan 0010 D1): brightness and the timeout are ScreenSettings, a hold is VrxKeepScreenOn";
+
+/// G019: forms no `vrx-allow` excuses. An applet that switches the light
+/// or the panel can leave a person with no screen to switch it back on.
+const NEVER_ALLOWED: &[&str] = &["/sys/class/backlight", "bl_power", "dpms", "DPMS"];
 
 const RULES: &[Rule] = &[
     Rule {
@@ -98,6 +103,54 @@ const RULES: &[Rule] = &[
         needle: "display-class",
         why: NO_CLASS,
         except: CLASS_HOME,
+    },
+    Rule {
+        ext: "dart",
+        needle: "/sys/class/backlight",
+        why: NO_SCREEN_POWER,
+        except: &[],
+    },
+    Rule {
+        ext: "dart",
+        needle: "bl_power",
+        why: NO_SCREEN_POWER,
+        except: &[],
+    },
+    Rule {
+        ext: "dart",
+        needle: "dpms",
+        why: NO_SCREEN_POWER,
+        except: &[],
+    },
+    Rule {
+        ext: "dart",
+        needle: "DPMS",
+        why: NO_SCREEN_POWER,
+        except: &[],
+    },
+    Rule {
+        ext: "rs",
+        needle: "/sys/class/backlight",
+        why: NO_SCREEN_POWER,
+        except: &[],
+    },
+    Rule {
+        ext: "rs",
+        needle: "bl_power",
+        why: NO_SCREEN_POWER,
+        except: &[],
+    },
+    Rule {
+        ext: "rs",
+        needle: "dpms",
+        why: NO_SCREEN_POWER,
+        except: &[],
+    },
+    Rule {
+        ext: "rs",
+        needle: "DPMS",
+        why: NO_SCREEN_POWER,
+        except: &[],
     },
     Rule {
         ext: "rs",
@@ -183,7 +236,8 @@ fn violations(
                 .and_then(|j| lines.get(j))
                 .copied()
                 .unwrap_or("");
-            if allowed(line) || allowed(above) {
+            if !NEVER_ALLOWED.contains(&rule.needle) && (allowed(line) || allowed(above))
+            {
                 continue;
             }
             found.push((i + 1, rule.needle, rule.why));
@@ -269,6 +323,31 @@ mod tests {
         );
         let rs = "fn f() { std::thread::sleep(d); }\n";
         assert_eq!(violations("a.rs", "rs", rs).len(), 1);
+    }
+
+    #[test]
+    fn the_screen_is_never_switched_by_an_applet_g019() {
+        let applet = "applets/x/lib/main.dart";
+        let code = "File('/sys/class/backlight/x/brightness').writeAsString('0');\nfinal p = 'bl_power';\n// vrx-allow: just this once\nsetDpms('dpms');\n";
+        let found: Vec<&str> = violations(applet, "dart", code)
+            .iter()
+            .map(|v| v.1)
+            .collect();
+        // a reason does not excuse it, in the kit as in an applet
+        assert_eq!(found, vec!["/sys/class/backlight", "bl_power", "dpms"]);
+        assert_eq!(
+            violations(
+                "flutter/vrx_kit/lib/src/system.dart",
+                "dart",
+                "Directory('/sys/class/backlight')\n"
+            )
+            .len(),
+            1
+        );
+        let rs = "let f = \"/sys/class/backlight/x/bl_power\"; // vrx-allow: no\n";
+        assert_eq!(violations("applets/y/src/main.rs", "rs", rs).len(), 2);
+        // what the kit says instead is not caught
+        assert!(violations(applet, "dart", "VrxKeepScreenOn(child: c);\nScreenSettings().setBrightness(0);\nVrxDimming.backlight;\n").is_empty());
     }
 
     #[test]

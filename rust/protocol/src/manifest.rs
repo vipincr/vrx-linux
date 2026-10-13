@@ -49,7 +49,8 @@ pub enum SystemGrant {
     Time,
     /// The device name.
     Hostname,
-    /// The display light and its timeouts.
+    /// How the screen behaves: its brightness and idle timeout (plan 0010
+    /// D7), which the compositor alone applies.
     Display,
     /// Power off and restart.
     Power,

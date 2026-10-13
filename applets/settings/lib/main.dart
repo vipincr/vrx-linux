@@ -12,10 +12,14 @@ final _facts = StreamController<SettingsAction>();
 /// The settings files (plan 0008 D5): this applet holds the settings grant.
 final _settings = AppletSettings();
 
+/// The screen's settings (plan 0010 D7): the display grant.
+final _screen = ScreenSettings();
+
 /// The settings applet: the system's own settings, each row bound to the
 /// Linux service that owns it (plan 0008 Part D): time and zone through
 /// timedated, the device name through hostnamed, power through logind,
-/// the light through the backlight. A tap asks the service; the row
+/// the screen through its settings file, which the compositor applies.
+/// A tap asks the service; the row
 /// changes when the service says it changed, so what is shown is what
 /// is true. A refusal (no grant) is shown as the service phrased it.
 class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView> {
@@ -110,6 +114,7 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
         category: open,
         onBack: () => _go(context, () => model.open = null),
         onRow: (row) => _onRow(context, row),
+        onLevel: (row, v, settled) => _brightness(context, v, settled: settled),
       );
     }
     return Scaffold(
@@ -137,6 +142,9 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
     }
   }
 
+  void _brightness(BuildContext context, int value, {required bool settled}) =>
+      unawaited(_ask(context, () => _screen.setBrightness(value, settled: settled)));
+
   void _onRow(BuildContext context, SettingRow row) {
     if (row.key.startsWith('setting:')) {
       final parts = row.key.split(':');
@@ -161,10 +169,8 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
         Nav.push('docs');
       case 'name':
         _go(context, () => model.renaming = true);
-      case 'light':
-        unawaited(_ask(context, () => VrxSystem.power.setLight(!row.on)));
       case 'light_off':
-        unawaited(_setSetting('vrx', 'light_off', '${model.nextLightOff}'));
+        unawaited(_ask(context, () => _screen.setLightOff(model.nextLightOff)));
       case 'scheme':
         _go(context, () => model.pickingScheme = true);
       case 'polarity':
@@ -232,12 +238,16 @@ class _Category extends StatelessWidget {
     required this.category,
     required this.onBack,
     required this.onRow,
+    required this.onLevel,
   });
 
   final SettingsView view;
   final SettingsCategory category;
   final VoidCallback onBack;
   final void Function(SettingRow) onRow;
+
+  /// A slider moved (settled: it came to rest).
+  final void Function(SettingRow row, int value, bool settled) onLevel;
 
   static const _titles = {
     SettingsCategory.display: 'Display',
@@ -261,6 +271,19 @@ class _Category extends StatelessWidget {
           RowKind.open => VrxRow(label: row.label, value: '${row.value}  ›', onTap: () => onRow(row)),
           RowKind.confirm => VrxRow(label: row.label, value: '', onTap: () => onRow(row)),
           RowKind.info => VrxRow(label: row.label, value: row.value),
+          // the label as a status line, the slider under it at the inset
+          RowKind.slider => Column(mainAxisSize: MainAxisSize.min, children: [
+              VrxRow(label: row.label, value: row.value),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: ScaledSpacing.of(context).inset),
+                child: VrxSlider(
+                  label: row.label,
+                  value: row.level,
+                  onChanged: (v) => onLevel(row, v, false),
+                  onChangeEnd: (v) => onLevel(row, v, true),
+                ),
+              ),
+            ]),
         },
     ]);
   }
@@ -279,12 +302,13 @@ Future<void> main() async {
     _facts.add(SettingsAction.failed);
   }
 
-  // each service on its own: one that is absent (a desktop run, a board
-  // without a backlight) leaves the others working
+  // each service on its own: one that is absent (a desktop run) leaves
+  // the others working
   VrxSystem.time.watch().listen((t) => fact(() => model.time = t), onError: failed);
   VrxSystem.network.watch().listen((n) => fact(() => model.network = n), onError: failed);
   VrxSystem.device.watch().listen((d) => fact(() => model.device = d), onError: failed);
-  VrxSystem.power.watchLight().listen((on) => fact(() => model.light = on), onError: failed);
+  _screen.watch().listen((s) => fact(() => model.screen = s), onError: failed);
+  unawaited(_screen.dimming().then((d) => fact(() => model.dimming = d)));
   VrxSystem.power.watchSupplyLow().listen((low) => fact(() => model.supplyLow = low), onError: failed);
   VrxSystem.usb.watch().listen((u) => fact(() => model.usbPresent = u.present), onError: failed);
   // the look this boot draws, from the same snapshot every applet reads
@@ -292,7 +316,7 @@ Future<void> main() async {
   model
     ..runningScheme = boot.scheme
     ..runningDark = boot.dark;
-  // the system's own settings (the light-off timeout, the chosen look)
+  // the system's own settings (the chosen look)
   _settings.watch('vrx').listen((v) => fact(() => model.values['vrx'] = v), onError: failed);
   // applets' declared settings, each file watched so a change shows
   unawaited(() async {
@@ -309,12 +333,8 @@ Future<void> main() async {
     }
   }());
   try {
-    final levels = await VrxSystem.power.lightLevels();
     final canOff = await VrxSystem.power.canPowerOff();
-    fact(() {
-      model.lightLevels = levels;
-      model.canPowerOff = canOff;
-    });
+    fact(() => model.canPowerOff = canOff);
   } on Object catch (err) {
     failed(err);
   }

@@ -8,7 +8,7 @@ class ShellView {
     this.askingPower = false,
     required this.facts,
     required this.version,
-    required this.lightOn,
+    this.brightness,
     required this.wifiUp,
     required this.canGoBack,
   });
@@ -21,7 +21,9 @@ class ShellView {
   final bool askingPower;
   final VrxStatusFacts facts;
   final String version;
-  final bool lightOn;
+
+  /// The brightness slider's position; null where the screen does not dim.
+  final int? brightness;
   final bool wifiUp;
   final bool canGoBack;
 }
@@ -34,7 +36,10 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
   bool drawer = false;
   bool askingPower = false;
   bool wifiUp = false;
-  bool lightOn = true;
+
+  /// How the compositor dims, and the brightness setting (plan 0010 D8).
+  VrxDimming dimming = VrxDimming.none;
+  int brightness = ScreenSettings.defaultBrightness;
   bool clockValid = false;
   String version = '';
 
@@ -83,7 +88,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
       askingPower: askingPower,
       facts: VrxStatusFacts(showBack: depth > 1, clockText: clockText, dateText: dateText, wifiUp: wifiUp),
       version: version,
-      lightOn: lightOn,
+      brightness: dimming == VrxDimming.none ? null : brightness,
       wifiUp: wifiUp,
       canGoBack: depth > 1,
     );

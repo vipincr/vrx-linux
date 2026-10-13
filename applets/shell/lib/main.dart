@@ -7,6 +7,13 @@ import 'state.dart';
 
 final _events = StreamController<ShellAction>();
 
+/// The screen's settings: the drawer's slider writes the brightness (the
+/// display grant); the compositor applies it.
+final _screen = ScreenSettings();
+
+void _brightness(int value, {required bool settled}) =>
+    unawaited(_screen.setBrightness(value, settled: settled).catchError((Object err) => debugPrint('shell: brightness: $err')));
+
 /// The shell: the status strip, and the quick drawer a tap on it opens.
 class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
   ShellApplet(this.model);
@@ -82,8 +89,9 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
                 child: Stack(children: [
                   VrxQuickDrawer(
                     version: view.version,
-                    lightOn: view.lightOn,
-                    onLightToggle: () => unawaited(VrxSystem.power.setLight(!view.lightOn).catchError((Object _) {})),
+                    brightness: view.brightness,
+                    onBrightness: (v) => _brightness(v, settled: false),
+                    onBrightnessEnd: (v) => _brightness(v, settled: true),
                     wifiUp: view.wifiUp,
                     bleUp: false,
                     onWifi: () {
@@ -132,7 +140,8 @@ Future<void> main() async {
       .watch()
       .listen((t) => fact(() => model.clockValid = t.synced || DateTime.now().year >= 2025), onError: (Object _) {});
   VrxSystem.network.watch().listen((n) => fact(() => model.wifiUp = n.connected != null), onError: (Object _) {});
-  VrxSystem.power.watchLight().listen((on) => fact(() => model.lightOn = on), onError: (Object _) {});
+  _screen.watch().listen((s) => fact(() => model.brightness = s.brightness), onError: (Object _) {});
+  unawaited(_screen.dimming().then((d) => fact(() => model.dimming = d)));
   // the release only ("0.1.0077"): the platform after it is Settings >
   // Device's, and wrapped three lines deep in the drawer
   VrxSystem.device.watch().listen(

@@ -86,11 +86,16 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
   Widget build(BuildContext context, ClockView view) {
     final Widget body;
     if (view.ring) {
-      body = _RingScreen(
-        view: view,
-        flash: flash,
-        onStop: () => _do(model.stopRing, save: true),
-        onSnooze: () => _do(model.snoozeRing, save: true),
+      // a ring is watched, not touched: it holds the screen on, and the
+      // hold wakes it if it was off (plan 0010 D3); released when the
+      // ring ends, after which the idle timeout runs in full again
+      body = VrxKeepScreenOn(
+        child: _RingScreen(
+          view: view,
+          flash: flash,
+          onStop: () => _do(model.stopRing, save: true),
+          onSnooze: () => _do(model.snoozeRing, save: true),
+        ),
       );
     } else {
       body = switch (view.screen) {
@@ -767,7 +772,6 @@ class _Scheduler {
         }
       }());
     }
-    unawaited(VrxSystem.power.setLight(true).catchError((Object _) {}));
     _flash?.cancel();
     // 2 Hz for the ring's bounded length: it gives up after ringSeconds
     _flash = Timer.periodic(const Duration(milliseconds: 500), (_) {

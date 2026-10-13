@@ -70,4 +70,28 @@ void main() {
     );
     expect(found, containsAll(['gutter', 'off screen']));
   });
+
+  // the kit's slider, as Settings and the drawer lay it: a status row and
+  // the slider under it at the inset, at the ends and in the middle
+  for (final display in allDisplays) {
+    testWidgets('a slider row is clean on ${display.name}', (tester) async {
+      final found = [
+        for (final i in await checkApplet(
+            tester,
+            _Screen((c) => VrxList(children: [
+                  const VrxHeader(title: 'Display', onBack: null),
+                  for (final v in const [0, 55, 100]) ...[
+                    VrxRow(label: 'Brightness', value: '$v'),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: ScaledSpacing.of(c).inset),
+                      child: VrxSlider(label: 'Brightness', value: v, onChangeEnd: (_) {}),
+                    ),
+                  ],
+                ])),
+            display: display))
+          '$i',
+      ];
+      expect(found, isEmpty);
+    });
+  }
 }
