@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vrx_kit/vrx_kit.dart';
 
@@ -96,5 +97,29 @@ void main() {
     await pumpFacts(tester, const VrxStatusFacts(clockText: '13:05', dateText: 'Tue 13 Oct', notice: 'Recorder stopped.'));
     expect(find.text('Recorder stopped.'), findsOneWidget);
     expect(find.text('Tue 13 Oct'), findsNothing);
+  });
+
+  // the bench, disp28a: "Wed 1…"; a cut day must not happen (rule 20)
+  testWidgets('a narrow strip drops words from the front of the day, never cuts one', (tester) async {
+    Future<void> at(double width) => tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: width,
+                child: const VrxStatusStrip(facts: VrxStatusFacts(clockText: '13:05', dateText: 'Wed 14 Oct', wifiUp: true)),
+              ),
+            ),
+          ),
+        ));
+    await at(800);
+    expect(find.text('Wed 14 Oct'), findsOneWidget);
+    // narrow enough that the whole day cannot sit beside the clock
+    for (final w in [400.0, 340.0, 300.0]) {
+      await at(w);
+      final shown = [for (final t in tester.widgetList<Text>(find.byType(Text))) t.data].whereType<String>().toList();
+      final cut = tester.renderObjectList<RenderParagraph>(find.byType(RichText)).where((p) => p.didExceedMaxLines);
+      expect(cut, isEmpty, reason: 'width $w: $shown');
+      expect(shown.where((t) => t != '13:05').every((t) => 'Wed 14 Oct'.endsWith(t)), isTrue, reason: 'width $w: $shown');
+    }
   });
 }

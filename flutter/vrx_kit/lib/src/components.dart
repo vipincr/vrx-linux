@@ -422,11 +422,15 @@ class _StepIntent extends Intent {
 /// ink (evrx-rt docs/13: never grey text, which a first e-paper pass and
 /// a dim panel both lose).
 class VrxChip extends StatelessWidget {
-  const VrxChip({super.key, required this.label, this.filled = false, this.onTap});
+  const VrxChip({super.key, required this.label, this.filled = false, this.onTap, this.fit = false});
 
   final String label;
   final bool filled;
   final VoidCallback? onTap;
+
+  /// Shrink the label to fit one line rather than wrap it (a modal's
+  /// acts: a word is never broken).
+  final bool fit;
 
   @override
   Widget build(BuildContext context) {
@@ -450,15 +454,22 @@ class VrxChip extends StatelessWidget {
                     : null,
                 borderRadius: BorderRadius.circular(Radii.sm),
               ),
-        child: Text(
-          label,
-          style: TypeRole.of(context, VrxTypeRole.list).copyWith(
-            color: onTap == null ? colors.text : (filled ? colors.onPrimary : colors.onSecondaryContainer),
-          ),
-        ),
+        child: fit
+            // one line, shrunk if it must be: a word is never broken
+            ? Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(label, maxLines: 1, softWrap: false, style: _labelStyle(context, colors)),
+                ),
+              )
+            : Text(label, style: _labelStyle(context, colors)),
       ),
     );
   }
+
+  TextStyle _labelStyle(BuildContext context, VrxColors colors) => TypeRole.of(context, VrxTypeRole.list).copyWith(
+        color: onTap == null ? colors.text : (filled ? colors.onPrimary : colors.onSecondaryContainer),
+      );
 }
 
 /// A persistent message band across the bottom — deliberately NOT a

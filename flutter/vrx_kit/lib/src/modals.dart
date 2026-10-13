@@ -144,77 +144,85 @@ class VrxAsk extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = VrxTheme.of(context);
     final s = ScaledSpacing.of(context);
-    final cancel = VrxChip(
-      label: cancelLabel,
-      onTap: onCancel,
-    );
-    Widget acts;
-    switch (actions.length) {
-      case 0:
-        acts = cancel;
-      case 1:
-        acts = Row(
-          children: [
-            Expanded(child: cancel),
-            SizedBox(width: s.sm),
-            Expanded(
-              child: VrxChip(
-                label: actions.single.label,
-                filled: true,
-                onTap: actions.single.onTap,
-              ),
-            ),
-          ],
-        );
-      default:
-        acts = Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SizedBox(
-              width: double.infinity,
-              child: cancel,
-            ),
-            SizedBox(height: s.sm),
-            for (var i = 0; i < actions.length; i++) ...[
-              SizedBox(
-                width: double.infinity,
-                child: VrxChip(
-                  label: actions[i].label,
-                  filled: i == actions.length - 1,
-                  onTap: actions[i].onTap,
-                ),
-              ),
-              if (i + 1 < actions.length) SizedBox(height: s.sm),
-            ],
-          ],
-        );
+    final labelStyle = TypeRole.of(context, VrxTypeRole.list);
+    final scaler = MediaQuery.textScalerOf(context);
+    double labelWidth(String text) {
+      final tp = TextPainter(
+        text: TextSpan(text: text, style: labelStyle),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      final w = tp.width;
+      tp.dispose();
+      return w;
     }
-    return Center(
-      child: Container(
-        margin: EdgeInsets.all(s.xl),
-        padding: EdgeInsets.all(s.md),
-        decoration: BoxDecoration(
-          color: colors.page,
-          border: Border.all(color: colors.outline, width: Strokes.border),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              title,
-              style: TypeRole.of(context, VrxTypeRole.title),
-            ),
+
+    final labels = [cancelLabel, for (final a in actions) a.label];
+    return LayoutBuilder(builder: (context, box) {
+      // the client's width less the standard inset each side: never a
+      // fixed dialog width a small panel cannot hold (the bench, disp28a:
+      // a narrow box broke "Can|cel" and "Res|tart" and clipped them)
+      final width = box.maxWidth - 2 * s.inset;
+      final inner = width - 2 * s.md - 2 * Strokes.border;
+      // a chip's label plus its own padding and frame
+      final chipPad = 2 * s.sm + 2 * Strokes.hairline + 1;
+      final widest = labels.map(labelWidth).reduce((x, y) => x > y ? x : y) + chipPad;
+      // side by side only when one act and Cancel both fit whole in half
+      // the row each; otherwise stacked, full width, Cancel first and the
+      // act last
+      final sideBySide = actions.length == 1 && widest <= (inner - s.sm) / 2;
+      Widget chip(String label, VoidCallback? onTap, {bool filled = false}) =>
+          VrxChip(label: label, filled: filled, onTap: onTap, fit: true);
+      final Widget acts;
+      if (actions.isEmpty) {
+        acts = SizedBox(width: double.infinity, child: chip(cancelLabel, onCancel));
+      } else if (sideBySide) {
+        acts = Row(children: [
+          Expanded(child: chip(cancelLabel, onCancel)),
+          SizedBox(width: s.sm),
+          Expanded(child: chip(actions.single.label, actions.single.onTap, filled: true)),
+        ]);
+      } else {
+        acts = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          chip(cancelLabel, onCancel),
+          for (var i = 0; i < actions.length; i++) ...[
             SizedBox(height: s.sm),
-            Text(
-              message,
-              style: TypeRole.of(context, VrxTypeRole.subtext),
-            ),
-            SizedBox(height: s.lg),
-            acts,
+            chip(actions[i].label, actions[i].onTap, filled: i == actions.length - 1),
           ],
+        ]);
+      }
+      return Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: box.maxHeight - 2 * s.inset),
+          child: Container(
+            width: width,
+            padding: EdgeInsets.all(s.md),
+            decoration: BoxDecoration(
+              color: colors.page,
+              border: Border.all(color: colors.outline, width: Strokes.border),
+            ),
+            // a message longer than the screen scrolls; the acts stay
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      Text(title, style: TypeRole.of(context, VrxTypeRole.title)),
+                      SizedBox(height: s.sm),
+                      Text(message, style: TypeRole.of(context, VrxTypeRole.subtext)),
+                    ]),
+                  ),
+                ),
+                SizedBox(height: s.lg),
+                acts,
+              ],
+            ),
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 }

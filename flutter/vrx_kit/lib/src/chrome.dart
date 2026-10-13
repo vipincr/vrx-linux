@@ -23,6 +23,42 @@ import 'scale.dart';
 import 'symbols.dart';
 import 'theme.dart';
 
+/// The day beside the clock, never cut (evrx-rt docs/13 §Cut text): the
+/// longest form that fits whole, dropping words from the front ("Wed 14
+/// Oct", then "14 Oct", then "14"), or nothing. A notice is a sentence:
+/// shrunk to fit, never cut.
+class _Day extends StatelessWidget {
+  const _Day({required this.text, required this.notice});
+
+  final String text;
+  final bool notice;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = VrxTheme.of(context);
+    final style = TypeRole.subtext(context).copyWith(color: notice ? colors.text : colors.textSecondary);
+    return LayoutBuilder(builder: (context, box) {
+      if (notice) {
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: FittedBox(fit: BoxFit.scaleDown, child: Text(text, maxLines: 1, softWrap: false, style: style)),
+        );
+      }
+      final scaler = MediaQuery.textScalerOf(context);
+      final words = text.split(' ');
+      for (var from = 0; from < words.length; from++) {
+        final form = words.sublist(from).join(' ');
+        final tp = TextPainter(text: TextSpan(text: form, style: style), textDirection: TextDirection.ltr, textScaler: scaler, maxLines: 1)
+          ..layout();
+        final fits = tp.width <= box.maxWidth;
+        tp.dispose();
+        if (fits) return Align(alignment: Alignment.centerLeft, child: Text(form, maxLines: 1, softWrap: false, style: style));
+      }
+      return const SizedBox.shrink();
+    });
+  }
+}
+
 /// What is true; the strip draws it.
 class VrxStatusFacts {
   const VrxStatusFacts({
@@ -128,17 +164,7 @@ class VrxStatusStrip extends StatelessWidget {
               ),
               if ((facts.notice ?? facts.dateText) != null) ...[
                 SizedBox(width: s.sm),
-                Flexible(
-                  child: VrxTruncates(
-                    child: Text(
-                      (facts.notice ?? facts.dateText)!,
-                      maxLines: 1,
-                      softWrap: false,
-                      overflow: TextOverflow.ellipsis,
-                      style: TypeRole.subtext(context).copyWith(color: colors.textSecondary),
-                    ),
-                  ),
-                ),
+                Expanded(child: _Day(text: (facts.notice ?? facts.dateText)!, notice: facts.notice != null)),
               ],
             ]),
           ),
