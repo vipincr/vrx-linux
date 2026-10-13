@@ -22,6 +22,7 @@ RDEPENDS:${PN} = "\
     vrx-policy \
     vrx-usb \
     vrx-manage \
+    ${@'vrx-theme' if d.getVar('VRX_UI') == 'flutter' else ''} \
     ${@'vrx-applet-launcher vrx-applet-shell vrx-applet-clock vrx-applet-settings vrx-applet-wifi vrx-applet-setup vrx-applet-docs vrx-applet-usbport vrx-applet-manage vrx-applet-scripts vrx-applet-web vrx-applet-recorder' if d.getVar('VRX_UI') == 'flutter' else ''} \
     ${@'vrx-applet-terminal' if d.getVar('VRX_UI') == 'flutter' and d.getVar('VRX_DEBUG') == '1' else ''} \
 "

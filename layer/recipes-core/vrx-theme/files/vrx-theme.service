@@ -1,0 +1,16 @@
+# This boot's colour scheme, snapshotted before anything draws (plan 0009
+# D5). Once per boot: a vrxhost or UI restart reads the same snapshot.
+[Unit]
+Description=vrx: this boot's colour scheme
+DefaultDependencies=no
+After=local-fs.target systemd-tmpfiles-setup.service
+Before=vrxhost.service vrx-ui.service sysinit.target
+ConditionPathExists=!/run/vrx/theme.conf
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/vrx/vrx-theme-snapshot
+
+[Install]
+WantedBy=sysinit.target

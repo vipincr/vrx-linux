@@ -121,7 +121,7 @@ abstract final class TypeRole {
 /// (`colors.text`, `colors.primary`), never a colour.
 @immutable
 class VrxColors extends ThemeExtension<VrxColors> with VrxSlotNames {
-  const VrxColors._(this._table, this.displayClass, this.dark);
+  const VrxColors._(this._table, this.displayClass, this.dark, this.scheme);
 
   /// The table for a display: a colour panel draws [scheme] (1 to 20) in
   /// the light or dark polarity; a grey panel draws its class's grey map,
@@ -132,15 +132,39 @@ class VrxColors extends ThemeExtension<VrxColors> with VrxSlotNames {
     bool dark = true,
   }) {
     if (displayClass == VrxDisplayClass.lcdColour) {
-      final row = vrxSchemes[(scheme >= 1 && scheme <= vrxSchemes.length ? scheme : vrxDefaultScheme) - 1];
-      return VrxColors._(List.unmodifiable((dark ? row.dark : row.light).map(Color.new)), displayClass, dark);
+      final id = scheme >= 1 && scheme <= vrxSchemes.length ? scheme : vrxDefaultScheme;
+      final row = vrxSchemes[id - 1];
+      return VrxColors._(List.unmodifiable((dark ? row.dark : row.light).map(Color.new)), displayClass, dark, id);
     }
     final map = displayClass == VrxDisplayClass.epaperMono ? vrxMapGrey2 : vrxMapGrey4;
     return VrxColors._(
       List.unmodifiable(map.map((g) => Color(0xFF000000 | g << 16 | g << 8 | g))),
       displayClass,
       false,
+      0,
     );
+  }
+
+  /// A scheme as a colour panel would draw it (a swatch in Settings).
+  factory VrxColors.preview(int scheme, {required bool dark}) =>
+      VrxColors.resolve(scheme: scheme, dark: dark);
+
+  /// How many schemes there are to choose from.
+  static int get schemeCount => vrxSchemes.length;
+
+  /// A scheme's name: its seed and its harmony rule ("Amber complementary").
+  static String schemeName(int scheme) {
+    if (scheme < 1 || scheme > vrxSchemes.length) return '';
+    final row = vrxSchemes[scheme - 1];
+    const rules = {
+      'analogous': 'analogous',
+      'complementary': 'complementary',
+      'split': 'split complementary',
+      'triadic': 'triadic',
+      'tetradic': 'tetradic',
+    };
+    final seed = row.seed[0].toUpperCase() + row.seed.substring(1);
+    return '$seed ${rules[row.rule] ?? row.rule}';
   }
 
   final List<Color> _table;
@@ -148,6 +172,12 @@ class VrxColors extends ThemeExtension<VrxColors> with VrxSlotNames {
 
   /// The dark polarity (only ever true on a colour panel).
   final bool dark;
+
+  /// The scheme drawn (1 to 20); 0 on a grey panel, which has none.
+  final int scheme;
+
+  /// This panel draws a scheme a person may choose (a colour panel).
+  bool get schemeChoosable => scheme > 0;
 
   @override
   Color operator [](VrxSlot slot) => _table[slot.index];

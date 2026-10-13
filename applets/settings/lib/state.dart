@@ -163,6 +163,27 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         if (declared.isNotEmpty) const CategoryRow(SettingsCategory.applets, 'Applets', 'apps', ''),
       ];
 
+  /// The scheme this boot draws (0: a grey panel, which offers none) and
+  /// its polarity, from the kit at start; the chosen ones are the system
+  /// settings file's, shown here and drawn after a restart (plan 0009 D9).
+  int runningScheme = 0;
+  bool runningDark = true;
+  int get chosenScheme {
+    final n = int.tryParse(values['vrx']?['scheme'] ?? '');
+    return n != null && n >= 1 && n <= VrxColors.schemeCount ? n : runningScheme;
+  }
+
+  bool get chosenDark => switch (values['vrx']?['polarity']) {
+        'light' => false,
+        'dark' => true,
+        _ => runningDark,
+      };
+
+  /// The look chosen differs from the one drawn: a restart applies it.
+  bool get lookPending => runningScheme > 0 && (chosenScheme != runningScheme || chosenDark != runningDark);
+
+  bool pickingScheme = false;
+
   /// The light-off timeout now (absent: never, as the compositor reads it).
   int get lightOff => int.tryParse(values['vrx']?['light_off'] ?? '') ?? 0;
 
@@ -212,6 +233,19 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
             value: lightOff == 0 ? 'Never' : 'After ${lightOffLabel(lightOff)}',
             kind: RowKind.toggle,
           ),
+          // the scheme, on a panel that draws one; it changes at the next boot
+          if (runningScheme > 0) ...[
+            SettingRow(key: 'scheme', label: 'Colour scheme', value: VrxColors.schemeName(chosenScheme), kind: RowKind.open),
+            SettingRow(
+              key: 'polarity',
+              label: 'Dark',
+              value: chosenDark ? 'On' : 'Off',
+              kind: RowKind.toggle,
+              on: chosenDark,
+            ),
+            if (lookPending)
+              const SettingRow(key: 'restart', label: 'Restart to apply', value: '', kind: RowKind.confirm),
+          ],
         ];
       case SettingsCategory.power:
         return [

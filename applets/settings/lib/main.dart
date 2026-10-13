@@ -82,6 +82,17 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
           unawaited(_setSetting(applet, key, text.trim()));
         },
       );
+    } else if (model.pickingScheme) {
+      body = VrxSchemePicker(
+        current: model.runningScheme,
+        chosen: model.chosenScheme,
+        dark: model.chosenDark,
+        onBack: () => _go(context, () => model.pickingScheme = false),
+        onPick: (id) {
+          _go(context, () => model.pickingScheme = false);
+          unawaited(_setSetting('vrx', 'scheme', '$id'));
+        },
+      );
     } else if (view.pickingZone) {
       body = VrxZonePicker(
         title: 'Time zone',
@@ -154,6 +165,10 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
         unawaited(_ask(context, () => VrxSystem.power.setLight(!row.on)));
       case 'light_off':
         unawaited(_setSetting('vrx', 'light_off', '${model.nextLightOff}'));
+      case 'scheme':
+        _go(context, () => model.pickingScheme = true);
+      case 'polarity':
+        unawaited(_setSetting('vrx', 'polarity', row.on ? 'light' : 'dark'));
       case 'automatic':
         unawaited(_ask(context, () => VrxSystem.time.setAutomatic(!row.on)));
       case 'zone':
@@ -272,7 +287,12 @@ Future<void> main() async {
   VrxSystem.power.watchLight().listen((on) => fact(() => model.light = on), onError: failed);
   VrxSystem.power.watchSupplyLow().listen((low) => fact(() => model.supplyLow = low), onError: failed);
   VrxSystem.usb.watch().listen((u) => fact(() => model.usbPresent = u.present), onError: failed);
-  // the system's own settings (the light-off timeout)
+  // the look this boot draws, from the same snapshot every applet reads
+  final boot = bootColors();
+  model
+    ..runningScheme = boot.scheme
+    ..runningDark = boot.dark;
+  // the system's own settings (the light-off timeout, the chosen look)
   _settings.watch('vrx').listen((v) => fact(() => model.values['vrx'] = v), onError: failed);
   // applets' declared settings, each file watched so a change shows
   unawaited(() async {

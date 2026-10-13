@@ -157,6 +157,63 @@ class _VrxTextEntryState extends State<VrxTextEntry> {
   }
 }
 
+/// Choose a colour scheme: every scheme as a row with its swatch (the
+/// primary, secondary and tertiary in [dark] or light) and its name. The
+/// one drawn now is [current]; [chosen] is the one drawn after a restart.
+class VrxSchemePicker extends StatelessWidget {
+  const VrxSchemePicker({
+    super.key,
+    required this.current,
+    required this.chosen,
+    required this.dark,
+    required this.onBack,
+    required this.onPick,
+  });
+
+  final int current;
+  final int chosen;
+  final bool dark;
+  final VoidCallback onBack;
+  final void Function(int scheme) onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final space = ScaledSpacing.of(context);
+    final colors = VrxTheme.of(context);
+    return Column(children: [
+      VrxHeader(title: 'Colour scheme', onBack: onBack),
+      Expanded(
+        child: ListView.builder(
+          itemCount: VrxColors.schemeCount,
+          itemBuilder: (context, i) {
+            final id = i + 1;
+            final preview = VrxColors.preview(id, dark: dark);
+            return VrxPress(
+              onTap: () => onPick(id),
+              child: Container(
+                constraints: BoxConstraints(minHeight: space.touch),
+                padding: EdgeInsets.symmetric(horizontal: space.inset),
+                decoration: BoxDecoration(
+                  border: Border(bottom: BorderSide(color: colors.outlineFaint, width: Strokes.hairline)),
+                ),
+                child: Row(children: [
+                  // the swatch: the scheme's three hues
+                  for (final c in [preview.primary, preview.secondary, preview.tertiary])
+                    Container(width: space.sm, height: space.lg, color: c, margin: EdgeInsets.only(right: space.xs / 2)),
+                  SizedBox(width: space.sm),
+                  Expanded(child: Text(VrxColors.schemeName(id), style: TypeRole.list(context))),
+                  if (id == chosen)
+                    Text(id == current ? 'Current' : 'After restart', style: TypeRole.value(context)),
+                ]),
+              ),
+            );
+          },
+        ),
+      ),
+    ]);
+  }
+}
+
 /// Time zone regions as a person reads them: "Indian" is the ocean.
 const vrxZoneRegions = {
   'Africa': 'Africa',

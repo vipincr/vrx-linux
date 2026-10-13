@@ -42,7 +42,32 @@ void main() {
     expect(lightOffLabel(45), '45 s');
   });
 
-    test('the time rows read the time service', () {
+    test('the colour scheme: offered on a colour panel, pending until a restart', () {
+    final model = SettingsModel()
+      ..lightLevels = 2
+      ..light = true
+      ..open = SettingsCategory.display;
+    final h = StoreHarness(model);
+    expect(h.view.rows.map((r) => r.key), isNot(contains('scheme')), reason: 'a grey panel draws no scheme');
+    model.runningScheme = 12;
+    h.dispatch(SettingsAction.factsChanged);
+    SettingRow row(String key) => h.view.rows.firstWhere((r) => r.key == key);
+    expect(row('scheme').value, 'Amber complementary');
+    expect(row('polarity').on, isTrue);
+    expect(h.view.rows.map((r) => r.key), isNot(contains('restart')), reason: 'nothing to apply yet');
+    model.values['vrx'] = {'scheme': '3', 'polarity': 'light'};
+    h.dispatch(SettingsAction.factsChanged);
+    expect(row('scheme').value, 'Blue split complementary');
+    expect(row('polarity').on, isFalse);
+    expect(row('restart').label, 'Restart to apply');
+    // a hand-edited value that is not a scheme reads as the running one
+    model.values['vrx'] = {'scheme': '99'};
+    h.dispatch(SettingsAction.factsChanged);
+    expect(row('scheme').value, 'Amber complementary');
+    expect(h.view.rows.map((r) => r.key), isNot(contains('restart')));
+  });
+
+  test('the time rows read the time service', () {
     final model = SettingsModel()..open = SettingsCategory.time;
     final harness = StoreHarness(model);
     harness.assertView((v) => v.rows.first.value == '…', because: 'nothing read yet');

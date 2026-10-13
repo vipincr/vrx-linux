@@ -1,0 +1,14 @@
+#!/bin/sh
+# This boot's look (plan 0009 D5): the build's defaults, then whatever the
+# person chose in Settings, copied once to /run, where every applet reads
+# it. A choice made later shows at the next boot and on nothing before, so
+# the screen is never half one scheme. Last key wins (vrx_kit's
+# parseSettings), so the defaults come first.
+set -eu
+mkdir -p /run/vrx
+{
+    cat /usr/lib/vrx/theme-default.conf
+    grep -E '^(scheme|polarity)=' /etc/vrx/settings/vrx.conf 2>/dev/null || true
+} > /run/vrx/theme.conf.new
+chmod 0644 /run/vrx/theme.conf.new
+mv /run/vrx/theme.conf.new /run/vrx/theme.conf

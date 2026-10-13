@@ -28,6 +28,9 @@ void main() {
     )
     ..lightLevels = 2
     ..light = true
+    // a colour panel drawing scheme 12, with 13 chosen: the longest Display
+    ..runningScheme = 12
+    ..values['vrx'] = {'scheme': '13', 'polarity': 'light', 'light_off': '600'}
     ..canPowerOff = true
     ..supplyLow = true
     ..zones = ['America/Argentina/Buenos_Aires', 'Asia/Kolkata', 'Europe/London']
@@ -51,6 +54,9 @@ void main() {
     'zone': () => model()
       ..open = SettingsCategory.time
       ..pickingZone = true,
+    'colour scheme': () => model()
+      ..open = SettingsCategory.display
+      ..pickingScheme = true,
   };
   // every setting every repo applet declares, as Settings > Applets shows
   // it: a new applet's labels are measured with no new test
