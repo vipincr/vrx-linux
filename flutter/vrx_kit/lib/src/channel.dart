@@ -143,8 +143,11 @@ abstract final class VrxBridge {
   }
 
   /// This applet's Listen: the intents it handles and the channels opened
-  /// on it (the newest Listen of an applet wins).
-  static Stream<VrxDelivery> listen() async* {
+  /// on it (the newest Listen of an applet wins), held again whenever
+  /// vrxhost restarts.
+  static Stream<VrxDelivery> listen() => resubscribed(_listenOnce);
+
+  static Stream<VrxDelivery> _listenOnce() async* {
     final socket = await _connect('io.vrx.Host.Listen', const {}, more: true);
     try {
       await for (final (reply, handles) in _replies(socket)) {

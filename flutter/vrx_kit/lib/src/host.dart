@@ -70,6 +70,25 @@ abstract class AppletsService implements IntentTransport, NavDelegate {
   Future<List<AppletSettingsDecl>> settings();
 }
 
+/// A `more` call that outlives vrxhost: when its connection ends (vrxhost
+/// restarted, or is not up yet) it is made again after [retry]. Without
+/// it the shell kept the trail depth of a vrxhost that had gone, and
+/// offered no Back in an applet (bench 2026-10-13).
+Stream<T> resubscribed<T>(Stream<T> Function() open, {Duration retry = const Duration(milliseconds: 500)}) async* {
+  while (true) {
+    try {
+      // await for, not yield*: an error must end this attempt here, not
+      // reach the listener
+      await for (final value in open()) {
+        yield value;
+      }
+    } on Object {
+      // gone or refused: the next attempt says whether it is back
+    }
+    await Future<void>.delayed(retry);
+  }
+}
+
 /// A Varlink call failed: the error name and its parameters, as vrxhost
 /// sent them (`io.vrx.Host.NoSuchApplet`, ...).
 class VarlinkError implements Exception {
@@ -189,12 +208,13 @@ class VarlinkAppletsService extends AppletsService {
   }
 
   @override
-  Stream<FrontApplet> watch() => _client.stream('io.vrx.Host.Watch').map(
-        (p) => FrontApplet(
-          front: '${p['front'] ?? ''}',
-          depth: (p['depth'] as num?)?.toInt() ?? 0,
-        ),
-      );
+  Stream<FrontApplet> watch() => resubscribed(
+      () => _client.stream('io.vrx.Host.Watch').map(
+            (p) => FrontApplet(
+              front: '${p['front'] ?? ''}',
+              depth: (p['depth'] as num?)?.toInt() ?? 0,
+            ),
+          ));
 
   @override
   Future<IntentResult> send(String name, Object? payload) async {

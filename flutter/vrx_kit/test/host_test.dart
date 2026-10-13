@@ -79,9 +79,10 @@ void main() {
           {'parameters': {'front': 'launcher', 'depth': 1}},
           {'parameters': {'front': 'clock', 'depth': 2}},
         ]);
-    final fronts = await VarlinkAppletsService(socketPath: path).watch().toList();
+    // the watch never ends: a host that hangs up is asked again
+    final fronts = await VarlinkAppletsService(socketPath: path).watch().take(2).toList();
     expect(fronts.map((f) => f.front), ['launcher', 'clock']);
-    expect(asked.single['more'], true);
+    expect(asked.first['more'], true);
     await server.close();
   });
 
