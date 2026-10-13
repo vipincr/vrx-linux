@@ -1,6 +1,8 @@
 # The systemd side of a vrx applet (plan 0008 D1, D2, D14, D16), shared by
-# every applet recipe whatever its runtime. From the applet's manifest it
-# generates the unit drop-in vrx-applet@<id>.service.d/10-manifest.conf:
+# every applet recipe whatever its runtime. From the applet's manifest,
+# `vrx unit` (vrx-cli-native; vrx_protocol::unit, plan 0011 D17, the
+# generator vrxhost runs when it installs an applet) writes the unit
+# drop-in vrx-applet@<id>.service.d/10-manifest.conf:
 #
 #   ExecStart  flutter: flutter-vrx --release --app ${VRX_FLUTTER_BUNDLE}
 #              dart, rust, native: ${VRX_APPLET_DIR}/app
@@ -9,7 +11,9 @@
 #              (files/grants.conf, vrx-policy creates the groups); a UI
 #              applet also gets video, render and the DRM devices
 #
-# and creates the applet's own user and group vrx-<id>.
+# and the settings defaults /etc/vrx/settings/<id>.conf. This class keeps
+# what is the build's alone: the AOT checks and the applet's own user and
+# group vrx-<id>.
 #
 # A recipe sets VRX_APPLET (the manifest id) and VRX_APPLET_DIR (where the
 # manifest is installed); a flutter applet also VRX_FLUTTER_BUNDLE.
@@ -23,37 +27,13 @@ VRX_APPLET_WATCHDOG ?= "5s"
 VRX_GRANTS_CONF = "${VRX_LINUX_LAYERDIR}/recipes-applets/vrx-applets/files/grants.conf"
 
 python vrx_applet_unit() {
-    import os, tomllib
+    import os, subprocess, tomllib
     applet = d.getVar('VRX_APPLET')
     manifest_path = d.getVar('D') + os.path.join(d.getVar('VRX_APPLET_DIR'), 'manifest.toml')
     with open(manifest_path, 'rb') as f:
-        manifest = tomllib.load(f)
-    section = manifest.get('applet', {})
-    runtime = section.get('runtime')
-    grants = section.get('permissions', {}).get('system', [])
-    table = vrx_grants_table(d)
-    # an applet's own user and group is vrx-<id>; a grant group of that
-    # name would make every member of the grant that applet (the settings
-    # applet met the settings grant's first group name, vrx-settings)
-    clash = [g for g, _ in table.values() if g == 'vrx-%s' % applet]
-    if clash:
-        bb.fatal("%s: its user vrx-%s is also a grant group in grants.conf" % (applet, applet))
-    unknown = [g for g in grants if g not in table]
-    if unknown:
-        bb.fatal("%s: manifest grants %s, which grants.conf does not define" % (applet, unknown))
-    groups = set()
-    devices = set()
-    writable = set()
-    for grant in grants:
-        group, classes = table[grant]
-        groups.add(group)
-        for c in classes:
-            if c.startswith('path:'):
-                writable.add(c[len('path:'):])
-            else:
-                devices.add(c)
+        runtime = tomllib.load(f).get('applet', {}).get('runtime')
+    bundle = d.getVar('VRX_FLUTTER_BUNDLE')
     if runtime == 'flutter':
-        bundle = d.getVar('VRX_FLUTTER_BUNDLE')
         if not bundle:
             bb.fatal("%s: a flutter applet needs VRX_FLUTTER_BUNDLE" % applet)
         # D18: only an AOT release bundle ships. A debug or JIT bundle
@@ -67,67 +47,29 @@ python vrx_applet_unit() {
         if os.path.exists(blob) and os.path.getsize(blob) > 0:
             bb.fatal("%s: %s carries a %d-byte kernel_blob.bin: a JIT bundle, never shipped"
                      % (applet, bundle, os.path.getsize(blob)))
-        exec_start = "/usr/bin/flutter-vrx --release --app %s" % bundle
-        # the KMS node its buffers come from and the GPU's render node
-        groups.update(['video', 'render'])
-        devices.add('char-drm')
-    elif runtime in ('dart', 'rust', 'native'):
-        exec_start = os.path.join(d.getVar('VRX_APPLET_DIR'), 'app')
-    else:
-        bb.fatal("%s: unknown runtime %r" % (applet, runtime))
-    lines = [
-        "# Generated from the %s manifest by vrx-applet-unit.bbclass. Do not edit." % applet,
-        "[Service]",
-        "ExecStart=%s" % exec_start,
-    ]
-    # D18: runtimes that speak the service protocol (flutter-vrx's app
-    # role, the Rust SDK) get the start budget and the watchdog
-    if runtime in ('flutter', 'rust'):
-        lines += [
-            "Type=notify",
-            "NotifyAccess=main",
-            "TimeoutStartSec=%s" % d.getVar('VRX_APPLET_START_BUDGET'),
-            "WatchdogSec=%s" % d.getVar('VRX_APPLET_WATCHDOG'),
-        ]
-    if groups:
-        lines.append("SupplementaryGroups=%s" % " ".join(sorted(groups)))
-    for device in sorted(devices):
-        lines.append("DeviceAllow=%s rw" % device)
-    # a grant's paths are writable through ProtectSystem=strict
-    if writable:
-        lines.append("ReadWritePaths=%s" % " ".join(sorted(writable)))
-    dropdir = d.getVar('D') + d.getVar('systemd_system_unitdir') + '/vrx-applet@%s.service.d' % applet
-    os.makedirs(dropdir, exist_ok=True)
-    with open(os.path.join(dropdir, '10-manifest.conf'), 'w') as f:
-        f.write("\n".join(lines) + "\n")
-    # plan 0008 D5: the declared settings' defaults, /etc/vrx/settings/<id>.conf
-    # (key=value; vrx-policy's tmpfiles gives it root:vrx-config 0664)
-    declared = section.get('settings', [])
-    if declared:
-        etc = d.getVar('D') + d.getVar('sysconfdir') + '/vrx/settings'
-        os.makedirs(etc, exist_ok=True)
-        def text(v):
-            return ('true' if v else 'false') if isinstance(v, bool) else str(v)
-        with open(os.path.join(etc, '%s.conf' % applet), 'w') as f:
-            f.write("# %s's settings (its manifest's [[applet.settings]]); Settings writes this\n" % applet)
-            for s_ in declared:
-                f.write("%s=%s\n" % (s_['key'], text(s_.get('default', ''))))
+    # the drop-in and the settings defaults: vrx_protocol::unit through
+    # `vrx unit` (plan 0011 D17), the generator vrxhost runs at install
+    dropin = d.getVar('D') + d.getVar('systemd_system_unitdir') + \
+        '/vrx-applet@%s.service.d/10-manifest.conf' % applet
+    settings = d.getVar('D') + d.getVar('sysconfdir') + '/vrx/settings/%s.conf' % applet
+    cmd = ['vrx', 'unit',
+           '--manifest', manifest_path,
+           '--dir', d.getVar('VRX_APPLET_DIR'),
+           '--grants', d.getVar('VRX_GRANTS_CONF'),
+           '--start-budget', d.getVar('VRX_APPLET_START_BUDGET'),
+           '--watchdog', d.getVar('VRX_APPLET_WATCHDOG'),
+           '--dropin', dropin,
+           '--settings', settings]
+    if runtime == 'flutter':
+        cmd += ['--bundle', bundle]
+    done = subprocess.run(cmd, capture_output=True, text=True)
+    if done.returncode != 0:
+        bb.fatal("%s: vrx unit: %s" % (applet, done.stderr.strip()))
 }
 do_install[postfuncs] += "vrx_applet_unit"
 do_install[file-checksums] += "${VRX_GRANTS_CONF}:True"
-
-def vrx_grants_table(d):
-    """grants.conf: grant = group [device class...]"""
-    table = {}
-    with open(d.getVar('VRX_GRANTS_CONF')) as f:
-        for line in f:
-            line = line.split('#', 1)[0].strip()
-            if not line:
-                continue
-            key, _, rest = line.partition('=')
-            words = rest.split()
-            table[key.strip()] = (words[0], words[1:])
-    return table
+# `vrx unit` runs from the native sysroot
+DEPENDS += "vrx-cli-native"
 
 # The applet's own user and group; its home is the unit's StateDirectory.
 # No colon in the comment: it is a passwd field.

@@ -257,44 +257,34 @@ fn workspace_crates(repo: &std::path::Path) -> Vec<(std::path::PathBuf, String)>
 
 /// An applet whose user (vrx-<id>) is a grant's group, named.
 fn applet_user_clash(repo: &std::path::Path) -> Option<String> {
-    let grants = std::fs::read_to_string(
-        repo.join("layer/recipes-applets/vrx-applets/files/grants.conf"),
+    // the drop-in generator the image build and vrxhost run (plan 0011
+    // D17) refuses the clash; asking it for every applet's drop-in finds
+    // it here, with any other reason a drop-in could not be written
+    let grants = vrx_protocol::unit::Grants::parse(
+        &std::fs::read_to_string(
+            repo.join("layer/recipes-applets/vrx-applets/files/grants.conf"),
+        )
+        .ok()?,
     )
     .ok()?;
-    let groups: Vec<&str> = grants
-        .lines()
-        .filter_map(|l| {
-            l.split('#')
-                .next()?
-                .split_once('=')?
-                .1
-                .split_whitespace()
-                .next()
-        })
-        .collect();
     let mut entries: Vec<_> = std::fs::read_dir(repo.join("applets"))
         .ok()?
         .flatten()
         .collect();
     entries.sort_by_key(|e| e.path());
     for entry in entries {
-        let Ok(manifest) = std::fs::read_to_string(entry.path().join("manifest.toml"))
-        else {
+        let Ok(text) = std::fs::read_to_string(entry.path().join("manifest.toml")) else {
             continue;
         };
-        let id = manifest.lines().find_map(|l| {
-            l.trim()
-                .strip_prefix("id = \"")?
-                .strip_suffix('"')
-                .map(str::to_owned)
-        });
-        if let Some(id) = id {
-            let user = format!("vrx-{id}");
-            if groups.contains(&user.as_str()) {
-                return Some(format!(
-                    "applet {id:?} would run as {user}, the group of a grant in grants.conf: choose another id"
-                ));
-            }
+        let Ok(manifest) = text.parse::<vrx_protocol::Manifest>() else {
+            continue; // the crate tests and vrx build name a bad manifest
+        };
+        let place = vrx_protocol::unit::Place::builtin(
+            format!("/system/defaults/{}", manifest.applet.id),
+            Some("/bundle".to_owned()),
+        );
+        if let Err(err) = vrx_protocol::unit::dropin(&manifest, &place, &grants) {
+            return Some(format!("{err}: choose another id or fix the grant"));
         }
     }
     None
