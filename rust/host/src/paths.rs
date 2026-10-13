@@ -11,7 +11,7 @@ pub struct VrxPaths {
     pub system_defaults: PathBuf,
     /// Installed applets: /apps.
     pub apps: PathBuf,
-    /// Runtime state (the intent socket, pipes): /tmp/vrx.
+    /// Runtime state (the io.vrx.Host socket, pipes): /run/vrx.
     pub runtime: PathBuf,
 }
 
@@ -21,13 +21,14 @@ impl VrxPaths {
         Self {
             system_defaults: PathBuf::from("/system/defaults"),
             apps: PathBuf::from("/apps"),
-            runtime: PathBuf::from("/tmp/vrx"),
+            runtime: PathBuf::from("/run/vrx"),
         }
     }
 
-    /// The intent socket path: <runtime>/vrx.sock.
-    pub fn intent_socket(&self) -> PathBuf {
-        self.runtime.join("vrx.sock")
+    /// vrxhost's Varlink socket: <runtime>/io.vrx.Host (the interface
+    /// name, as systemd names its own Varlink sockets).
+    pub fn host_socket(&self) -> PathBuf {
+        self.runtime.join(crate::varlink::INTERFACE)
     }
 
     /// The pipes directory: <runtime>/pipes.

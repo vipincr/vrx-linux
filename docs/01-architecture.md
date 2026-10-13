@@ -16,7 +16,7 @@ file names the reality.
 | Piece | Where | State |
 |---|---|---|
 | The protocol (manifest, intent, pipe, registry) | `rust/protocol` | landed; strict parse, unknown keys named |
-| vrxhost (registry scan, supervisor, intent socket, trail) | `rust/host` | landed; integration-tested on host |
+| vrxhost (registry, trail and focus, intents, io.vrx.Host on Varlink; applets as systemd units, one user each) | `rust/host` | plan 0008 Part A |
 | The Rust SDK (`vrx` crate: applet, store, IPC clients, console kit) | `rust/sdk` | landed; hello example proves it end to end |
 | The Flutter SDK (`vrx_kit`: store, theme, Nav, Motion, IPC) | `flutter/vrx_kit` | landed; 6 tests |
 | The `vrx` CLI (new/build/install/test) | `rust/cli` | landed; both scaffolds pass their own tests |
@@ -37,10 +37,10 @@ file names the reality.
 
 | Shape | What it is | vrx-linux mechanism |
 |---|---|---|
-| State | a value that stays true until it changes, watchable by anyone | a file (/data/settings/*, /sys), watched |
-| Signal | something happened or is asked; small; has a verdict | an intent over /tmp/vrx/vrx.sock, one JSON value |
-| Stream | ordered records, one writer to one reader, backpressure | a Unix socket in /tmp/vrx/pipes/ |
-| Device data | frames/samples too large to copy | memfd or dmabuf (with the compositor) |
+| State | a value that stays true until it changes, watchable by anyone | a file (/etc/vrx/*, /sys), watched; system state is the services' own D-Bus properties behind vrx_kit's domain services |
+| Signal | something happened or is asked; small; has a verdict | an intent through `io.vrx.Host.Intent` (Varlink); a running handler receives it on its `Listen` call |
+| Stream | ordered records, one writer to one reader, backpressure | a socket pair vrxhost hands to both ends (`io.vrx.Host.Open`) |
+| Device data | frames/samples too large to copy | a sealed memfd or dmabuf passed the same way |
 
 ## The intent chain
 
@@ -55,14 +55,15 @@ handler is asked.
 
 ```
 Linux kernel
-  → vrxinit (PID 1): mount /proc /sys /dev, ensure /tmp/vrx,
+  → vrxinit (PID 1): mount /proc /sys /dev,
     debug console only when the cmdline carries vrx.debug
-  → systemd (hardware services; starts vrxhost per its unit)
-  → vrx-ui: flutter-vrx --compositor takes the display and input
+  → systemd (hardware services; tmpfiles makes /run/vrx; starts vrxhost)
+  → vrx-ui (UI images only): flutter-vrx --compositor takes the display
   → vrxhost: scan /apps + /system/defaults → registry →
-    start home + resident applets as the vrx user → control the
-    compositor (focus = the trail's top) → serve the intent socket
-  → the screen lights: the launcher
+    start home + resident applets as systemd units
+    (vrx-applet@<id>.service, user vrx-<id>) → with a UI, control the
+    compositor (focus = the trail's top) → serve io.vrx.Host
+  → the screen lights: the launcher (headless: the resident applets run)
 ```
 
 ## The build rungs

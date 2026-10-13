@@ -26,11 +26,10 @@ change is not "done" until the gate is green.
 3. **One job per crate.** `protocol` is shared types only. `host` is the
    daemon. `sdk` is what applet developers import. `cli` is the `vrx`
    tool. No cross-boundary imports.
-4. **`unsafe` only where Linux offers no safe interface**, each block
-   with a SAFETY comment. Today there is one: the applet privilege drop
-   in `host/src/launch.rs` (setgroups/setgid/setuid in pre_exec; std
-   cannot set supplementary groups). The display and the engine FFI
-   live in flutter-vrx, in C.
+4. **No `unsafe`.** Applets are systemd units with their own users
+   (plan 0008 D1), so vrxhost needs no privilege drop; the display and
+   the engine FFI live in flutter-vrx, in C. A future block needs a
+   SAFETY comment and a reason Linux offers no safe interface.
 5. **"vrx" is always lowercase** — in prose, in code, in comments, in
    docs. Never "vrx" capitalized, never "VRX" except as a literal
    constant inherited from existing code.
@@ -38,10 +37,17 @@ change is not "done" until the gate is green.
    vrx terms. The Linux filesystem is fully visible (like AOSP) but the
    primary experience is the vrx UI. No artificial hiding.
 7. **The four IPC shapes** (state, signal, stream, device data) are the
-   only ways applets communicate. No fifth way. The gate enforces this.
+   only ways applets communicate, and `io.vrx.Host` (Varlink) is the
+   bridge that carries signals and hands out stream and device-data
+   descriptors (plan 0008 D15). No fifth way. The gate enforces this.
 8. **An applet is a store** (model + reducer + view + effects). The
-   same model compiles into a host test. No applet has direct hardware
-   access.
+   same model compiles into a host test. An applet reaches hardware
+   only through what its manifest grants (plan 0008 D16): a group and
+   a DeviceAllow class per device grant, enforced by its unit.
+9. **Map onto Linux before writing code.** Supervision is systemd,
+   authority is groups, bus policy and polkit, live system state is the
+   services' own interfaces behind vrx_kit's domain services, persistent
+   settings live in /etc (plan 0008). vrx code fills only the gaps.
 
 > ## Planning uses the plan skill
 

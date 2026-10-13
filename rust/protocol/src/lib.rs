@@ -16,6 +16,6 @@ pub mod pipe;
 pub mod registry;
 
 pub use intent::{Intent, IntentPayload, Verdict};
-pub use manifest::{HandleDecl, Manifest};
+pub use manifest::{HandleDecl, Manifest, SystemGrant};
 pub use pipe::PipeMessage;
 pub use registry::{Registry, RegistryEntry, RegistryError};

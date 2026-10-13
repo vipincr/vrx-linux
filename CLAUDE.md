@@ -20,7 +20,7 @@ is not done until the gate is green.
 | Path | What |
 |---|---|
 | `rust/protocol` | shared types: Manifest, Intent, PipeMessage, registry |
-| `rust/host` | vrxhost: registry, sandboxed supervisor, intent router, trail, compositor focus |
+| `rust/host` | vrxhost: registry, trail and focus, intents, io.vrx.Host (Varlink); applets run as systemd units |
 | `rust/sdk` | the `vrx` crate: what applet developers import |
 | `rust/cli` | the `vrx` tool: new/build/install/test |
 | `rust/xtask` | the gate |
@@ -29,5 +29,5 @@ is not done until the gate is green.
 | `layer/` | the Yocto layer consumed by the vrx build |
 
 `AGENTS.md` carries the hard rules (no unwrap/expect/panic, one job per
-crate, unsafe only where Linux has no safe interface, the four IPC
+crate, no unsafe, the four IPC
 shapes, vrx always lowercase). Read it before writing code.

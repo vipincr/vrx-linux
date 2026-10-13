@@ -191,7 +191,7 @@ void main() {
   runApplet(applet, actions: actions.stream);
   // the tiles are vrxhost's registry; off-device the model's defaults
   // stay (a desktop `flutter run`)
-  VrxHost.installed?.applets().then((applets) {
+  AppletsService.installed?.applets().then((applets) {
     applet.replaceRegistry({
       for (final a in applets)
         a.id: Tile(id: a.id, name: a.name, position: a.position, icon: a.icon ?? ''),

@@ -11,16 +11,18 @@ path = "src/main.rs"
 
 [dependencies]
 vrx-protocol = { path = "../protocol" }
+serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tokio = { workspace = true }
-# the identity drop in the applet's pre-exec (launch.rs)
-libc = "0.2"
 # SOCK_SEQPACKET to the compositor (compositor.rs); same version tokio
 # already pulls, "all" for the seqpacket type
 socket2 = { version = "0.6", features = ["all"] }
+zbus = { version = "5.19.0", default-features = false, features = ["tokio"] }
+zlink = { version = "0.7.1", default-features = false, features = ["tokio", "server", "tracing"] }
+futures-util = { version = "0.3.34", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"

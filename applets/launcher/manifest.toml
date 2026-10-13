@@ -15,7 +15,7 @@ heap_mb = 128
 home = true
 
 [applet.permissions]
-storage = false
+system = ["apps"]                # install and remove applets
 
 [applet.intents]
 handles = [

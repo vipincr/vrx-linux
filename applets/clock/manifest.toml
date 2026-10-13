@@ -21,11 +21,7 @@ installs = false
 resident = false
 
 [applet.permissions]
-network = false
-bluetooth = false
-storage = false
-camera = false
-audio = false
+system = ["time"]                # zone, alarms (plan 0008 D2)
 
 [applet.intents]
 handles = [

@@ -26,6 +26,8 @@ pub enum RegistryError {
     DuplicateId(String),
     #[error("applet id {0:?}: roles are held by built-ins only (home/shell/installs/resident declared on an installed applet)")]
     RoleOnInstalled(String),
+    #[error("applet id {0:?}: system grants are held by built-ins only (permissions.system declared on an installed applet)")]
+    SystemOnInstalled(String),
     #[error("applet id {id:?}: installed applets hold handler priorities 0-{below}, got {got}")]
     PriorityBand { id: String, below: u16, got: u16 },
     #[error("applet id {0:?}: manifest invalid: {1}")]
@@ -58,6 +60,9 @@ impl Registry {
         if !entry.builtin {
             if entry.manifest.applet.roles.any() {
                 return Err(RegistryError::RoleOnInstalled(id));
+            }
+            if !entry.manifest.applet.permissions.system.is_empty() {
+                return Err(RegistryError::SystemOnInstalled(id));
             }
             for handle in &entry.manifest.applet.intents.handles {
                 if handle.priority >= PRIORITY_BUILTIN_MIN {
@@ -196,6 +201,29 @@ mod tests {
             r_admit(e),
             Err(RegistryError::RoleOnInstalled("shell".into()))
         );
+    }
+
+    #[test]
+    fn system_grants_are_built_in_only() {
+        let mut e = entry("wifi", false);
+        e.manifest.applet.permissions.system = vec![crate::SystemGrant::Network];
+        assert_eq!(
+            r_admit(e.clone()),
+            Err(RegistryError::SystemOnInstalled("wifi".into()))
+        );
+        e.builtin = true;
+        assert_eq!(r_admit(e), Ok(()));
+    }
+
+    #[test]
+    fn a_system_grant_parses_and_an_unknown_one_is_named() {
+        let ok: crate::Manifest = "[applet]\nid = \"wifi\"\nname = \"Wi-Fi\"\nversion = \"1\"\nruntime = \"flutter\"\n[applet.permissions]\nsystem = [\"network\", \"time\"]\n".parse().expect("parses");
+        assert_eq!(
+            ok.applet.permissions.system,
+            vec![crate::SystemGrant::Network, crate::SystemGrant::Time]
+        );
+        let bad = "[applet]\nid = \"wifi\"\nname = \"Wi-Fi\"\nversion = \"1\"\nruntime = \"flutter\"\n[applet.permissions]\nsystem = [\"root\"]\n".parse::<crate::Manifest>();
+        assert!(bad.is_err_and(|e| e.to_string().contains("root")));
     }
 
     #[test]

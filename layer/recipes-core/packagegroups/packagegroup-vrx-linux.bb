@@ -19,6 +19,7 @@ COMPATIBLE_MACHINE = "^vrxboard-"
 RDEPENDS:${PN} = "\
     vrxhost \
     vrxinit \
+    vrx-policy \
     ${@'vrx-applet-launcher vrx-applet-clock vrx-applet-settings' if d.getVar('VRX_UI') == 'flutter' else ''} \
 "
 

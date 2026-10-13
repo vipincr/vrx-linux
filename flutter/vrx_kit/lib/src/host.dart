@@ -1,7 +1,8 @@
-/// vrxhost from the applet side: the intent socket client that backs
-/// [Intent] and [Nav] on a device. One request per connection,
-/// newline-delimited JSON (`{"name": ..., "payload": ...}` out, one
-/// JSON object back), the wire vrxhost's intent router serves.
+/// vrxhost from the applet side: [AppletsService], the domain API for the
+/// back trail, the registry and intents (plan 0008 D3). Applets code
+/// against the service, never against its transport; today it is
+/// vrxhost's Varlink interface `io.vrx.Host` on `/run/vrx/io.vrx.Host`
+/// ([VarlinkAppletsService]).
 library;
 
 import 'dart:async';
@@ -13,8 +14,7 @@ import 'package:flutter/foundation.dart';
 import 'intent.dart';
 import 'nav.dart';
 
-/// One tile's worth of registry: what `vrx.registry.list` returns per
-/// applet (display.tile applets, in position order).
+/// One tile's worth of registry: an applet the launcher shows.
 class RegistryApplet {
   const RegistryApplet({
     required this.id,
@@ -27,78 +27,132 @@ class RegistryApplet {
   final String name;
   final int position;
 
-  /// The manifest's display.icon: a file name or a glyph.
+  /// The manifest's display.icon: a VrxSymbols name.
   final String? icon;
 }
 
-/// The vrxhost client. Installed by [VrxHost.installIfPresent] (which
-/// `runApplet` calls), so applets never construct it themselves.
-class VrxHost implements IntentTransport, NavDelegate {
-  VrxHost({this.socketPath = defaultSocket});
+/// What is on screen: the front applet and the trail depth.
+class FrontApplet {
+  const FrontApplet({required this.front, required this.depth});
 
-  /// vrxhost's intent socket.
-  static const defaultSocket = '/tmp/vrx/vrx.sock';
+  final String front;
+  final int depth;
+}
+
+/// The applet OS's own service: navigation, the registry, intents.
+abstract class AppletsService implements IntentTransport, NavDelegate {
+  static AppletsService? _installed;
+
+  /// The installed service, or null off-device (a desktop `flutter run`).
+  static AppletsService? get installed => _installed;
+
+  /// Install [service] (or the device's, when vrxhost's socket exists)
+  /// as the [Intent] transport and the [Nav] delegate. Off-device nothing
+  /// is installed, and Intent/Nav keep refusing loudly.
+  static AppletsService? install([AppletsService? service]) {
+    final chosen = service ?? VarlinkAppletsService.ifPresent();
+    if (chosen == null) return null;
+    Intent.install(chosen);
+    Nav.install(chosen);
+    return _installed = chosen;
+  }
+
+  /// The applets the launcher shows, in position order.
+  Future<List<RegistryApplet>> applets();
+
+  /// The front applet now, and again on every change.
+  Stream<FrontApplet> watch();
+}
+
+/// A Varlink call failed: the error name and its parameters, as vrxhost
+/// sent them (`io.vrx.Host.NoSuchApplet`, ...).
+class VarlinkError implements Exception {
+  const VarlinkError(this.name, this.parameters);
+
+  final String name;
+  final Map<String, dynamic> parameters;
+
+  @override
+  String toString() => 'VarlinkError($name, $parameters)';
+}
+
+/// A minimal Varlink client: JSON objects, NUL-terminated, on a unix
+/// socket (varlink.org). One connection per call; `more` calls keep
+/// theirs open and stream replies until the peer stops continuing.
+class VarlinkClient {
+  const VarlinkClient(this.socketPath);
 
   final String socketPath;
 
-  static VrxHost? _installed;
-
-  /// The installed client, or null off-device.
-  static VrxHost? get installed => _installed;
-
-  /// Install as the [Intent] transport and the [Nav] delegate when the
-  /// socket exists. Off-device (a desktop `flutter run`) nothing is
-  /// installed, and Intent/Nav keep refusing loudly.
-  static VrxHost? installIfPresent({String socketPath = defaultSocket}) {
-    if (FileSystemEntity.typeSync(socketPath) != FileSystemEntityType.unixDomainSock) {
-      return null;
-    }
-    final host = VrxHost(socketPath: socketPath);
-    Intent.install(host);
-    Nav.install(host);
-    return _installed = host;
+  /// Call [method] and return its reply parameters.
+  Future<Map<String, dynamic>> call(String method,
+      [Map<String, dynamic>? parameters]) async {
+    return stream(method, parameters: parameters, more: false).first;
   }
 
-  /// One request, one answer.
-  Future<Map<String, dynamic>> request(String name, [Object? payload]) async {
+  /// Call [method] and stream every reply's parameters.
+  Stream<Map<String, dynamic>> stream(String method,
+      {Map<String, dynamic>? parameters, bool more = true}) async* {
     final socket = await Socket.connect(
       InternetAddress(socketPath, type: InternetAddressType.unix),
       0,
     );
     try {
-      socket.write('${jsonEncode({'name': name, 'payload': payload})}\n');
+      final call = <String, dynamic>{
+        'method': method,
+        if (parameters != null) 'parameters': parameters,
+        if (more) 'more': true,
+      };
+      socket.add([...utf8.encode(jsonEncode(call)), 0]);
       await socket.flush();
-      final line = await utf8.decoder
-          .bind(socket)
-          .transform(const LineSplitter())
-          .first
-          .timeout(const Duration(seconds: 5));
-      final answer = jsonDecode(line);
-      if (answer is! Map<String, dynamic>) {
-        throw FormatException('vrxhost answered a non-object', line);
+      final pending = <int>[];
+      await for (final chunk in socket) {
+        for (final byte in chunk) {
+          if (byte != 0) {
+            pending.add(byte);
+            continue;
+          }
+          final reply = jsonDecode(utf8.decode(pending));
+          pending.clear();
+          if (reply is! Map<String, dynamic>) {
+            throw FormatException('varlink reply is not an object', reply);
+          }
+          final params =
+              (reply['parameters'] as Map<String, dynamic>?) ?? const {};
+          final error = reply['error'];
+          if (error is String) throw VarlinkError(error, params);
+          yield params;
+          if (reply['continues'] != true) return;
+        }
       }
-      return answer;
     } finally {
       socket.destroy();
     }
   }
+}
 
-  @override
-  Future<IntentResult> send(String name, Object? payload) async {
-    try {
-      return resultOf(await request(name, payload));
-    } catch (err) {
-      return IntentResult(verdict: Verdict.error, error: '$err');
-    }
+/// [AppletsService] over vrxhost's `io.vrx.Host`.
+class VarlinkAppletsService extends AppletsService {
+  VarlinkAppletsService({String socketPath = defaultSocket})
+      : _client = VarlinkClient(socketPath);
+
+  /// vrxhost's socket.
+  static const defaultSocket = '/run/vrx/io.vrx.Host';
+
+  final VarlinkClient _client;
+
+  /// The service when vrxhost's socket exists, else null.
+  static VarlinkAppletsService? ifPresent({String socketPath = defaultSocket}) {
+    final type = FileSystemEntity.typeSync(socketPath);
+    if (type != FileSystemEntityType.unixDomainSock) return null;
+    return VarlinkAppletsService(socketPath: socketPath);
   }
 
-  /// The applets the launcher shows.
+  @override
   Future<List<RegistryApplet>> applets() async {
-    final answer = await request('vrx.registry.list');
-    final list = answer['applets'];
-    if (answer['ok'] != true || list is! List) {
-      throw StateError('vrx.registry.list: ${answer['error'] ?? answer}');
-    }
+    final reply = await _client.call('io.vrx.Host.Applets');
+    final list = reply['applets'];
+    if (list is! List) return const [];
     return [
       for (final a in list.whereType<Map<String, dynamic>>())
         RegistryApplet(
@@ -111,39 +165,47 @@ class VrxHost implements IntentTransport, NavDelegate {
   }
 
   @override
-  void push(String applet, {String route = ''}) =>
-      _nav('vrx.nav.push', {'applet': applet, if (route.isNotEmpty) 'route': route});
+  Stream<FrontApplet> watch() => _client.stream('io.vrx.Host.Watch').map(
+        (p) => FrontApplet(
+          front: '${p['front'] ?? ''}',
+          depth: (p['depth'] as num?)?.toInt() ?? 0,
+        ),
+      );
 
   @override
-  void pop() => _nav('vrx.nav.pop');
+  Future<IntentResult> send(String name, Object? payload) async {
+    try {
+      final reply = await _client.call('io.vrx.Host.Intent', {
+        'name': name,
+        if (payload != null) 'payload': payload,
+      });
+      return IntentResult(
+        verdict: reply['verdict'] == 'pass' ? Verdict.pass : Verdict.handled,
+        handledBy: reply['handled_by'] as String?,
+        route: (reply['route'] as num?)?.toInt(),
+      );
+    } on VarlinkError catch (err) {
+      return IntentResult(verdict: Verdict.error, error: err.name);
+    } catch (err) {
+      return IntentResult(verdict: Verdict.error, error: '$err');
+    }
+  }
 
   @override
-  void home() => _nav('vrx.nav.home');
+  void push(String applet, {String route = ''}) => _nav('io.vrx.Host.Push',
+      {'applet': applet, if (route.isNotEmpty) 'route': route});
+
+  @override
+  void pop() => _nav('io.vrx.Host.Pop');
+
+  @override
+  void home() => _nav('io.vrx.Host.Home');
 
   // Nav is fire-and-forget for the applet (the trail is vrxhost's); a
   // refusal is still said, never swallowed.
-  void _nav(String name, [Object? payload]) {
-    unawaited(send(name, payload).then((result) {
-      if (result.verdict == Verdict.error) {
-        debugPrint('vrx: $name refused: ${result.error ?? result}');
-      }
+  void _nav(String method, [Map<String, dynamic>? parameters]) {
+    unawaited(_client.call(method, parameters).then<void>((_) {}, onError: (Object err) {
+      debugPrint('vrx: $method refused: $err');
     }));
-  }
-
-  /// Map a vrxhost answer onto an [IntentResult].
-  @visibleForTesting
-  static IntentResult resultOf(Map<String, dynamic> answer) {
-    if (answer['ok'] != true) {
-      return IntentResult(
-        verdict: Verdict.error,
-        errno: (answer['errno'] as num?)?.toInt(),
-        error: answer['error'] as String?,
-      );
-    }
-    return IntentResult(
-      verdict: answer['verdict'] == 'pass' ? Verdict.pass : Verdict.handled,
-      handledBy: answer['handled_by'] as String?,
-      route: (answer['route'] as num?)?.toInt(),
-    );
   }
 }

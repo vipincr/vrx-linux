@@ -12,8 +12,6 @@ pub enum Step {
     MountSys,
     /// Mount devtmpfs at /dev.
     MountDev,
-    /// Ensure /tmp/vrx exists (the runtime directory: sockets, pipes).
-    RuntimeDir,
     /// Run a shell on the console (VRX_DEBUG only: no getty ships).
     DebugConsole,
 }
@@ -32,12 +30,7 @@ pub fn plan(cmdline: &str) -> BootPlan {
     let debug = cmdline
         .split_whitespace()
         .any(|token| token == "vrx.debug" || token.starts_with("vrx.debug="));
-    let mut steps = vec![
-        Step::MountProc,
-        Step::MountSys,
-        Step::MountDev,
-        Step::RuntimeDir,
-    ];
+    let mut steps = vec![Step::MountProc, Step::MountSys, Step::MountDev];
     if debug {
         steps.push(Step::DebugConsole);
     }
@@ -54,12 +47,7 @@ mod tests {
         assert!(!plan.debug);
         assert_eq!(
             plan.steps,
-            vec![
-                Step::MountProc,
-                Step::MountSys,
-                Step::MountDev,
-                Step::RuntimeDir,
-            ]
+            vec![Step::MountProc, Step::MountSys, Step::MountDev,]
         );
     }
 

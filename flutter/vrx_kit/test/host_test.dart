@@ -5,61 +5,88 @@ import 'package:flutter/material.dart' hide Intent;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vrx_kit/vrx_kit.dart';
 
-/// A stand-in vrxhost: answers each one-line request with `answer`,
-/// recording what it was asked.
+/// A stand-in io.vrx.Host: answers each NUL-terminated Varlink call with
+/// `answer` (a list of replies; all but the last continue), recording
+/// what it was asked.
 Future<(ServerSocket, List<Map<String, dynamic>>, String)> fakeHost(
-    Map<String, dynamic> Function(Map<String, dynamic>) answer) async {
+    List<Map<String, dynamic>> Function(Map<String, dynamic>) answer) async {
   final dir = await Directory.systemTemp.createTemp('vrxhost');
-  final path = '${dir.path}/vrx.sock';
+  final path = '${dir.path}/io.vrx.Host';
   final server = await ServerSocket.bind(InternetAddress(path, type: InternetAddressType.unix), 0);
   final asked = <Map<String, dynamic>>[];
   server.listen((client) async {
-    final line = await utf8.decoder.bind(client).transform(const LineSplitter()).first;
-    final request = jsonDecode(line) as Map<String, dynamic>;
-    asked.add(request);
-    client.write('${jsonEncode(answer(request))}\n');
-    await client.flush();
-    await client.close();
+    final pending = <int>[];
+    await for (final chunk in client) {
+      for (final byte in chunk) {
+        if (byte != 0) {
+          pending.add(byte);
+          continue;
+        }
+        final call = jsonDecode(utf8.decode(pending)) as Map<String, dynamic>;
+        pending.clear();
+        asked.add(call);
+        final replies = answer(call);
+        for (var i = 0; i < replies.length; i++) {
+          final reply = {...replies[i], if (i < replies.length - 1) 'continues': true};
+          client.add([...utf8.encode(jsonEncode(reply)), 0]);
+        }
+        await client.flush();
+      }
+    }
   });
   return (server, asked, path);
 }
 
 void main() {
-  test('a nav push asks vrxhost by name and the answer maps to a verdict', () async {
-    final (server, asked, path) = await fakeHost(
-        (r) => {'ok': true, 'verdict': 'opened', 'handled_by': r['payload']['applet']});
-    final host = VrxHost(socketPath: path);
-    final result = await host.send('vrx.nav.push', {'applet': 'clock'});
+  test('a nav push is an io.vrx.Host call by name', () async {
+    final (server, asked, path) = await fakeHost((c) => [
+          {'parameters': {'top': c['parameters']['applet']}}
+        ]);
+    final host = VarlinkAppletsService(socketPath: path);
+    final result = await host.send('sys.alarm.ring', {'id': 7});
     expect(result.verdict, Verdict.handled);
-    expect(result.handledBy, 'clock');
-    expect(asked.single, {'name': 'vrx.nav.push', 'payload': {'applet': 'clock'}});
+    expect(asked.single['method'], 'io.vrx.Host.Intent');
+    expect(asked.single['parameters'], {'name': 'sys.alarm.ring', 'payload': {'id': 7}});
     await server.close();
   });
 
-  test('the registry list becomes tiles; a refusal keeps its errno', () async {
-    final (server, _, path) = await fakeHost((r) => r['name'] == 'vrx.registry.list'
-        ? {
-            'ok': true,
-            'applets': [
-              {'id': 'clock', 'name': 'Clock', 'icon': 'clock.png', 'position': 3},
-            ],
-          }
-        : {'ok': false, 'errno': -2, 'error': 'no applet "ghost"'});
-    final host = VrxHost(socketPath: path);
+  test('applets become tiles; a varlink error keeps its name', () async {
+    final (server, _, path) = await fakeHost((c) => c['method'] == 'io.vrx.Host.Applets'
+        ? [
+            {
+              'parameters': {
+                'applets': [
+                  {'id': 'clock', 'name': 'Clock', 'icon': 'schedule', 'position': 3},
+                ],
+              },
+            }
+          ]
+        : [
+            {'error': 'io.vrx.Host.NoHandler', 'parameters': {'name': 'ghost.ping'}}
+          ]);
+    final host = VarlinkAppletsService(socketPath: path);
     final applets = await host.applets();
     expect(applets.single.id, 'clock');
-    expect(applets.single.position, 3);
-    final refused = await host.send('vrx.nav.push', {'applet': 'ghost'});
+    expect(applets.single.icon, 'schedule');
+    final refused = await host.send('ghost.ping', null);
     expect(refused.verdict, Verdict.error);
-    expect(refused.errno, -2);
+    expect(refused.error, 'io.vrx.Host.NoHandler');
     await server.close();
   });
 
-  test('no socket: nothing is installed, and a send says why it failed', () async {
-    expect(VrxHost.installIfPresent(socketPath: '/nonexistent/vrx.sock'), isNull);
-    final result = await VrxHost(socketPath: '/nonexistent/vrx.sock').send('a.b', null);
-    expect(result.verdict, Verdict.error);
-    expect(result.error, isNotNull);
+  test('watch streams the front applet while the host continues', () async {
+    final (server, asked, path) = await fakeHost((c) => [
+          {'parameters': {'front': 'launcher', 'depth': 1}},
+          {'parameters': {'front': 'clock', 'depth': 2}},
+        ]);
+    final fronts = await VarlinkAppletsService(socketPath: path).watch().toList();
+    expect(fronts.map((f) => f.front), ['launcher', 'clock']);
+    expect(asked.single['more'], true);
+    await server.close();
+  });
+
+  test('no socket: nothing is installed', () {
+    expect(VarlinkAppletsService.ifPresent(socketPath: '/nonexistent/io.vrx.Host'), isNull);
   });
 
   testWidgets('the applet host renders the view and the view dispatches', (tester) async {

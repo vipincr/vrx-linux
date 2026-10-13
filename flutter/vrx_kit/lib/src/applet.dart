@@ -39,7 +39,7 @@ void runApplet<S, A, V>(
   VrxPalette? palette,
 }) {
   WidgetsFlutterBinding.ensureInitialized();
-  VrxHost.installIfPresent();
+  AppletsService.install();
   runApp(AppletHost<S, A, V>(applet: applet, actions: actions, palette: palette));
 }
 

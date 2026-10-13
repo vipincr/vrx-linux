@@ -57,10 +57,6 @@ fn run_step(step: &plan::Step) -> Result<(), String> {
         Step::MountProc => mount("proc", "/proc", "proc"),
         Step::MountSys => mount("sysfs", "/sys", "sysfs"),
         Step::MountDev => mount("devtmpfs", "/dev", "devtmpfs"),
-        Step::RuntimeDir => {
-            std::fs::create_dir_all("/tmp/vrx").map_err(|e| format!("/tmp/vrx: {e}"))?;
-            Ok(())
-        }
         Step::DebugConsole => std::process::Command::new("/bin/sh")
             .arg("-c")
             .arg("exec /bin/sh </dev/console >/dev/console 2>&1")

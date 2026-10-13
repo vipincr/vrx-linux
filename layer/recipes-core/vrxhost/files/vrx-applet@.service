@@ -1,0 +1,51 @@
+# One vrx applet (plan 0008 D1): instance %i is the applet id, running as
+# its own user vrx-%i (created by the applet's package). vrxhost starts
+# these through systemd and reads their state; it forks nothing. The
+# applet's drop-in (vrx-applet@%i.service.d/10-manifest.conf, generated
+# from its manifest by vrx-applet.inc) supplies ExecStart and the groups
+# its grants map to; without one the unit has no ExecStart and refuses
+# to start, which is the right answer for an applet that is not installed.
+
+[Unit]
+Description=vrx applet %i
+# the compositor's socket and vrxhost's interface must exist to present
+After=vrx-ui.service vrxhost.service
+# crash policy: four starts in 30 s, then failed (vrxhost shows Home)
+StartLimitIntervalSec=30
+StartLimitBurst=4
+
+[Service]
+Type=exec
+User=vrx-%i
+Group=vrx-%i
+# vrx: io.vrx.Host (and, for UI applets, the compositor's socket). The
+# drop-in adds what the manifest grants: a UI applet's video/render and
+# DRM devices, a sensor applet's i2c, and so on (plan 0008 D14, D16).
+SupplementaryGroups=vrx
+# only the devices granted can be opened at all
+DevicePolicy=closed
+Restart=on-failure
+RestartSec=500ms
+# per-applet storage, owned by vrx-%i, persistent under /var/lib
+StateDirectory=vrx/%i
+CacheDirectory=vrx/%i
+Environment=HOME=/var/lib/vrx/%i XDG_CONFIG_HOME=/var/lib/vrx/%i/config XDG_STATE_HOME=/var/lib/vrx/%i/state XDG_DATA_HOME=/var/lib/vrx/%i/data XDG_CACHE_HOME=/var/cache/vrx/%i VRX_APPLET=%i
+# amendment B: no way back to root, the system read-only, nothing shared
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictSUIDSGID=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+UMask=0077

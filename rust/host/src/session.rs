@@ -1,6 +1,8 @@
 // The session: what runs and what is on screen. vrxhost's one decision
 // point for focus (plan 0007 amendment C): the back trail's top applet
-// is the focused one; this module turns navigation, supervision and
+// is the focused one. A headless image (plan 0008 D14) has no home
+// applet and no compositor: the session then only starts the resident
+// applets and keeps opened applets running; nothing is focused; this module turns navigation, supervision and
 // compositor events into two kinds of order: start an applet, focus a
 // pid. It does no I/O, so every policy below is host-testable; main.rs
 // carries the orders out.
@@ -9,8 +11,8 @@ use std::collections::HashMap;
 
 use vrx_protocol::Registry;
 
+use crate::applets::Event;
 use crate::compositor::LinkEvent;
-use crate::supervisor::Event;
 use crate::trail::{Trail, TrailEntry};
 
 /// A navigation request (Nav in vrx_kit, over the intent socket).
@@ -50,7 +52,7 @@ enum Proc {
 
 #[derive(Debug)]
 pub struct Session {
-    home: String,
+    home: Option<String>,
     trail: Trail,
     procs: HashMap<String, Proc>,
     linked: bool,
@@ -58,10 +60,11 @@ pub struct Session {
 }
 
 impl Session {
-    /// A session whose Home is `home` (the registry's home-role applet).
-    pub fn new(home: impl Into<String>) -> Self {
+    /// A session whose Home is `home` (the registry's home-role applet),
+    /// or a headless one (None).
+    pub fn new(home: Option<String>) -> Self {
         Self {
-            home: home.into(),
+            home,
             trail: Trail::new(),
             procs: HashMap::new(),
             linked: false,
@@ -80,11 +83,11 @@ impl Session {
     /// Boot: the trail starts at Home; the home applet and every
     /// resident applet start now, everything else on first use.
     pub fn boot(&mut self, registry: &Registry) -> Vec<Order> {
-        self.trail.home(&self.home);
+        self.go_home();
         let mut orders = Vec::new();
         for entry in registry.iter() {
             let applet = &entry.manifest.applet;
-            if applet.id == self.home || applet.roles.resident {
+            if self.home.as_deref() == Some(applet.id.as_str()) || applet.roles.resident {
                 orders.extend(self.start(&applet.id));
             }
         }
@@ -95,6 +98,11 @@ impl Session {
     /// The applet the trail shows (what has, or is about to get, focus).
     pub fn top(&self) -> Option<&str> {
         self.trail.top().map(|e| e.applet.as_str())
+    }
+
+    /// How many entries the trail holds.
+    pub fn depth(&self) -> usize {
+        self.trail.len()
     }
 
     pub fn nav(
@@ -122,10 +130,10 @@ impl Session {
             NavOp::Pop => {
                 self.trail.back();
                 if self.trail.is_empty() {
-                    self.trail.home(&self.home);
+                    self.go_home();
                 }
             }
-            NavOp::Home => self.trail.home(&self.home),
+            NavOp::Home => self.go_home(),
         }
         Ok(self.refocus())
     }
@@ -144,7 +152,7 @@ impl Session {
             Event::Finished { .. } => {
                 self.procs.remove(&applet);
                 self.leave(&applet);
-                if applet == self.home {
+                if self.home.as_deref() == Some(applet.as_str()) {
                     // Home is always there to go back to
                     return [self.start(&applet), self.refocus()].concat();
                 }
@@ -167,7 +175,10 @@ impl Session {
                                   // likely died of that; a returning compositor is a new
                                   // chance (and Home must come back regardless)
                 self.procs.retain(|_, p| *p != Proc::Disabled);
-                let mut orders = self.start(&self.home.clone());
+                let mut orders = match self.home.clone() {
+                    Some(home) => self.start(&home),
+                    None => Vec::new(),
+                };
                 orders.extend(self.refocus());
                 orders
             }
@@ -186,7 +197,15 @@ impl Session {
             self.trail.back();
         }
         if self.trail.is_empty() {
-            self.trail.home(&self.home);
+            self.go_home();
+        }
+    }
+
+    /// Clear the trail to Home; headless, clear it.
+    fn go_home(&mut self) {
+        match &self.home {
+            Some(home) => self.trail.home(home),
+            None => while self.trail.back().is_some() {},
         }
     }
 
@@ -265,7 +284,7 @@ mod tests {
     /// Booted, linked, launcher running as pid 100.
     fn booted() -> (Registry, Session) {
         let reg = registry();
-        let mut s = Session::new(Session::home_of(&reg).unwrap());
+        let mut s = Session::new(Session::home_of(&reg));
         assert_eq!(s.boot(&reg), vec![Order::Start("launcher".into())]);
         assert_eq!(s.supervision(&started("launcher", 100)), vec![]);
         assert_eq!(s.link(&LinkEvent::Connected), vec![Order::Focus(100)]);
@@ -281,7 +300,7 @@ mod tests {
     #[test]
     fn focus_waits_for_the_link_and_is_resent_after_a_reconnect() {
         let reg = registry();
-        let mut s = Session::new("launcher");
+        let mut s = Session::new(Some("launcher".into()));
         s.boot(&reg);
         assert_eq!(s.supervision(&started("launcher", 7)), vec![]);
         assert_eq!(s.link(&LinkEvent::Connected), vec![Order::Focus(7)]);
@@ -383,6 +402,34 @@ mod tests {
             s.supervision(&started("launcher", 900)),
             vec![Order::Focus(900)]
         );
+    }
+
+    #[test]
+    fn a_headless_session_starts_residents_and_focuses_nothing() {
+        let mut reg = Registry::new();
+        for (id, extra) in [
+            ("sensor", "\n[applet.roles]\nresident = true\n"),
+            ("logger", ""),
+        ] {
+            let text = format!(
+                "[applet]\nid = \"{id}\"\nname = \"N\"\nversion = \"1.0.0\"\nruntime = \"rust\"\n{extra}"
+            );
+            reg.admit(RegistryEntry {
+                manifest: text.parse().unwrap(),
+                path: PathBuf::from("/system/defaults").join(id),
+                builtin: true,
+            })
+            .unwrap();
+        }
+        let mut s = Session::new(Session::home_of(&reg));
+        assert_eq!(s.boot(&reg), vec![Order::Start("sensor".into())]);
+        assert_eq!(s.supervision(&started("sensor", 10)), vec![]);
+        // opening an applet starts it; nothing is focused without a compositor
+        assert_eq!(
+            s.nav(&reg, push("logger")).unwrap(),
+            vec![Order::Start("logger".into())]
+        );
+        assert_eq!(s.supervision(&started("logger", 11)), vec![]);
     }
 
     #[test]

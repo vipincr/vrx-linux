@@ -1,5 +1,5 @@
-// The vrxhost binary: scan the registry, start the boot plan's
-// applets, control the compositor's focus, serve the intent socket
+// The vrxhost binary: scan the registry, start the boot plan's applets
+// through systemd, control the compositor's focus, serve io.vrx.Host
 // until the system goes down. All policy lives in the library
 // (session.rs decides; this file carries the orders out).
 
@@ -8,13 +8,12 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
+use vrx_host::applets::{Applets, Event};
 use vrx_host::compositor::{self, LinkEvent};
-use vrx_host::intent::NavRequest;
-use vrx_host::launch::{self, Credential};
 use vrx_host::session::{Order, Session};
-use vrx_host::supervisor::{Event, Supervisor};
-use vrx_host::{intent, paths, registry};
+use vrx_host::varlink::{self, Front, NavRequest};
+use vrx_host::{paths, registry};
 use vrx_protocol::Registry;
 
 #[tokio::main]
@@ -38,46 +37,52 @@ async fn main() -> ExitCode {
     let installed = registry.len() - builtins;
     tracing::info!(builtins, installed, "registry ready");
 
-    // amendment B: applets never run as root
-    let cred = match launch::applet_credential() {
-        Ok(cred) => cred,
+    let (events_tx, events_rx) = mpsc::unbounded_channel();
+    let ids = registry.iter().map(|e| e.manifest.applet.id.clone());
+    let applets = match Applets::watch(ids, events_tx.clone()).await {
+        Ok(applets) => applets,
         Err(err) => {
-            tracing::error!(error = %err, "no applet identity");
+            tracing::error!(error = %err, "cannot reach systemd");
             return ExitCode::FAILURE;
         }
     };
 
-    let (supervisor, supervision) = Supervisor::new();
     let (focus_tx, focus_rx) = mpsc::unbounded_channel();
     let (link_tx, link_rx) = mpsc::unbounded_channel();
     let (nav_tx, nav_rx) = mpsc::unbounded_channel();
+    let (front_tx, front_rx) = watch::channel(Front::default());
 
-    tokio::spawn(compositor::run(
-        PathBuf::from(compositor::SOCKET),
-        focus_rx,
-        link_tx,
-    ));
-
-    match Session::home_of(&registry) {
-        Some(home) => {
-            let host = Host {
-                registry: registry.clone(),
-                runtime: paths.runtime.clone(),
-                cred,
-                supervisor,
-                focus: focus_tx,
-            };
-            tokio::spawn(host.run(Session::new(home), supervision, link_rx, nav_rx));
-        }
-        None => {
-            // headless: nothing to put on screen, intents still route
-            tracing::warn!("no applet holds the home role; nothing will be shown");
-        }
+    // A home applet means the image has a UI: control the compositor.
+    // Without one the image is headless (plan 0008 D14): applets still
+    // run, intents still route, nothing is focused.
+    let home = Session::home_of(&registry);
+    if home.is_some() {
+        tokio::spawn(compositor::run(
+            PathBuf::from(compositor::SOCKET),
+            focus_rx,
+            link_tx,
+        ));
+    } else {
+        tracing::info!("no home applet: headless, no compositor link");
+        drop(link_tx);
     }
+    let host = Host {
+        registry: registry.clone(),
+        applets,
+        events: events_tx,
+        focus: focus_tx,
+        front: front_tx,
+    };
+    tokio::spawn(host.run(Session::new(home), events_rx, link_rx, nav_rx));
 
-    let socket = paths.intent_socket();
-    if let Err(err) = intent::serve(&socket, registry, nav_tx).await {
-        tracing::error!(socket = %socket.display(), error = %err, "intent router stopped");
+    let socket = paths.host_socket();
+    let host = varlink::Host {
+        registry,
+        nav: nav_tx,
+        front: front_rx,
+    };
+    if let Err(err) = varlink::serve(&socket, host).await {
+        tracing::error!(socket = %socket.display(), error = %err, "io.vrx.Host stopped");
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
@@ -86,17 +91,17 @@ async fn main() -> ExitCode {
 /// What carries the session's orders out.
 struct Host {
     registry: Arc<Registry>,
-    runtime: PathBuf,
-    cred: Credential,
-    supervisor: Supervisor,
+    applets: Applets,
+    events: mpsc::UnboundedSender<Event>,
     focus: mpsc::UnboundedSender<u32>,
+    front: watch::Sender<Front>,
 }
 
 impl Host {
     async fn run(
         self,
         mut session: Session,
-        mut supervision: mpsc::UnboundedReceiver<Event>,
+        mut events: mpsc::UnboundedReceiver<Event>,
         mut link: mpsc::UnboundedReceiver<LinkEvent>,
         mut nav: mpsc::UnboundedReceiver<NavRequest>,
     ) {
@@ -104,8 +109,8 @@ impl Host {
         self.carry_out(&mut session, orders);
         loop {
             let orders = tokio::select! {
-                Some(event) = supervision.recv() => {
-                    tracing::info!(?event, "supervision");
+                Some(event) = events.recv() => {
+                    tracing::info!(?event, "applet");
                     session.supervision(&event)
                 }
                 Some(event) = link.recv() => {
@@ -140,35 +145,28 @@ impl Host {
                     let _ = self.focus.send(pid);
                 }
                 Order::Start(applet) => {
-                    let launch = self
-                        .registry
-                        .find(&applet)
-                        .ok_or_else(|| format!("{applet}: not in the registry"))
-                        .and_then(|entry| {
-                            launch::for_entry(
-                                entry,
-                                &self.runtime,
-                                Some(self.cred.clone()),
-                            )
-                            .map_err(|e| e.to_string())
-                        });
-                    match launch {
-                        Ok(launch) => {
-                            tracing::info!(%applet, program = ?launch.program, args = ?launch.args, "start");
-                            self.supervisor.supervise(&applet, launch);
-                        }
-                        Err(err) => {
-                            // a launch that cannot even be built is a
+                    tracing::info!(%applet, "start");
+                    let applets = self.applets.clone();
+                    let events = self.events.clone();
+                    tokio::spawn(async move {
+                        if let Err(err) = applets.start(&applet).await {
+                            // a unit that cannot even be started is a
                             // disabled applet, decided the same way
-                            tracing::error!(error = %err, "cannot start");
-                            orders.extend(
-                                session
-                                    .supervision(&Event::Disabled { applet, crashes: 0 }),
-                            );
+                            tracing::error!(%applet, error = %err, "cannot start");
+                            let _ = events.send(Event::Disabled { applet, crashes: 0 });
                         }
-                    }
+                    });
                 }
             }
         }
+        let front = Front {
+            front: session.top().unwrap_or_default().to_owned(),
+            depth: u32::try_from(session.depth()).unwrap_or(u32::MAX),
+        };
+        self.front.send_if_modified(|now| {
+            let changed = *now != front;
+            *now = front;
+            changed
+        });
     }
 }

@@ -22,9 +22,105 @@ pub const RESERVED_ID: &str = "vrx";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Runtime {
+    /// A UI applet: a Flutter bundle run by flutter-vrx in its app role.
     Flutter,
+    /// A headless Dart applet, compiled AOT to a native executable (`app`).
+    Dart,
+    /// A Rust applet (`app`), headless or a console.
     Rust,
+    /// Any other native executable (`app`).
     Native,
+}
+
+/// A system grant (plan 0008 D2): the vrxhost interface an applet may
+/// call (`vrx.sys.<grant>.<verb>`). Built-ins only: on an installed
+/// applet any grant is an admission error. Named like Snap interfaces,
+/// one grant per Linux service family.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum SystemGrant {
+    /// Wi-Fi and ethernet (connman).
+    Network,
+    /// Bluetooth power, pairing, bonds (BlueZ).
+    Bluetooth,
+    /// Time zone, automatic time, set time, alarms and timers.
+    Time,
+    /// The device name.
+    Hostname,
+    /// The display light and its timeouts.
+    Display,
+    /// Power off and restart.
+    Power,
+    /// The USB gadget mode.
+    Usb,
+    /// Install and remove applets.
+    Apps,
+    /// The management web page.
+    Serve,
+    /// GPIO lines (through gpiod's io.gpiod1 service).
+    Gpio,
+    /// I2C buses.
+    I2c,
+    /// SPI buses.
+    Spi,
+    /// Serial ports.
+    Serial,
+    /// Audio devices.
+    Audio,
+    /// Cameras (V4L2).
+    Camera,
+    /// Input devices read directly (keys, encoders, sensors as input).
+    Input,
+    /// Industrial I/O sensors (IIO).
+    Iio,
+}
+
+impl SystemGrant {
+    /// The grant as it appears in requests and manifests.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SystemGrant::Network => "network",
+            SystemGrant::Bluetooth => "bluetooth",
+            SystemGrant::Time => "time",
+            SystemGrant::Hostname => "hostname",
+            SystemGrant::Display => "display",
+            SystemGrant::Power => "power",
+            SystemGrant::Usb => "usb",
+            SystemGrant::Apps => "apps",
+            SystemGrant::Serve => "serve",
+            SystemGrant::Gpio => "gpio",
+            SystemGrant::I2c => "i2c",
+            SystemGrant::Spi => "spi",
+            SystemGrant::Serial => "serial",
+            SystemGrant::Audio => "audio",
+            SystemGrant::Camera => "camera",
+            SystemGrant::Input => "input",
+            SystemGrant::Iio => "iio",
+        }
+    }
+
+    /// Every grant, for table checks.
+    pub const ALL: [SystemGrant; 17] = [
+        SystemGrant::Network,
+        SystemGrant::Bluetooth,
+        SystemGrant::Time,
+        SystemGrant::Hostname,
+        SystemGrant::Display,
+        SystemGrant::Power,
+        SystemGrant::Usb,
+        SystemGrant::Apps,
+        SystemGrant::Serve,
+        SystemGrant::Gpio,
+        SystemGrant::I2c,
+        SystemGrant::Spi,
+        SystemGrant::Serial,
+        SystemGrant::Audio,
+        SystemGrant::Camera,
+        SystemGrant::Input,
+        SystemGrant::Iio,
+    ];
 }
 
 /// Applet or library: libraries are linkable kits, never launched.
@@ -162,19 +258,12 @@ impl RolesSection {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PermissionsSection {
-    #[serde(default)]
-    pub network: bool,
-    #[serde(default)]
-    pub bluetooth: bool,
-    #[serde(default)]
-    pub storage: bool,
-    #[serde(default)]
-    pub camera: bool,
-    #[serde(default)]
-    pub audio: bool,
     /// Explicit path grants outside the named permissions.
     #[serde(default)]
     pub fs: Vec<String>,
+    /// System grants (plan 0008 D2): built-ins only.
+    #[serde(default)]
+    pub system: Vec<SystemGrant>,
 }
 
 /// A handler declaration: which intent, at what priority, opened at
@@ -369,11 +458,7 @@ installs = false               # can install/remove other applets
 resident = false               # alive from boot to power-off, never evicted
 
 [applet.permissions]
-network = false                # /dev/net access
-bluetooth = false              # /dev/bluetooth access
-storage = false                # /data/<id> read/write
-camera = false                 # /dev/video/* access
-audio = false                  # /dev/audio/* access
+system = ["time", "audio"]     # system grants: groups the services check (plan 0008 D2)
 fs = ["/sys", "/run/ping.pong"] # explicit path grants (repeated)
 
 [applet.intents]
@@ -505,5 +590,36 @@ network = true
         format!(
             "[applet]\nid = \"{id}\"\nname = \"N\"\nversion = \"0.1.0\"\nruntime = \"rust\"\n"
         )
+    }
+}
+
+#[cfg(test)]
+mod grant_table {
+    use super::SystemGrant;
+
+    /// G017 (plan 0008): every grant maps to exactly one group in the
+    /// layer's grants.conf, and grants.conf names no grant the manifest
+    /// cannot carry.
+    #[test]
+    fn grants_conf_matches_system_grant() {
+        let text =
+            include_str!("../../../layer/recipes-applets/vrx-applets/files/grants.conf");
+        let mut keys: Vec<String> = text
+            .lines()
+            .map(|l| l.split('#').next().unwrap_or("").trim())
+            .filter(|l| !l.is_empty())
+            .map(|l| {
+                let (key, group) = l.split_once('=').expect("grant = group");
+                assert!(!group.trim().is_empty(), "{key}: no group");
+                key.trim().to_owned()
+            })
+            .collect();
+        keys.sort();
+        let mut want: Vec<String> = SystemGrant::ALL
+            .iter()
+            .map(|g| g.as_str().to_owned())
+            .collect();
+        want.sort();
+        assert_eq!(keys, want);
     }
 }

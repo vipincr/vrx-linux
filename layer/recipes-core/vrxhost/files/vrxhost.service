@@ -1,6 +1,6 @@
 [Unit]
-Description=vrx applet OS daemon (registry, supervisor, intents, trail)
-After=systemd-journald.service systemd-tmpfiles-setup.service
+Description=vrx applet OS daemon (registry, trail, focus, io.vrx.Host)
+After=systemd-journald.service systemd-tmpfiles-setup.service dbus.service
 # vrxinit (plan 0007 part M) replaces this ordering when it lands;
 # until then vrxhost starts after the hardware services, before the
 # UI would if it were enabled
@@ -11,31 +11,26 @@ Type=simple
 ExecStart=/usr/bin/vrxhost
 Restart=on-failure
 RestartSec=2
-# The socket directory /tmp/vrx comes from tmpfiles.d (root:vrx 2770,
-# created before this unit). UMask 0007 makes the socket 0770, so the
-# vrx group (every applet) can connect and nobody else can.
+# The runtime directory /run/vrx comes from tmpfiles.d (root:vrx 2750).
+# UMask 0007 makes the io.vrx.Host socket 0770: group vrx (every applet)
+# connects, nobody else.
 UMask=0007
-# Amendment B: vrxhost supervises, so it keeps exactly the capabilities
-# supervision needs (UID drop for applet spawns, kill, chown of socket
-# dirs) and drops everything else. The bounding set tightens further as
-# the spawn path lands (per-applet cgroups will want CAP_SYS_RESOURCE
-# or cgroup delegation instead).
-CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_KILL CAP_CHOWN
-# Inherited by every applet: no exec can raise privilege again (su,
-# sudo, file capabilities). vrxhost's own setuid() to the vrx user is a
-# drop, which NoNewPrivileges permits.
+# Plan 0008 D1: applets are systemd units, so vrxhost needs no
+# capability at all. It asks systemd (as root, which systemd's own
+# authorization accepts) to start units and reads their state.
+CapabilityBoundingSet=
 NoNewPrivileges=yes
-# The filesystem is read-only to the daemon except the runtime dir
-# (the intent socket and pipes); applets share /tmp/vrx, so no
-# PrivateTmp here — that would hide the socket from the applets.
 ProtectSystem=strict
-ReadWritePaths=/tmp/vrx
+ReadWritePaths=/run/vrx
 ProtectHome=yes
-# Applets inherit this mount namespace: the system is read-only to
-# them too, and their only writable place is their home under
-# /tmp/vrx/home/<id>. vrxhost connects to the compositor's socket
-# (/run/vrx-ui/vrx.sock) as its controller and retries until it is up,
-# so no ordering against vrx-ui.service is needed.
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+# vrxhost connects to the compositor's socket (/run/vrx-ui/vrx.sock) as
+# its controller and retries until it is up, so no ordering against
+# vrx-ui.service is needed.
 
 [Install]
 WantedBy=multi-user.target
