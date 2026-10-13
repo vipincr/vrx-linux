@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vrx_kit/vrx_kit.dart';
 
-import 'package:settings/state.dart';
+import 'package:settings_applet/state.dart';
 
 void main() {
   test('the boot action lists every declared setting', () {
