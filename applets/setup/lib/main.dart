@@ -19,7 +19,6 @@ class SetupApplet extends Applet<SetupState, SetupAction, SetupView> {
   SetupApplet(this.model);
 
   final SetupModel model;
-  final _name = TextEditingController();
 
   @override
   SetupState get initial => model.initial;
@@ -66,12 +65,15 @@ class SetupApplet extends Applet<SetupState, SetupAction, SetupView> {
           onNext: () => _move(model.next),
           nextLabel: 'Accept',
         ),
-      SetupStep.name => _NameStep(
-          controller: _name,
+      SetupStep.name => VrxTextEntry(
+          title: 'Device name',
+          initial: model.name,
+          hint: 'Kitchen display',
+          helper: (text) => 'Network name: ${hostnameFor(text)}',
           error: view.error,
           onBack: () => _move(model.back),
-          onNext: () {
-            model.name = _name.text;
+          onDone: (text) {
+            model.name = text;
             if (!model.canLeaveName) {
               model.error = 'The device needs a name';
               _events.add(SetupAction.failed);
@@ -89,9 +91,10 @@ class SetupApplet extends Applet<SetupState, SetupAction, SetupView> {
           onNext: () => _move(model.next),
           nextLabel: view.network.isEmpty ? 'Skip' : 'Next',
         ),
-      SetupStep.zone => _ZoneStep(
+      SetupStep.zone => VrxZonePicker(
+          title: 'Time zone',
           zones: view.zones,
-          selected: view.zone,
+          current: view.zone,
           onBack: () => _move(model.back),
           onPick: (z) => _move(() {
             model.zone = z;
@@ -109,72 +112,7 @@ class SetupApplet extends Applet<SetupState, SetupAction, SetupView> {
           nextLabel: view.finishing ? 'Saving…' : 'Start',
         ),
     };
-    return Scaffold(body: body);
-  }
-}
-
-class _NameStep extends StatelessWidget {
-  const _NameStep({required this.controller, required this.error, required this.onBack, required this.onNext});
-
-  final TextEditingController controller;
-  final String? error;
-  final VoidCallback onBack;
-  final VoidCallback onNext;
-
-  @override
-  Widget build(BuildContext context) {
-    final space = ScaledSpacing.of(context);
-    return SafeArea(
-      child: Column(children: [
-        VrxHeader(title: 'Name this device', onBack: onBack),
-        Expanded(
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: space.md),
-            child: Center(
-              child: TextField(
-                controller: controller,
-                readOnly: true, // typed on the keyboard below
-                showCursor: true,
-                autofocus: true,
-                style: TypeRole.body(context),
-                decoration: InputDecoration(isDense: true, hintText: 'Kitchen display', errorText: error),
-              ),
-            ),
-          ),
-        ),
-        VrxKeyboard(controller: controller, onDone: onNext),
-      ]),
-    );
-  }
-}
-
-class _ZoneStep extends StatelessWidget {
-  const _ZoneStep({required this.zones, required this.selected, required this.onBack, required this.onPick});
-
-  final List<String> zones;
-  final String selected;
-  final VoidCallback onBack;
-  final void Function(String) onPick;
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Column(children: [
-        VrxHeader(title: 'Time zone', onBack: onBack),
-        Expanded(
-          child: zones.isEmpty
-              ? const Center(child: CircularProgressIndicator())
-              : ListView.builder(
-                  itemCount: zones.length,
-                  itemBuilder: (context, i) => VrxRow(
-                    label: zones[i].replaceAll('_', ' '),
-                    value: zones[i] == selected ? 'Current' : '',
-                    onTap: () => onPick(zones[i]),
-                  ),
-                ),
-        ),
-      ]),
-    );
+    return Scaffold(body: SafeArea(child: body));
   }
 }
 

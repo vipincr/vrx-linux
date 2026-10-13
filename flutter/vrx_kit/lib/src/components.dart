@@ -16,6 +16,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'input.dart';
 import 'metrics.dart';
 import 'motion.dart';
 import 'scale.dart';
@@ -25,7 +26,7 @@ import 'theme.dart';
 /// The screen's own name with a back chevron: full width × the touch
 /// minimum, hairline under, chevron left, title at LIST past a touch
 /// minimum of offset.
-class VrxHeader extends StatelessWidget {
+class VrxHeader extends StatefulWidget {
   const VrxHeader({
     super.key,
     required this.title,
@@ -36,7 +37,30 @@ class VrxHeader extends StatelessWidget {
   final VoidCallback? onBack;
 
   @override
+  State<VrxHeader> createState() => _VrxHeaderState();
+}
+
+/// While mounted, the header's back is what Escape and the mouse's back
+/// button do (VrxBack).
+class _VrxHeaderState extends State<VrxHeader> {
+  void _back() => widget.onBack?.call();
+
+  @override
+  void initState() {
+    super.initState();
+    VrxBack.offer(_back);
+  }
+
+  @override
+  void dispose() {
+    VrxBack.withdraw(_back);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final title = widget.title;
+    final onBack = widget.onBack;
     final palette = VrxTheme.of(context);
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -171,6 +195,7 @@ class VrxRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = VrxTheme.of(context);
     final glyphSize = VrxTypeRole.value.dp * VrxScale.of(context);
+    final hasValue = value != null && value!.isNotEmpty;
     return VrxPress(
       onTap: onTap,
       onLongPress: onLongPress,
@@ -182,14 +207,16 @@ class VrxRow extends StatelessWidget {
         decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: palette.line, width: Strokes.hairline)),
         ),
-        child: Row(
-          children: [
+        // the value takes what it needs, up to three fifths of the row;
+        // the label the rest, giving way first (the whole row without a
+        // value)
+        child: LayoutBuilder(
+          builder: (context, box) => Row(children: [
             if (glyph != null) ...[
               Icon(glyph, size: VrxTypeRole.body.dp * VrxScale.of(context)),
               SizedBox(width: ScaledSpacing.of(context).sm),
             ],
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 200), // 2/5 of the UI space; the walk tests own the exact fraction
+            Expanded(
               child: Text(
                 label,
                 style: TypeRole.of(context, VrxTypeRole.list),
@@ -197,11 +224,18 @@ class VrxRow extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            const Spacer(),
-            if (value != null)
-              Text(
-                value!,
-                style: TypeRole.of(context, VrxTypeRole.value),
+            if (hasValue)
+              ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: box.maxWidth * 0.6),
+                child: Padding(
+                  padding: EdgeInsets.only(left: ScaledSpacing.of(context).sm),
+                  child: Text(
+                    value!,
+                    style: TypeRole.of(context, VrxTypeRole.value),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ),
             if (valueGlyph != null && onValueGlyph != null)
               VrxPress(
@@ -215,7 +249,7 @@ class VrxRow extends StatelessWidget {
               SizedBox(width: ScaledSpacing.of(context).xs),
               Icon(valueGlyph, size: glyphSize),
             ],
-          ],
+          ]),
         ),
       ),
     );
@@ -407,6 +441,8 @@ class _VrxPressState extends State<VrxPress>
     value: 1.0,
   );
   bool _held = false;
+  bool _focused = false;
+  bool _hovered = false;
 
   @override
   void dispose() {
@@ -431,32 +467,55 @@ class _VrxPressState extends State<VrxPress>
   @override
   Widget build(BuildContext context) {
     final palette = VrxTheme.of(context);
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTapDown: (_) => _set(true),
-      onTapUp: (_) => _set(false),
-      onTapCancel: () => _set(false),
-      onTap: widget.onTap,
-      onLongPress: widget.onLongPress == null
-          ? null
-          : () {
-              _set(false);
-              widget.onLongPress!();
-            },
-      child: ScaleTransition(
-        scale: _scale,
-        child: _held
-            ? ColoredBox(
-                color: palette.fill,
-                child: DefaultTextStyle(
-                  style: TextStyle(color: palette.onFill),
-                  child: IconTheme(
-                    data: IconThemeData(color: palette.onFill),
-                    child: widget.child,
-                  ),
-                ),
-              )
-            : widget.child,
+    final enabled = widget.onTap != null || widget.onLongPress != null;
+    Widget child = widget.child;
+    if (_held) {
+      child = ColoredBox(
+        color: palette.fill,
+        child: DefaultTextStyle(
+          style: TextStyle(color: palette.onFill),
+          child: IconTheme(data: IconThemeData(color: palette.onFill), child: child),
+        ),
+      );
+    } else if (_hovered) {
+      child = ColoredBox(color: palette.highlight, child: child);
+    }
+    if (_focused) {
+      // the keyboard's place: a ring in the accent, drawn over the
+      // control so the layout never moves for it
+      child = DecoratedBox(
+        position: DecorationPosition.foreground,
+        decoration: BoxDecoration(border: Border.all(color: palette.focus, width: Strokes.border)),
+        child: child,
+      );
+    }
+    // a mouse and keyboard reach it too: focus (Tab, the arrows), Enter
+    // or Space to press, hover, and a right click for what a hold does
+    return FocusableActionDetector(
+      enabled: enabled,
+      mouseCursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
+      onShowFocusHighlight: (v) => setState(() => _focused = v),
+      onShowHoverHighlight: (v) => setState(() => _hovered = v),
+      actions: {
+        ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: (_) {
+          widget.onTap?.call();
+          return null;
+        }),
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => _set(true),
+        onTapUp: (_) => _set(false),
+        onTapCancel: () => _set(false),
+        onTap: widget.onTap,
+        onLongPress: widget.onLongPress == null
+            ? null
+            : () {
+                _set(false);
+                widget.onLongPress!();
+              },
+        onSecondaryTap: widget.onLongPress,
+        child: ScaleTransition(scale: _scale, child: child),
       ),
     );
   }

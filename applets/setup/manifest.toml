@@ -16,7 +16,7 @@ tile = false
 heap_mb = 64
 
 [applet.permissions]
-system = ["hostname", "time"]
+system = ["hostname", "time", "network"]   # network: the Network step shows the link
 
 [applet.routes]
 first = {}

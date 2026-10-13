@@ -72,21 +72,18 @@ void main() {
     expect(m.ringExpired, isTrue);
   });
 
-  test('a city is chosen by region, and the world clock marks the next day', () {
+  test('a city joins the world clock, and the world clock marks the next day', () {
     final m = model()
       ..zones = ['Asia/Kolkata', 'Pacific/Auckland', 'Europe/London']
       ..world['Pacific/Auckland'] = Zone.fixed('Pacific/Auckland', 46800)
       ..openTab(ClockTab.world)
       ..addCity();
     final h = StoreHarness(m);
-    h.assertView((v) => v.screen == ClockScreen.regions && v.list.join(',') == 'Asia,Europe,Pacific Ocean');
-    m.pickRegion(2);
-    h.dispatch(ClockAction.changed);
-    h.assertView((v) => v.screen == ClockScreen.cities && v.list.single == 'Auckland');
-    expect(m.pickCity(0), 'Pacific/Auckland');
+    h.assertView((v) => v.screen == ClockScreen.zones && !v.pickHome && v.zones.length == 3);
+    m.pickZone('Pacific/Auckland');
     h.dispatch(ClockAction.changed);
     // 01:30 UTC is 14:30 in Auckland, the same Thursday
-    h.assertView((v) => v.cities.single == ('Auckland', '14:30', 'Pacific/Auckland'));
+    h.assertView((v) => v.screen == ClockScreen.tabs && v.cities.single == ('Auckland', '14:30', 'Pacific/Auckland'));
     clock += 10 * 3600; // 11:30 UTC: 00:30 Friday in Auckland
     h.dispatch(ClockAction.tick);
     h.assertView((v) => v.cities.single.$2 == '00:30 +1');

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart' hide Intent; // vrx's Intent
+import 'package:flutter/services.dart';
 import 'package:vrx_kit/vrx_kit.dart';
 
 import 'book.dart';
@@ -69,20 +70,13 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
         ),
       );
 
-  void _pick(ClockView view, int i) {
-    if (view.screen == ClockScreen.regions) {
-      _do(() => model.pickRegion(i));
-      return;
-    }
+  void _pickZone(String zone) {
     final home = model.pickHome;
-    String? zone;
-    _do(() => zone = model.pickCity(i), save: !home);
-    final picked = zone;
-    if (picked == null) return;
+    _do(() => model.pickZone(zone), save: !home);
     if (home) {
       // the system's zone: timedated changes it, and the watch brings
       // the change back here like any other
-      unawaited(VrxSystem.time.setZone(picked).catchError((Object _) {}));
+      unawaited(VrxSystem.time.setZone(zone).catchError((Object _) {}));
     } else {
       unawaited(_scheduler?.loadWorld());
     }
@@ -101,7 +95,13 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
     } else {
       body = switch (view.screen) {
         ClockScreen.tabs => _tabs(context, view),
-        ClockScreen.regions || ClockScreen.cities => _Picker(view: view, onBack: _back, onPick: (i) => _pick(view, i)),
+        ClockScreen.zones => VrxZonePicker(
+            title: view.pickHome ? 'Time zone' : 'Add a city',
+            zones: view.zones,
+            current: view.pickHome ? view.zone : '',
+            onBack: _back,
+            onPick: _pickZone,
+          ),
         ClockScreen.editor => _Editor(
             view: view,
             onBack: _back,
@@ -243,54 +243,33 @@ class _Face extends StatelessWidget {
   Widget build(BuildContext context) {
     final space = ScaledSpacing.of(context);
     return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Padding(
-          padding: EdgeInsets.symmetric(horizontal: space.lg),
-          // the panel's width at most: a narrow portrait panel fits the
-          // digits rather than clipping them
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              view.time,
-              style: TypeRole.clock(context).copyWith(
-                fontWeight: FontWeight.w300,
-                fontFeatures: const [FontFeature.tabularFigures()],
+        // the digits take whatever height the rows below leave, and the
+        // panel's width at most: a short panel shrinks them rather than
+        // pushing the zone and the next alarm off the screen
+        Expanded(
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: space.lg, vertical: space.xs),
+            child: Center(
+              child: FittedBox(
+                fit: BoxFit.contain,
+                child: Text(
+                  view.time,
+                  style: TypeRole.clock(context).copyWith(
+                    fontWeight: FontWeight.w300,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
               ),
             ),
           ),
         ),
         if (view.valid) Text(view.date, style: TypeRole.subtitle(context)),
-        SizedBox(height: space.md),
         if (!view.valid) const _Note('The clock has not been set. Connect to a network to sync it.'),
         VrxRow(label: 'Time zone', value: view.zone.replaceAll('_', ' '), onTap: onZone),
         if (view.next.isNotEmpty) _Note(view.next),
       ],
     );
-  }
-}
-
-class _Picker extends StatelessWidget {
-  const _Picker({required this.view, required this.onBack, required this.onPick});
-
-  final ClockView view;
-  final VoidCallback onBack;
-  final void Function(int) onPick;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(children: [
-      VrxHeader(title: view.listTitle, onBack: onBack),
-      Expanded(
-        child: view.list.isEmpty
-            ? const Center(child: CircularProgressIndicator())
-            // hundreds of cities: built as they scroll in
-            : ListView.builder(
-                itemCount: view.list.length,
-                itemBuilder: (context, i) => VrxRow(label: view.list[i], value: '', onTap: () => onPick(i)),
-              ),
-      ),
-    ]);
   }
 }
 
@@ -349,18 +328,46 @@ class _TimePickerState extends State<_TimePicker> {
     super.dispose();
   }
 
+  /// Turn [c] to the nearest row showing [i] (the wheels loop).
+  void _turnTo(FixedExtentScrollController c, int count, int i) {
+    final now = c.selectedItem;
+    var d = i - now % count;
+    if (d > count ~/ 2) d -= count;
+    if (d < -(count ~/ 2)) d += count;
+    unawaited(c.animateToItem(now + d, duration: const Duration(milliseconds: 200), curve: Curves.easeOut));
+  }
+
   Widget _wheel(FixedExtentScrollController c, int count) {
     final touch = ScaledSpacing.of(context).touch;
-    return SizedBox(
-      width: touch * 2,
-      child: ListWheelScrollView.useDelegate(
-        controller: c,
-        itemExtent: touch,
-        physics: const FixedExtentScrollPhysics(),
-        childDelegate: ListWheelChildLoopingListDelegate(children: [
-          for (var i = 0; i < count; i++)
-            Center(child: Text(i.toString().padLeft(2, '0'), style: TypeRole.title(context))),
-        ]),
+    // a finger drags it; a tap picks a row; a mouse wheel turns it; with
+    // it focused, the arrow keys step it
+    return Focus(
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
+        final step = switch (event.logicalKey) {
+          LogicalKeyboardKey.arrowUp => -1,
+          LogicalKeyboardKey.arrowDown => 1,
+          _ => 0,
+        };
+        if (step == 0) return KeyEventResult.ignored;
+        _turnTo(c, count, (c.selectedItem + step) % count);
+        return KeyEventResult.handled;
+      },
+      child: SizedBox(
+        width: touch * 2,
+        child: ListWheelScrollView.useDelegate(
+          controller: c,
+          itemExtent: touch,
+          physics: const FixedExtentScrollPhysics(),
+          childDelegate: ListWheelChildLoopingListDelegate(children: [
+            for (var i = 0; i < count; i++)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _turnTo(c, count, i),
+                child: Center(child: Text(i.toString().padLeft(2, '0'), style: TypeRole.title(context))),
+              ),
+          ]),
+        ),
       ),
     );
   }
@@ -410,18 +417,11 @@ class _Timer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final space = ScaledSpacing.of(context);
+    final precise = view.mode == TimerMode.precise;
     return Column(children: [
-      Padding(
-        padding: EdgeInsets.all(space.sm),
-        child: VrxSegmented(
-          labels: const ['Pomodoro', 'Precise'],
-          selected: view.mode.index,
-          onSelected: (i) => onMode(TimerMode.values[i]),
-        ),
-      ),
       Expanded(
         child: Padding(
-          padding: EdgeInsets.all(space.sm),
+          padding: EdgeInsets.all(space.xs),
           child: LayoutBuilder(builder: (context, box) {
             final size = math.min(box.maxWidth, box.maxHeight);
             return Center(
@@ -439,6 +439,13 @@ class _Timer extends StatelessWidget {
             );
           }),
         ),
+      ),
+      // a row, not a segmented pair: "Pomodoro" does not fit half of a
+      // 43mm panel at list size
+      VrxRow(
+        label: 'Mode',
+        value: precise ? 'Precise' : 'Pomodoro',
+        onTap: view.running ? null : () => onMode(precise ? TimerMode.pomodoro : TimerMode.precise),
       ),
     ]);
   }
@@ -478,6 +485,7 @@ class _Dial extends StatelessWidget {
     final touch = ScaledSpacing.of(context).touch;
     final precise = view.mode == TimerMode.precise;
     final radius = size / 2 - touch / 2;
+    final centre = math.max(touch, size - 2 * touch - 4 * Strokes.border);
     void drag(Offset p) {
       if (precise && !view.running) onPrecise(_minutesAt(p));
     }
@@ -527,14 +535,20 @@ class _Dial extends StatelessWidget {
           child: VrxPress(
             onTap: onPress,
             onLongPress: onHold,
-            child: SizedBox.square(
-              dimension: math.max(touch * 2, size * 0.42),
-              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                // the glyph says what pressing does; the number what is set
-                Icon(view.running ? VrxSymbols.stop : VrxSymbols.play_arrow, size: touch * 0.5),
-                Text(view.centre, style: TypeRole.display(context)),
-                Text(view.running ? 'left' : 'min', style: TypeRole.caption(context)),
-              ]),
+            child: Container(
+              // what the stops leave: the ring of them is a touch wide
+              width: centre,
+              height: centre,
+              decoration: BoxDecoration(shape: BoxShape.circle, color: palette.highlight),
+              padding: EdgeInsets.all(centre * 0.12),
+              child: FittedBox(
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  // the glyph says what pressing does; the number what is set
+                  Icon(view.running ? VrxSymbols.pause : VrxSymbols.play_arrow, size: touch * 0.5),
+                  Text(view.centre, style: TypeRole.display(context)),
+                  Text(view.running ? 'left' : 'min', style: TypeRole.caption(context)),
+                ]),
+              ),
             ),
           ),
         ),
@@ -610,17 +624,23 @@ class _RingScreen extends StatelessWidget {
     final palette = VrxTheme.of(context);
     final space = ScaledSpacing.of(context);
     final touch = space.touch;
-    Widget button(IconData glyph, String label, VoidCallback onTap) => Expanded(
+    // full width and stacked: side by side, a glyph and a word do not fit
+    // half of a 43mm panel
+    Widget button(IconData glyph, String label, VoidCallback onTap, {bool strong = false}) => Padding(
+          padding: EdgeInsets.only(top: space.sm),
           child: VrxPress(
             onTap: onTap,
             child: Container(
-              height: touch * 1.5,
-              margin: EdgeInsets.all(space.sm),
-              decoration: BoxDecoration(border: Border.all(color: palette.line, width: Strokes.border)),
+              height: touch * 1.3,
+              decoration: BoxDecoration(
+                color: strong ? palette.fill : null,
+                border: Border.all(color: strong ? palette.fill : palette.line, width: Strokes.border),
+                borderRadius: BorderRadius.circular(Radii.md),
+              ),
               child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Icon(glyph, size: touch * 0.5),
+                Icon(glyph, size: touch * 0.45, color: strong ? palette.onFill : palette.text),
                 SizedBox(width: space.sm),
-                Text(label, style: TypeRole.title(context)),
+                Text(label, style: TypeRole.title(context).copyWith(color: strong ? palette.onFill : palette.text)),
               ]),
             ),
           ),
@@ -630,16 +650,15 @@ class _RingScreen extends StatelessWidget {
     return Container(
       color: flash ? palette.highlight : palette.page,
       padding: EdgeInsets.all(space.inset),
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      child: Column(children: [
+        const Spacer(),
         FittedBox(fit: BoxFit.scaleDown, child: Text(view.time, style: TypeRole.clock(context))),
-        Text(view.ringNote, style: TypeRole.title(context)),
-        SizedBox(height: space.lg),
+        Text(view.ringNote, style: TypeRole.title(context), textAlign: TextAlign.center),
+        const Spacer(),
         // words on these two: whoever reads this was asleep a second ago
-        Row(children: [
-          if (view.canSnooze) button(VrxSymbols.snooze, 'Snooze', onSnooze),
-          button(VrxSymbols.stop, 'Stop', onStop),
-        ]),
-        _Note(view.canSnooze ? 'Snooze gives you nine more minutes.' : 'Tap Stop.'),
+        if (view.canSnooze) button(VrxSymbols.snooze, 'Snooze 9 min', onSnooze),
+        button(view.ringIsTimer ? VrxSymbols.timer_off : VrxSymbols.alarm_off, 'Stop', onStop,
+            strong: true),
       ]),
     );
   }

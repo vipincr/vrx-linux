@@ -14,7 +14,6 @@ class WifiApplet extends Applet<WifiState, WifiAction, WifiView> {
   WifiApplet(this.model);
 
   final WifiModel model;
-  final _passphrase = TextEditingController();
   Completer<String?>? _answer;
 
   @override
@@ -56,7 +55,6 @@ class WifiApplet extends Applet<WifiState, WifiAction, WifiView> {
           network.id,
           passphrase: (_) {
             // connman's agent asks: show the screen, wait for done or back
-            _passphrase.clear();
             model.asking = network;
             _events.add(WifiAction.asked);
             return (_answer = Completer<String?>()).future;
@@ -77,11 +75,13 @@ class WifiApplet extends Applet<WifiState, WifiAction, WifiView> {
     return Scaffold(
       body: SafeArea(
         child: asking != null
-            ? _PassphraseScreen(
-                network: asking,
-                controller: _passphrase,
+            ? VrxTextEntry(
+                // a fresh entry per network asked about
+                key: ValueKey(asking.name),
+                title: asking.name,
+                hint: 'Passphrase',
                 onBack: () => _answerWith(null),
-                onDone: () => _answerWith(_passphrase.text),
+                onDone: _answerWith,
               )
             : Column(children: [
                 Expanded(child: _Networks(view: view, onJoin: _join, onForget: (n) => _confirmForget(context, n))),
@@ -166,47 +166,6 @@ class _Networks extends StatelessWidget {
             onTap: () => unawaited(VrxSystem.network.scan().catchError((Object _) {})),
           ),
         ),
-    ]);
-  }
-}
-
-class _PassphraseScreen extends StatelessWidget {
-  const _PassphraseScreen({
-    required this.network,
-    required this.controller,
-    required this.onBack,
-    required this.onDone,
-  });
-
-  final WifiNetwork network;
-  final TextEditingController controller;
-  final VoidCallback onBack;
-  final VoidCallback onDone;
-
-  @override
-  Widget build(BuildContext context) {
-    final space = ScaledSpacing.of(context);
-    // a 58mm-tall panel holds the header, one dense field and the four
-    // 9mm keyboard rows with nothing to spare: no floating label, no
-    // spacer (the bench cut the keyboard's last row off)
-    return Column(children: [
-      VrxHeader(title: network.name, onBack: onBack),
-      Expanded(
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: space.md),
-          child: Center(
-            child: TextField(
-              controller: controller,
-              readOnly: true, // typed on the keyboard below, not an IME
-              showCursor: true,
-              autofocus: true,
-              style: TypeRole.body(context),
-              decoration: const InputDecoration(isDense: true, hintText: 'Passphrase'),
-            ),
-          ),
-        ),
-      ),
-      VrxKeyboard(controller: controller, onDone: onDone),
     ]);
   }
 }

@@ -53,7 +53,6 @@ void main() {
       ..timerSeconds = 60;
     final back = ClockBook.fromJson(book.toJson());
     expect(back.toJson(), book.toJson());
-    expect(cityOf('America/Argentina/Buenos_Aires'), 'Buenos Aires');
     expect(hm(7 * 60 + 5), '07:05');
   });
 }

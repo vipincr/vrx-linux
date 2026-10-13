@@ -56,8 +56,10 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
     if (open == null) {
       body = _Categories(view: view, onOpen: (c) => _go(context, () => model.open = c));
     } else if (view.renaming) {
-      body = _RenameScreen(
-        name: model.device?.name ?? '',
+      body = VrxTextEntry(
+        title: 'Name',
+        initial: model.device?.name ?? '',
+        helper: (text) => 'Network name: ${hostnameFor(text)}',
         onBack: () => _go(context, () => model.renaming = false),
         onDone: (name) {
           _go(context, () => model.renaming = false);
@@ -65,8 +67,10 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
         },
       );
     } else if (view.pickingZone) {
-      body = _ZonePicker(
-        view: view,
+      body = VrxZonePicker(
+        title: 'Time zone',
+        zones: view.zones,
+        current: model.time?.zone ?? '',
         onBack: () => _go(context, () => model.pickingZone = false),
         onPick: (zone) {
           _go(context, () => model.pickingZone = false);
@@ -197,87 +201,6 @@ class _Category extends StatelessWidget {
           RowKind.confirm => VrxRow(label: row.label, value: '', onTap: () => onRow(row)),
           RowKind.info => VrxRow(label: row.label, value: row.value),
         },
-    ]);
-  }
-}
-
-class _RenameScreen extends StatefulWidget {
-  const _RenameScreen({required this.name, required this.onBack, required this.onDone});
-
-  final String name;
-  final VoidCallback onBack;
-  final void Function(String) onDone;
-
-  @override
-  State<_RenameScreen> createState() => _RenameScreenState();
-}
-
-class _RenameScreenState extends State<_RenameScreen> {
-  late final _controller = TextEditingController(text: widget.name);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final space = ScaledSpacing.of(context);
-    return Column(children: [
-      VrxHeader(title: 'Name', onBack: widget.onBack),
-      Expanded(
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: space.md),
-          child: Center(
-            // the keyboard writes the controller directly; the helper
-            // follows it
-            child: ListenableBuilder(
-              listenable: _controller,
-              builder: (context, _) => TextField(
-                controller: _controller,
-                readOnly: true, // typed on the keyboard below
-                showCursor: true,
-                autofocus: true,
-                style: TypeRole.body(context),
-                decoration: InputDecoration(
-                  isDense: true,
-                  helperText: 'Network name: ${hostnameFor(_controller.text)}',
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-      VrxKeyboard(controller: _controller, onDone: () => widget.onDone(_controller.text)),
-    ]);
-  }
-}
-
-class _ZonePicker extends StatelessWidget {
-  const _ZonePicker({required this.view, required this.onBack, required this.onPick});
-
-  final SettingsView view;
-  final VoidCallback onBack;
-  final void Function(String) onPick;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(children: [
-      VrxHeader(title: 'Time zone', onBack: onBack),
-      Expanded(
-        child: view.zones.isEmpty
-            ? const Center(child: CircularProgressIndicator())
-            // hundreds of zones: built as they scroll into view
-            : ListView.builder(
-                itemCount: view.zones.length,
-                itemBuilder: (context, i) => VrxRow(
-                  label: view.zones[i].replaceAll('_', ' '),
-                  value: '',
-                  onTap: () => onPick(view.zones[i]),
-                ),
-              ),
-      ),
     ]);
   }
 }

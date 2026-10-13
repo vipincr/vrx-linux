@@ -9,6 +9,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 
 import 'host.dart';
+import 'input.dart';
 import 'scale.dart';
 import 'store.dart';
 import 'theme.dart';
@@ -99,6 +100,8 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: vrxThemeData(palette),
+        // dialogs too: the frame wraps the navigator
+        builder: (context, child) => VrxInputRoot(child: VrxFrame(child: child ?? const SizedBox.shrink())),
         home: VrxScale.install(
           child: VrxInput.install(
             child: AppletScope<A>(
@@ -132,4 +135,33 @@ class AppletScope<A> extends InheritedWidget {
 
   @override
   bool updateShouldNotify(AppletScope<A> oldWidget) => oldWidget.onAction != onAction;
+}
+
+/// The applet's frame on the display. On a landscape monitor (wider than
+/// 5:4) the applet takes a centred column as wide as the screen is tall:
+/// its rows, written for a hand-held panel, would otherwise put a label
+/// and its value a metre apart.
+class VrxFrame extends StatelessWidget {
+  const VrxFrame({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    if (size.width <= size.height * 1.25) return child;
+    final palette = VrxTheme.of(context);
+    return ColoredBox(
+      color: palette.page,
+      child: Center(
+        child: SizedBox(
+          width: size.height,
+          child: MediaQuery(
+            data: MediaQuery.of(context).copyWith(size: Size(size.height, size.height)),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
 }

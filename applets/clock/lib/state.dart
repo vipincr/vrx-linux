@@ -10,7 +10,7 @@ enum ClockAction { init, changed, tick }
 
 /// Screens over the tabs. The tabs are one screen: a tab change is
 /// state, not a push, so Back leaves the applet from any tab.
-enum ClockScreen { tabs, regions, cities, editor, editTime }
+enum ClockScreen { tabs, zones, editor, editTime }
 
 enum ClockTab { face, world, alarms, timer }
 
@@ -25,20 +25,6 @@ const preciseMax = 60;
 /// The progress ring redraws this many times over a whole run, whatever
 /// its length (evrx-rt: twelve repaints, not one a second).
 const ringSteps = 12;
-
-/// Timezone regions as a person reads them: "Indian" is the ocean.
-const regionLabels = {
-  'Africa': 'Africa',
-  'America': 'Americas',
-  'Antarctica': 'Antarctica',
-  'Arctic': 'Arctic',
-  'Asia': 'Asia',
-  'Atlantic': 'Atlantic Ocean',
-  'Australia': 'Australia',
-  'Europe': 'Europe',
-  'Indian': 'Indian Ocean',
-  'Pacific': 'Pacific Ocean',
-};
 
 class Ring {
   const Ring(this.kind, this.index, this.started);
@@ -67,13 +53,14 @@ class ClockView {
     required this.running,
     required this.centre,
     required this.ringValue,
-    required this.listTitle,
-    required this.list,
+    required this.pickHome,
+    required this.zones,
     required this.draft,
     required this.canDelete,
     required this.notice,
     required this.ring,
     required this.ringNote,
+    required this.ringIsTimer,
     required this.canSnooze,
   });
 
@@ -106,8 +93,9 @@ class ClockView {
   /// Steps of [ringSteps] left; [ringSteps] when nothing runs.
   final int ringValue;
 
-  final String listTitle;
-  final List<String> list;
+  /// The zone picker chooses the home zone (else a world city).
+  final bool pickHome;
+  final List<String> zones;
 
   final Alarm draft;
   final bool canDelete;
@@ -116,6 +104,7 @@ class ClockView {
   /// Ringing: covers whatever screen is up.
   final bool ring;
   final String ringNote;
+  final bool ringIsTimer;
   final bool canSnooze;
 }
 
@@ -136,7 +125,6 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
   ClockTab tab = ClockTab.face;
   final _stack = <ClockScreen>[ClockScreen.tabs];
   bool pickHome = false;
-  String region = '';
 
   int editing = -1;
   Alarm draft = const Alarm(minutes: 420);
@@ -174,36 +162,21 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
   void pickHomeZone() {
     if (ring != null || screen != ClockScreen.tabs) return;
     pickHome = true;
-    _push(ClockScreen.regions);
+    _push(ClockScreen.zones);
   }
 
   void addCity() {
     if (ring != null || screen != ClockScreen.tabs || book.world.length >= worldMax) return;
     pickHome = false;
-    _push(ClockScreen.regions);
+    _push(ClockScreen.zones);
   }
 
-  List<String> get regions =>
-      [for (final r in regionLabels.keys) if (zones.any((z) => z.startsWith('$r/'))) r];
-
-  List<String> citiesIn(String r) => [for (final z in zones) if (z.startsWith('$r/')) z];
-
-  void pickRegion(int i) {
-    final rs = regions;
-    if (screen != ClockScreen.regions || i < 0 || i >= rs.length) return;
-    region = rs[i];
-    _push(ClockScreen.cities);
-  }
-
-  /// The zone a city row names; the caller sets it (home) or it joins
-  /// the world clock. Null when the tap is stale.
-  String? pickCity(int i) {
-    final cs = citiesIn(region);
-    if (screen != ClockScreen.cities || i < 0 || i >= cs.length) return null;
-    final zone = cs[i];
+  /// A zone was picked: a world city joins the list; the home zone the
+  /// caller sets through timedated. Back to the tabs either way.
+  void pickZone(String zone) {
+    if (screen != ClockScreen.zones) return;
     if (!pickHome && !book.world.contains(zone) && book.world.length < worldMax) book.world.add(zone);
     _toTabs();
-    return zone;
   }
 
   void removeCity(int i) {
@@ -418,7 +391,7 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
       final w = (world[z] ?? Zone.fixed(z, 0)).local(t);
       final shift = DateTime.utc(w.year, w.month, w.day).difference(homeDay).inDays;
       final mark = shift == 0 ? '' : (shift > 0 ? ' +$shift' : ' −${-shift}');
-      cities.add((cityOf(z), '${hm(w.hour * 60 + w.minute)}$mark', z));
+      cities.add((vrxCityOf(z), '${hm(w.hour * 60 + w.minute)}$mark', z));
     }
     final left = (book.timerEnd ?? 0) - t;
     final run = left > 0;
@@ -451,21 +424,14 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
       running: run,
       centre: '${run ? ((left + 59) ~/ 60).clamp(0, 999) : setMinutes}',
       ringValue: !run ? ringSteps : (total <= 0 ? 0 : (ringSteps * left.clamp(0, total) + total - 1) ~/ total),
-      listTitle: switch (screen) {
-        ClockScreen.regions => pickHome ? 'Time zone' : 'Add a city',
-        ClockScreen.cities => regionLabels[region] ?? region,
-        _ => '',
-      },
-      list: switch (screen) {
-        ClockScreen.regions => [for (final r in regions) regionLabels[r] ?? r],
-        ClockScreen.cities => [for (final z in citiesIn(region)) cityOf(z)],
-        _ => const [],
-      },
+      pickHome: pickHome,
+      zones: zones,
       draft: draft,
       canDelete: editing >= 0,
       notice: notice,
       ring: r != null,
       ringNote: ringNote,
+      ringIsTimer: r?.kind == FireKind.timer,
       canSnooze: canSnooze,
     );
   }

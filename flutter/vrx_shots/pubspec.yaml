@@ -1,0 +1,21 @@
+name: vrx_shots
+description: >-
+  Screenshots of a vrx applet as a panel shows it: the real AppletHost at a
+  display's pixel size and ratio, in the image's own fonts. A developer
+  tool (a dev dependency); nothing here ships.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_test:
+    sdk: flutter
+  vrx_kit:
+    path: ../vrx_kit
+
+dev_dependencies:
+  flutter_lints: ^5.0.0

@@ -239,6 +239,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  vrx_shots:
+    dependency: "direct dev"
+    description:
+      path: "../../flutter/vrx_shots"
+      relative: true
+    source: path
+    version: "0.1.0"
   xml:
     dependency: transitive
     description:

@@ -13,6 +13,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'input.dart';
 import 'metrics.dart';
 import 'scale.dart';
 import 'symbols.dart';
@@ -101,6 +102,9 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
 
   @override
   Widget build(BuildContext context) {
+    // a physical keyboard is typing: this one steps aside until a finger
+    // is back on the panel
+    if (VrxHandsScope.of(context) == VrxHands.keys) return const SizedBox.shrink();
     final rows = switch (_mode) {
       _Mode.symbols => _symbols,
       _Mode.more => _more,

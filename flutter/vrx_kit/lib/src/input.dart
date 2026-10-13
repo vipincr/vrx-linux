@@ -1,0 +1,119 @@
+/// Hands: what the person is using right now, a finger or a mouse and
+/// keyboard. A vrx board may have a touch panel, an HDMI monitor with a
+/// mouse and keyboard, or both; the UI follows whichever was used last.
+///
+/// The layout does not change with it (rows keep the 9mm touch minimum,
+/// so nothing jumps when a hand moves from the glass to the mouse). What
+/// changes: focus and hover show for a mouse and keyboard, the on-screen
+/// keyboard steps aside while a physical one types, and Escape or the
+/// mouse's back button goes back.
+library;
+
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
+
+/// The last input used.
+enum VrxHands {
+  /// A finger on the panel.
+  touch,
+
+  /// A mouse or touchpad pointer.
+  pointer,
+
+  /// A physical keyboard.
+  keys,
+}
+
+/// Back for the screen on top: the newest mounted VrxHeader's back
+/// (Escape and the mouse's back button call it).
+abstract final class VrxBack {
+  static final _stack = <VoidCallback>[];
+
+  /// A header offers its back while it is mounted.
+  static void offer(VoidCallback back) => _stack.add(back);
+
+  static void withdraw(VoidCallback back) => _stack.remove(back);
+
+  /// Go back, if a screen offers it. True when one did.
+  static bool invoke() {
+    if (_stack.isEmpty) return false;
+    _stack.last();
+    return true;
+  }
+}
+
+/// The hands in use, for widgets that differ by them.
+class VrxHandsScope extends InheritedNotifier<ValueNotifier<VrxHands>> {
+  const VrxHandsScope({super.key, required ValueNotifier<VrxHands> hands, required super.child})
+      : super(notifier: hands);
+
+  static VrxHands of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<VrxHandsScope>()?.notifier?.value ?? VrxHands.touch;
+}
+
+/// The applet root's input watcher (AppletHost installs it): tracks the
+/// hands, and turns Escape and the mouse back button into [VrxBack].
+class VrxInputRoot extends StatefulWidget {
+  const VrxInputRoot({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<VrxInputRoot> createState() => _VrxInputRootState();
+}
+
+class _VrxInputRootState extends State<VrxInputRoot> {
+  final _hands = ValueNotifier(VrxHands.touch);
+  final _node = FocusNode(debugLabel: 'vrx root', skipTraversal: true);
+
+  @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_onKey);
+    // keys reach Escape's binding only from inside this tree: hold focus
+    // when nothing below took it (an autofocused field or the terminal
+    // keeps its own)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_node.hasFocus) _node.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
+    _node.dispose();
+    _hands.dispose();
+    super.dispose();
+  }
+
+  bool _onKey(KeyEvent event) {
+    if (event is KeyDownEvent) _hands.value = VrxHands.keys;
+    return false; // watching, never consuming
+  }
+
+  void _onPointer(PointerEvent event) {
+    _hands.value = event.kind == PointerDeviceKind.touch ? VrxHands.touch : VrxHands.pointer;
+    if (event is PointerDownEvent && event.buttons & kBackMouseButton != 0) VrxBack.invoke();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: _onPointer,
+      onPointerHover: (e) {
+        if (_hands.value != VrxHands.pointer) _hands.value = VrxHands.pointer;
+      },
+      child: CallbackShortcuts(
+        // only when the focused widget left Escape alone (the terminal
+        // sends it to the shell)
+        bindings: {const SingleActivator(LogicalKeyboardKey.escape): () => VrxBack.invoke()},
+        child: Focus(
+          focusNode: _node,
+          child: VrxHandsScope(hands: _hands, child: widget.child),
+        ),
+      ),
+    );
+  }
+}

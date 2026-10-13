@@ -210,6 +210,3 @@ String describeDays(int mask) {
 
 /// "07:45" from minutes after midnight.
 String hm(int minutes) => '${(minutes ~/ 60).toString().padLeft(2, '0')}:${(minutes % 60).toString().padLeft(2, '0')}';
-
-/// "Europe/London" -> "London": a database key is not a place name.
-String cityOf(String zone) => zone.split('/').last.replaceAll('_', ' ');

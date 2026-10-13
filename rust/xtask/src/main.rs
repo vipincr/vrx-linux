@@ -31,18 +31,20 @@ fn main() -> ExitCode {
 }
 
 /// flutter analyze (the vrx lint set, errors fail) and flutter test, in
-/// vrx_kit and every applet with a pubspec. Refuses to pass silently
-/// without a flutter binary.
+/// every package with a pubspec: the SDK and tools under flutter/, then
+/// the applets. Refuses to pass silently without a flutter binary.
 fn flutter_gate(repo: &std::path::Path) -> bool {
-    let mut dirs = vec![repo.join("flutter/vrx_kit")];
-    if let Ok(entries) = std::fs::read_dir(repo.join("applets")) {
-        let mut applets: Vec<_> = entries
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.join("pubspec.yaml").is_file())
-            .collect();
-        applets.sort();
-        dirs.extend(applets);
+    let mut dirs = Vec::new();
+    for root in ["flutter", "applets"] {
+        if let Ok(entries) = std::fs::read_dir(repo.join(root)) {
+            let mut found: Vec<_> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.join("pubspec.yaml").is_file())
+                .collect();
+            found.sort();
+            dirs.extend(found);
+        }
     }
     for dir in dirs {
         // the lockfile must already resolve the package (the Yocto build
