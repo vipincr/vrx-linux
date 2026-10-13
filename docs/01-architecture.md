@@ -128,6 +128,45 @@ off wakes it (that is how an alarm lights the screen), and a released
 one restarts the full timeout. A reason that is always set is a screen
 that never goes off.
 
+## The time format
+
+The time format is the system's locale, so it has one home: `LC_TIME` in
+`/etc/locale.conf`, which systemd-localed writes (plan 0011 D7).
+flutter-vrx reads it at start and whenever the file changes, and tells
+every applet through Flutter's own `alwaysUse24HourFormat`; an applet
+formats with `VrxTimeFormat` and keeps no 12/24 setting of its own.
+Settings > Time > Time format lists the installed locales with an
+example of each and sets one with localed's `SetLocale`. That call needs
+the `locale` grant (group `vrx-locale`, held by Settings), whose polkit
+rule allows exactly `org.freedesktop.locale1.set-locale`.
+
+## Device Link
+
+Device Link pairs a phone over Bluetooth (plan 0011 D19). connman owns
+the radio's power, through its `bluetooth` technology, as it does for
+Wi-Fi; BlueZ owns the adapter, pairing and the bonds. The kit's
+`BluetoothService` is the vrx interface over both. What neither provides
+is a person's answer to a pairing request, so the Device Link applet is
+BlueZ's agent (`org.bluez.Agent1`, `DisplayYesNo`) while its window is
+open: the six digits go on the screen, beside Cancel and Pair.
+
+| Step | Mechanism |
+|---|---|
+| radio on or off | connman `Technology(bluetooth).SetProperty("Powered")` |
+| the window | the agent registered as BlueZ's default, then `Adapter1.Pairable` and `Discoverable` with a 180 s timeout (BlueZ's own default) |
+| a request | `RequestConfirmation` (digits to compare) or `RequestAuthorization` (yes or no), answered on screen; a confirmed device is marked `Trusted` so it reconnects with no agent running |
+| paired phones | ObjectManager, `Device1.Paired` |
+| forget | `Adapter1.RemoveDevice`, after a confirm |
+
+Reading the radio needs only the `network` grant, so the shell's strip
+glyph and drawer button follow connman without reaching BlueZ. The
+adapter, pairing and the bonds need the `bluetooth` grant: vrx-policy's
+bus policy keeps `org.bluez` to that group, because BlueZ's own policy
+lets any user change the adapter. Device Link and Settings hold it.
+Device Link holds the screen on while a passkey is up and while phones
+can pair. The phone companion's GATT protocol is a separate approval and
+is not part of this.
+
 ## The build rungs
 
 Everything above claims only rungs it has actually reached:
