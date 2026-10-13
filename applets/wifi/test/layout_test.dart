@@ -18,6 +18,9 @@ void main() {
     testWidgets('wifi list on ${display.name}', (tester) async {
       await expectCleanLayout(tester, WifiApplet(model()), display: display);
     });
+    testWidgets('a network screen on ${display.name}', (tester) async {
+      await expectCleanLayout(tester, WifiApplet(model()..showing = 'a'), display: display);
+    });
     testWidgets('wifi passphrase on ${display.name}', (tester) async {
       await expectCleanLayout(tester, WifiApplet(model()..asking = nets[1]), display: display);
     });

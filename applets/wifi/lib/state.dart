@@ -12,6 +12,12 @@ enum WifiAction {
 
   /// A system call failed; the banner says why.
   failed,
+
+  /// A join started or ended.
+  joining,
+
+  /// A network's own screen opened or closed.
+  opened,
 }
 
 /// What Wi-Fi draws.
@@ -23,6 +29,8 @@ class WifiView {
     required this.nearby,
     required this.asking,
     required this.error,
+    this.joining,
+    this.showing,
   });
 
   /// The device has Wi-Fi.
@@ -37,6 +45,13 @@ class WifiView {
   /// The network the passphrase screen is for, or null.
   final WifiNetwork? asking;
   final String? error;
+
+  /// The network being joined (connman's id): a second tap waits.
+  final String? joining;
+
+  /// The network whose own screen is open (its state as connman says
+  /// now), or null.
+  final WifiNetwork? showing;
 }
 
 /// The model: connman's state, the network being asked about, the error.
@@ -44,6 +59,23 @@ class WifiModel extends StoreModel<WifiState, WifiAction, WifiView> {
   NetworkState? network;
   WifiNetwork? asking;
   String? error;
+
+  /// connman's id of the network being joined, or null.
+  String? joining;
+
+  /// connman's id of the network whose screen is open, or null.
+  String? showing;
+
+  /// Start joining [n]; false while another join is in flight or [n] is
+  /// already joining or joined (a second tap is not a second join).
+  bool startJoin(WifiNetwork n) {
+    if (joining != null || n.connecting || n.connected) return false;
+    joining = n.id;
+    return true;
+  }
+
+  /// The join ended, either way.
+  void endJoin() => joining = null;
 
   @override
   WifiState get initial => const WifiState();
@@ -53,9 +85,13 @@ class WifiModel extends StoreModel<WifiState, WifiAction, WifiView> {
 
   @override
   WifiView reduce(WifiState state, WifiAction action) {
-    if (action == WifiAction.asked) error = null;
+    if (action == WifiAction.asked || action == WifiAction.opened) error = null;
     final n = network;
     final connected = n?.connected;
+    final all = n?.networks ?? const <WifiNetwork>[];
+    final shown = [for (final w in all) if (w.id == showing) w];
+    // a network that left range closes its screen
+    if (shown.isEmpty) showing = null;
     return WifiView(
       present: n?.wifiPresent ?? true,
       on: n?.wifiOn ?? false,
@@ -66,6 +102,8 @@ class WifiModel extends StoreModel<WifiState, WifiAction, WifiView> {
       ],
       asking: asking,
       error: error,
+      joining: joining,
+      showing: shown.isEmpty ? null : shown.first,
     );
   }
 

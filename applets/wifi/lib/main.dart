@@ -34,32 +34,37 @@ class WifiApplet extends Applet<WifiState, WifiAction, WifiView> {
     } on SystemError catch (err) {
       // backing out of the passphrase screen is a choice, not a failure
       if (err.name.endsWith('Canceled') || err.name.endsWith('OperationAborted')) return;
-      model.error = _phrase(err);
+      model.error = VrxWords.of(err, context: 'wifi');
       _events.add(WifiAction.failed);
     } on Object catch (err) {
-      model.error = '$err';
+      model.error = VrxWords.of(err, context: 'wifi');
       _events.add(WifiAction.failed);
     }
   }
 
-  /// connman's error names, said for a person.
-  static String _phrase(SystemError err) {
-    if (err.denied) return 'Not allowed to change the network';
-    if (err.name.endsWith('InvalidKey') || err.message.contains('invalid-key')) return 'Wrong passphrase';
-    if (err.name.endsWith('AlreadyConnected')) return 'Already connected';
-    return err.message.isEmpty ? err.name : err.message;
+  /// Join [network]: connman uses the passphrase it keeps for a saved
+  /// one and asks through its agent for any other secured one.
+  void _join(WifiNetwork network) {
+    if (!model.startJoin(network)) return;
+    _events.add(WifiAction.joining);
+    unawaited(() async {
+      await _ask(() => VrxSystem.network.connect(
+            network.id,
+            passphrase: (_) {
+              // connman's agent asks: show the screen, wait for done or back
+              model.asking = network;
+              _events.add(WifiAction.asked);
+              return (_answer = Completer<String?>()).future;
+            },
+          ));
+      model.endJoin();
+      _events.add(WifiAction.joining);
+    }());
   }
 
-  void _join(WifiNetwork network) {
-    unawaited(_ask(() => VrxSystem.network.connect(
-          network.id,
-          passphrase: (_) {
-            // connman's agent asks: show the screen, wait for done or back
-            model.asking = network;
-            _events.add(WifiAction.asked);
-            return (_answer = Completer<String?>()).future;
-          },
-        )));
+  void _open(WifiNetwork? network) {
+    model.showing = network?.id;
+    _events.add(WifiAction.opened);
   }
 
   void _answerWith(String? passphrase) {
@@ -72,6 +77,7 @@ class WifiApplet extends Applet<WifiState, WifiAction, WifiView> {
   @override
   Widget build(BuildContext context, WifiView view) {
     final asking = view.asking;
+    final showing = view.showing;
     return Scaffold(
       body: SafeArea(
         child: asking != null
@@ -84,38 +90,42 @@ class WifiApplet extends Applet<WifiState, WifiAction, WifiView> {
                 onDone: _answerWith,
               )
             : Column(children: [
-                Expanded(child: _Networks(view: view, onJoin: _join, onForget: (n) => _confirmForget(context, n))),
+                Expanded(
+                  child: showing != null
+                      ? _Network(
+                          network: showing,
+                          onBack: () => _open(null),
+                          onDisconnect: () => unawaited(_ask(() => VrxSystem.network.disconnect(showing.id))),
+                          onJoin: () => _join(showing),
+                          onForget: () => unawaited(_confirmForget(context, showing)),
+                        )
+                      : _Networks(view: view, onJoin: _join, onOpen: _open, onForget: (n) => unawaited(_confirmForget(context, n))),
+                ),
                 if (view.error != null) VrxBanner(text: view.error),
               ]),
       ),
     );
   }
 
-  void _confirmForget(BuildContext context, WifiNetwork network) {
-    unawaited(showDialog<void>(
-      context: context,
-      builder: (dialog) => VrxConfirm(
-        title: 'Forget ${network.name}?',
-        message: 'Its passphrase is deleted and the device stops joining it.',
-        cancelLabel: 'Cancel',
-        onCancel: () => Navigator.of(dialog).pop(), // vrx-allow: a dialog's own route, not the trail
-        act: VrxModalAction(
-          label: 'Forget',
-          onTap: () {
-            Navigator.of(dialog).pop(); // vrx-allow: a dialog's own route, not the trail
-            unawaited(_ask(() => VrxSystem.network.forget(network.id)));
-          },
-        ),
-      ),
-    ));
+  Future<void> _confirmForget(BuildContext context, WifiNetwork network) async {
+    final yes = await vrxConfirm(
+      context,
+      title: 'Forget ${network.name}?',
+      message: 'Its passphrase is deleted and the device stops joining it.',
+      act: 'Forget',
+    );
+    if (!yes) return;
+    if (model.showing == network.id) _open(null);
+    unawaited(_ask(() => VrxSystem.network.forget(network.id)));
   }
 }
 
 class _Networks extends StatelessWidget {
-  const _Networks({required this.view, required this.onJoin, required this.onForget});
+  const _Networks({required this.view, required this.onJoin, required this.onOpen, required this.onForget});
 
   final WifiView view;
   final void Function(WifiNetwork) onJoin;
+  final void Function(WifiNetwork) onOpen;
   final void Function(WifiNetwork) onForget;
 
   @override
@@ -139,7 +149,7 @@ class _Networks extends StatelessWidget {
               label: connected.name,
               // the Wi-Fi link's own address, not whichever link is first
               value: connected.address.isEmpty ? 'Connecting…' : connected.address,
-              onTap: () => onForget(connected),
+              onTap: () => onOpen(connected),
             ),
           if (view.on) const VrxSection(title: 'Nearby'),
         ],
@@ -149,12 +159,15 @@ class _Networks extends StatelessWidget {
         itemCount: nearby.length,
         itemBuilder: (context, i) {
           final n = nearby[i];
+          final joining = n.connecting || view.joining == n.id;
           return VrxRow(
             glyph: VrxSymbols.named(signalGlyph(n.strength)),
             label: n.name,
-            value: n.connecting ? 'Joining…' : (n.saved ? 'Saved' : ''),
+            value: joining ? 'Joining…' : (n.saved ? 'Saved' : ''),
             valueGlyph: n.secured ? VrxSymbols.lock : null,
-            onTap: () => n.saved ? onForget(n) : onJoin(n),
+            // a tap joins, saved or not; a saved one's hold forgets it
+            onTap: () => onJoin(n),
+            onLongPress: n.saved ? () => onForget(n) : null,
           );
         },
       ),
@@ -170,6 +183,44 @@ class _Networks extends StatelessWidget {
   }
 }
 
+/// One network's own screen: what connman says about it, and what can be
+/// done with it (connman's Disconnect and Remove).
+class _Network extends StatelessWidget {
+  const _Network({
+    required this.network,
+    required this.onBack,
+    required this.onDisconnect,
+    required this.onJoin,
+    required this.onForget,
+  });
+
+  final WifiNetwork network;
+  final VoidCallback onBack;
+  final VoidCallback onDisconnect;
+  final VoidCallback onJoin;
+  final VoidCallback onForget;
+
+  @override
+  Widget build(BuildContext context) {
+    final n = network;
+    return ListView(children: [
+      VrxHeader(title: n.name, onBack: onBack),
+      VrxRow(
+        glyph: VrxSymbols.named(signalGlyph(n.strength)),
+        label: 'Signal',
+        value: '${n.strength} %',
+      ),
+      VrxRow(label: 'Security', value: n.secured ? 'Passphrase' : 'Open'),
+      if (n.connected) VrxRow(label: 'Address', value: n.address.isEmpty ? 'Connecting…' : n.address),
+      if (n.connected || n.connecting)
+        VrxRow(label: 'Disconnect', value: '', onTap: onDisconnect)
+      else
+        VrxRow(label: 'Join', value: '', onTap: onJoin),
+      if (n.saved) VrxRow(label: 'Forget this network', value: '', onTap: onForget),
+    ]);
+  }
+}
+
 Future<void> main() async {
   final model = WifiModel();
   runApplet(WifiApplet(model), actions: _events.stream);
@@ -177,7 +228,7 @@ Future<void> main() async {
     model.network = n;
     _events.add(WifiAction.networkChanged);
   }, onError: (Object err) {
-    model.error = '$err';
+    model.error = VrxWords.of(err, context: 'wifi: watch');
     _events.add(WifiAction.failed);
   });
   // a fresh list on open: connman's own is from its last scan
