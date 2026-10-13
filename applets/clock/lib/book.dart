@@ -209,4 +209,8 @@ String describeDays(int mask) {
 }
 
 /// "07:45" from minutes after midnight.
-String hm(int minutes) => '${(minutes ~/ 60).toString().padLeft(2, '0')}:${(minutes % 60).toString().padLeft(2, '0')}';
+String hm(int minutes, {bool h12 = false}) {
+  final h = minutes ~/ 60, m = (minutes % 60).toString().padLeft(2, '0');
+  if (!h12) return '${h.toString().padLeft(2, '0')}:$m';
+  return '${h % 12 == 0 ? 12 : h % 12}:$m ${h < 12 ? 'AM' : 'PM'}';
+}

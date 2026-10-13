@@ -23,6 +23,7 @@ export 'src/nav.dart';
 export 'src/pipe.dart';
 export 'src/scale.dart';
 export 'src/screens.dart';
+export 'src/settings.dart';
 export 'src/store.dart';
 export 'src/symbols.dart';
 export 'src/system.dart';

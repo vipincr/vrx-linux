@@ -25,6 +25,12 @@ interface io.vrx.Host
 
 type Applet (id: string, name: string, icon: ?string, position: int)
 
+# One declared setting (plan 0008 D5): its value lives in
+# /etc/vrx/settings/<applet>.conf as key=value; default is JSON.
+type Setting (key: string, label: string, category: string, type: string, default: object, options: ?[]string)
+
+type AppletSettings (id: string, name: string, settings: []Setting)
+
 # Push an applet onto the back trail at a named route; it starts if it is not running.
 method Push(applet: string, route: ?string) -> (top: string)
 
@@ -39,6 +45,9 @@ method Intent(name: string, payload: ?object) -> (verdict: string, handled_by: ?
 
 # The applets the launcher shows (display.tile), in position order.
 method Applets() -> (applets: []Applet)
+
+# Every applet that declares settings, and what it declares (D5).
+method Settings() -> (applets: []AppletSettings)
 
 # The front applet and the trail depth; with \"more\", again on every change.
 method Watch() -> (front: string, depth: int)
@@ -265,6 +274,9 @@ async fn dispatch(host: &Host, method: &str, params: &Value) -> Result<Value, Fa
             }
         }
         "io.vrx.Host.Applets" => Ok(json!({ "applets": tiles(&host.registry) })),
+        "io.vrx.Host.Settings" => {
+            Ok(json!({ "applets": declared_settings(&host.registry) }))
+        }
         "io.vrx.Host.Watch" => {
             Ok(serde_json::to_value(host.front.borrow().clone()).unwrap_or(Value::Null))
         }
@@ -327,6 +339,21 @@ fn tiles(registry: &Registry) -> Vec<Value> {
         .collect()
 }
 
+/// Every applet that declares settings, by name, with its declarations
+/// as the manifest gives them (the one parser of manifests is this one).
+fn declared_settings(registry: &Registry) -> Vec<Value> {
+    let mut out: Vec<_> = registry
+        .iter()
+        .filter(|e| !e.manifest.applet.settings.is_empty())
+        .map(|e| {
+            let applet = &e.manifest.applet;
+            json!({ "id": applet.id, "name": applet.name, "settings": applet.settings })
+        })
+        .collect();
+    out.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -343,7 +370,9 @@ mod tests {
                 "clock",
                 "\n[applet.display]\nicon = \"schedule\"\ntile = true\nposition = 3\n\
                  [applet.routes]\nalarms = {}\nring = {}\n\
-                 [applet.intents]\nhandles = [{ name = \"sys.alarm.ring\", priority = 900, at = \"ring\" }]\n",
+                 [applet.intents]\nhandles = [{ name = \"sys.alarm.ring\", priority = 900, at = \"ring\" }]\n\
+                 [[applet.settings]]\nkey = \"clock_format\"\nlabel = \"Time format\"\ncategory = \"Clock\"\n\
+                 type = \"enum\"\ndefault = \"24h\"\noptions = [\"12h\", \"24h\"]\n",
             ),
         ] {
             let text = format!(
@@ -463,6 +492,13 @@ mod tests {
 
         let r = call(&mut s, json!({"method": "io.vrx.Host.Applets"})).await;
         assert_eq!(r[0]["parameters"]["applets"][0]["id"], "clock", "{r:?}");
+
+        let r = call(&mut s, json!({"method": "io.vrx.Host.Settings"})).await;
+        let clock = &r[0]["parameters"]["applets"][0];
+        assert_eq!(clock["id"], "clock", "{r:?}");
+        assert_eq!(clock["settings"][0]["key"], "clock_format", "{r:?}");
+        assert_eq!(clock["settings"][0]["type"], "enum", "{r:?}");
+        assert_eq!(clock["settings"][0]["options"][1], "24h", "{r:?}");
 
         let r = call(&mut s, json!({"method": "io.vrx.Host.Home"})).await;
         assert_eq!(r[0]["parameters"]["top"], "launcher", "{r:?}");

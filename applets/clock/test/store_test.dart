@@ -88,4 +88,13 @@ void main() {
     h.dispatch(ClockAction.tick);
     h.assertView((v) => v.cities.single.$2 == '00:30 +1');
   });
+
+  test('the 12-hour setting changes every time the clock shows', () {
+    final m = model()..book.alarms.add(const Alarm(minutes: 13 * 60 + 5, days: daysAll));
+    final h = StoreHarness(m);
+    h.assertView((v) => v.time == '07:00' && v.next == 'Next alarm at 13:05.');
+    m.h12 = true;
+    h.dispatch(ClockAction.changed);
+    h.assertView((v) => v.time == '7:00 AM' && v.next == 'Next alarm at 1:05 PM.' && v.h12);
+  });
 }

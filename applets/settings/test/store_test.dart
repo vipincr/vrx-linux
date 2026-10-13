@@ -65,4 +65,25 @@ void main() {
     harness.dispatch(SettingsAction.navigated);
     harness.assertView((v) => v.error == null);
   });
+
+  test('applets\' declared settings: a category, values from the files, enums cycle', () {
+    final model = SettingsModel()
+      ..declared = const [
+        AppletSettingsDecl(id: 'clock', name: 'Clock', settings: [
+          SettingDecl(key: 'clock_format', label: 'Time format', category: 'Clock', type: 'enum', defaultValue: '24h', options: ['24h', '12h']),
+          SettingDecl(key: 'chime', label: 'Hourly chime', category: 'Clock', type: 'bool', defaultValue: 'false'),
+        ]),
+      ];
+    final h = StoreHarness(model);
+    h.assertView((v) => v.categories.any((c) => c.category == SettingsCategory.applets));
+    model.open = SettingsCategory.applets;
+    h.dispatch(SettingsAction.navigated);
+    h.assertView((v) => v.rows.first.label == 'Clock: Time format' && v.rows.first.value == '24h' && v.rows.last.value == 'Off');
+    final decl = model.declOf('clock', 'clock_format')!;
+    expect(model.nextValue('clock', decl), '12h');
+    model.values['clock'] = {'clock_format': '12h', 'chime': 'true'};
+    h.dispatch(SettingsAction.factsChanged);
+    h.assertView((v) => v.rows.first.value == '12h' && v.rows.last.value == 'On');
+    expect(model.nextValue('clock', decl), '24h');
+  });
 }

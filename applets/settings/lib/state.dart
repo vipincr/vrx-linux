@@ -21,7 +21,7 @@ enum SettingsAction {
 }
 
 /// The settings categories, in the order evrx-rt's Settings lists them.
-enum SettingsCategory { display, power, time, network, device }
+enum SettingsCategory { display, power, time, network, device, applets }
 
 /// What a row does when tapped.
 enum RowKind {
@@ -104,6 +104,12 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
 
   /// The supply is too low (null: the board has no supply sensor).
   bool? supplyLow;
+  /// Applets' declared settings (vrxhost) and their values (the files).
+  List<AppletSettingsDecl> declared = const [];
+  final values = <String, Map<String, String>>{};
+
+  /// A text or number setting being typed: (applet, key).
+  (String, String)? editingSetting;
   SettingsCategory? open;
   bool pickingZone = false;
   bool renaming = false;
@@ -139,7 +145,31 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         CategoryRow(SettingsCategory.time, 'Time', 'schedule', time?.zone ?? ''),
         CategoryRow(SettingsCategory.network, 'Network', 'wifi', network?.connected?.name ?? (network?.ethernet == 'online' || network?.ethernet == 'ready' ? 'Wired' : '')),
         CategoryRow(SettingsCategory.device, 'Device', 'developer_board', device?.name ?? ''),
+        // what applets let the person set (plan 0008 D5), when any do
+        if (declared.isNotEmpty) const CategoryRow(SettingsCategory.applets, 'Applets', 'apps', ''),
       ];
+
+  /// A setting's value now: its file's, else its declared default.
+  String valueOf(String applet, SettingDecl decl) => values[applet]?[decl.key] ?? decl.defaultValue;
+
+  /// What a tap on an enum or bool setting sets: the next option.
+  String nextValue(String applet, SettingDecl decl) {
+    final now = valueOf(applet, decl);
+    if (decl.type == 'bool') return now == 'true' ? 'false' : 'true';
+    if (decl.options.isEmpty) return now;
+    final i = decl.options.indexOf(now);
+    return decl.options[(i + 1) % decl.options.length];
+  }
+
+  SettingDecl? declOf(String applet, String key) {
+    for (final a in declared) {
+      if (a.id != applet) continue;
+      for (final s in a.settings) {
+        if (s.key == key) return s;
+      }
+    }
+    return null;
+  }
 
   List<SettingRow> _rows(SettingsCategory category) {
     switch (category) {
@@ -225,6 +255,20 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
           if (d.serial.isNotEmpty) SettingRow(key: 'serial', label: 'Serial', value: d.serial, kind: RowKind.info),
           const SettingRow(key: 'licences', label: 'Licences', value: '', kind: RowKind.open),
           const SettingRow(key: 'setup', label: 'Set up again', value: '', kind: RowKind.open),
+        ];
+      case SettingsCategory.applets:
+        // keys are setting:<applet>:<key>; an enum or bool changes on a
+        // tap, a number or text opens the keyboard
+        return [
+          for (final a in declared)
+            for (final decl in a.settings)
+              SettingRow(
+                key: 'setting:${a.id}:${decl.key}',
+                label: '${a.name}: ${decl.label}',
+                value: decl.type == 'bool' ? (valueOf(a.id, decl) == 'true' ? 'On' : 'Off') : valueOf(a.id, decl),
+                kind: decl.type == 'enum' || decl.type == 'bool' ? RowKind.toggle : RowKind.open,
+                on: valueOf(a.id, decl) == 'true',
+              ),
         ];
     }
   }

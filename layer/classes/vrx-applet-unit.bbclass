@@ -37,10 +37,15 @@ python vrx_applet_unit() {
         bb.fatal("%s: manifest grants %s, which grants.conf does not define" % (applet, unknown))
     groups = set()
     devices = set()
+    writable = set()
     for grant in grants:
         group, classes = table[grant]
         groups.add(group)
-        devices.update(classes)
+        for c in classes:
+            if c.startswith('path:'):
+                writable.add(c[len('path:'):])
+            else:
+                devices.add(c)
     if runtime == 'flutter':
         bundle = d.getVar('VRX_FLUTTER_BUNDLE')
         if not bundle:
@@ -82,10 +87,25 @@ python vrx_applet_unit() {
         lines.append("SupplementaryGroups=%s" % " ".join(sorted(groups)))
     for device in sorted(devices):
         lines.append("DeviceAllow=%s rw" % device)
+    # a grant's paths are writable through ProtectSystem=strict
+    if writable:
+        lines.append("ReadWritePaths=%s" % " ".join(sorted(writable)))
     dropdir = d.getVar('D') + d.getVar('systemd_system_unitdir') + '/vrx-applet@%s.service.d' % applet
     os.makedirs(dropdir, exist_ok=True)
     with open(os.path.join(dropdir, '10-manifest.conf'), 'w') as f:
         f.write("\n".join(lines) + "\n")
+    # plan 0008 D5: the declared settings' defaults, /etc/vrx/settings/<id>.conf
+    # (key=value; vrx-policy's tmpfiles gives it root:vrx-settings 0664)
+    declared = section.get('settings', [])
+    if declared:
+        etc = d.getVar('D') + d.getVar('sysconfdir') + '/vrx/settings'
+        os.makedirs(etc, exist_ok=True)
+        def text(v):
+            return ('true' if v else 'false') if isinstance(v, bool) else str(v)
+        with open(os.path.join(etc, '%s.conf' % applet), 'w') as f:
+            f.write("# %s's settings (its manifest's [[applet.settings]]); Settings writes this\n" % applet)
+            for s_ in declared:
+                f.write("%s=%s\n" % (s_['key'], text(s_.get('default', ''))))
 }
 do_install[postfuncs] += "vrx_applet_unit"
 do_install[file-checksums] += "${VRX_GRANTS_CONF}:True"
@@ -110,7 +130,9 @@ USERADD_PACKAGES = "${PN}"
 GROUPADD_PARAM:${PN} = "-r vrx-${VRX_APPLET}"
 USERADD_PARAM:${PN} = "-r -g vrx-${VRX_APPLET} -d /var/lib/vrx/${VRX_APPLET} -M -s /sbin/nologin -c 'vrx applet ${VRX_APPLET}' vrx-${VRX_APPLET}"
 
-FILES:${PN} += "${systemd_system_unitdir}/vrx-applet@${VRX_APPLET}.service.d"
+FILES:${PN} += "${systemd_system_unitdir}/vrx-applet@${VRX_APPLET}.service.d ${sysconfdir}/vrx/settings"
+# a settings default the device has changed is kept across an update
+CONFFILES:${PN} += "${sysconfdir}/vrx/settings/${VRX_APPLET}.conf"
 # vrxhost ships the unit template and the vrx group; vrx-policy the
 # groups the grants map to
 RDEPENDS:${PN} += "vrxhost vrx-policy"

@@ -299,7 +299,7 @@ class _Editor extends StatelessWidget {
       Expanded(
         child: VrxList(children: [
           VrxHeader(title: view.canDelete ? 'Alarm' : 'New alarm', onBack: onBack),
-          VrxRow(label: 'Time', value: hm(view.draft.minutes), onTap: onTime),
+          VrxRow(label: 'Time', value: hm(view.draft.minutes, h12: view.h12), onTap: onTime),
           VrxRow(label: 'Repeat', value: describeDays(view.draft.days), onTap: onDays),
           VrxRow(label: 'Snooze', value: view.draft.snooze ? 'On' : 'Off', onTap: onSnooze),
           VrxRow(glyph: VrxSymbols.check, label: 'Save', onTap: onSave),
@@ -801,6 +801,11 @@ class _Scheduler {
       arm();
       _events.add(ClockAction.changed);
     }, onError: (Object err) => debugPrint('clock: no time service: $err'));
+    // the 12/24-hour setting (plan 0008 D5), followed as it changes
+    AppletSettings().watch('clock').listen((v) {
+      model.h12 = v['clock_format'] == '12h';
+      _events.add(ClockAction.changed);
+    }, onError: (Object err) => debugPrint('clock: no settings file: $err'));
     try {
       model.zones = await VrxSystem.time.zones();
     } on Object catch (err) {

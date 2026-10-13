@@ -75,6 +75,8 @@ pub enum SystemGrant {
     Input,
     /// Industrial I/O sensors (IIO).
     Iio,
+    /// Write any applet's settings file (plan 0008 D5).
+    Settings,
 }
 
 impl SystemGrant {
@@ -98,11 +100,12 @@ impl SystemGrant {
             SystemGrant::Camera => "camera",
             SystemGrant::Input => "input",
             SystemGrant::Iio => "iio",
+            SystemGrant::Settings => "settings",
         }
     }
 
     /// Every grant, for table checks.
-    pub const ALL: [SystemGrant; 17] = [
+    pub const ALL: [SystemGrant; 18] = [
         SystemGrant::Network,
         SystemGrant::Bluetooth,
         SystemGrant::Time,
@@ -120,6 +123,7 @@ impl SystemGrant {
         SystemGrant::Camera,
         SystemGrant::Input,
         SystemGrant::Iio,
+        SystemGrant::Settings,
     ];
 }
 

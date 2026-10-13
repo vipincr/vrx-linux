@@ -30,10 +30,21 @@ void main() {
     ..light = true
     ..canPowerOff = true
     ..supplyLow = true
-    ..zones = ['America/Argentina/Buenos_Aires', 'Asia/Kolkata', 'Europe/London'];
+    ..zones = ['America/Argentina/Buenos_Aires', 'Asia/Kolkata', 'Europe/London']
+    ..declared = const [
+      AppletSettingsDecl(id: 'clock', name: 'Clock', settings: [
+        SettingDecl(key: 'clock_format', label: 'Time format', category: 'Clock', type: 'enum', defaultValue: '24h', options: ['24h', '12h']),
+      ]),
+      AppletSettingsDecl(id: 'recorder', name: 'Recorder', settings: [
+        SettingDecl(key: 'sample_rate', label: 'Sample rate', category: 'Recorder', type: 'int', defaultValue: '44100'),
+      ]),
+    ];
   final screens = <String, SettingsModel Function()>{
     'categories': model,
     for (final c in SettingsCategory.values) c.name: () => model()..open = c,
+    'setting entry': () => model()
+      ..open = SettingsCategory.applets
+      ..editingSetting = ('recorder', 'sample_rate'),
     'rename': () => model()
       ..open = SettingsCategory.device
       ..renaming = true,

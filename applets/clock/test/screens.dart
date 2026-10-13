@@ -23,6 +23,8 @@ ClockModel ringing() {
 
 final clockScreens = <String, ClockModel Function()>{
   'face': model,
+  'face 12h': () => model()..h12 = true,
+  'alarms 12h': () => model()..h12 = true..openTab(ClockTab.alarms),
   'world': () => model()..openTab(ClockTab.world),
   'alarms': () => model()..openTab(ClockTab.alarms),
   'editor': () => model()..openTab(ClockTab.alarms)..editAlarm(0),

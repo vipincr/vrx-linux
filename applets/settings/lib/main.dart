@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart' hide Intent; // vrx's Intent
 import 'package:vrx_kit/vrx_kit.dart';
@@ -7,6 +8,9 @@ import 'state.dart';
 
 /// Facts from the system services, for the applet's whole life.
 final _facts = StreamController<SettingsAction>();
+
+/// The settings files (plan 0008 D5): this applet holds the settings grant.
+final _settings = AppletSettings();
 
 /// The settings applet: the system's own settings, each row bound to the
 /// Linux service that owns it (plan 0008 Part D): time and zone through
@@ -66,6 +70,18 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
           if (name.trim().isNotEmpty) unawaited(_ask(context, () => VrxSystem.device.setName(name.trim())));
         },
       );
+    } else if (model.editingSetting != null) {
+      final (applet, key) = model.editingSetting!;
+      final decl = model.declOf(applet, key);
+      body = VrxTextEntry(
+        title: decl?.label ?? key,
+        initial: decl == null ? '' : model.valueOf(applet, decl),
+        onBack: () => _go(context, () => model.editingSetting = null),
+        onDone: (text) {
+          _go(context, () => model.editingSetting = null);
+          unawaited(_setSetting(applet, key, text.trim()));
+        },
+      );
     } else if (view.pickingZone) {
       body = VrxZonePicker(
         title: 'Time zone',
@@ -95,7 +111,34 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
     );
   }
 
+  Future<void> _setSetting(String applet, String key, String value) async {
+    final decl = model.declOf(applet, key);
+    if (decl != null && (decl.type == 'int' || decl.type == 'float') && num.tryParse(value) == null) {
+      model.error = '${decl.label} takes a number';
+      _facts.add(SettingsAction.failed);
+      return;
+    }
+    try {
+      await _settings.set(applet, key, value);
+    } on FileSystemException catch (err) {
+      model.error = 'Cannot save: ${err.osError?.message ?? err.message}';
+      _facts.add(SettingsAction.failed);
+    }
+  }
+
   void _onRow(BuildContext context, SettingRow row) {
+    if (row.key.startsWith('setting:')) {
+      final parts = row.key.split(':');
+      final applet = parts[1], key = parts.sublist(2).join(':');
+      final decl = model.declOf(applet, key);
+      if (decl == null) return;
+      if (row.kind == RowKind.toggle) {
+        unawaited(_setSetting(applet, key, model.nextValue(applet, decl)));
+      } else {
+        _go(context, () => model.editingSetting = (applet, key));
+      }
+      return;
+    }
     switch (row.key) {
       case 'wifi':
       case 'setup':
@@ -183,6 +226,7 @@ class _Category extends StatelessWidget {
     SettingsCategory.time: 'Time',
     SettingsCategory.network: 'Network',
     SettingsCategory.device: 'Device',
+    SettingsCategory.applets: 'Applets',
   };
 
   @override
@@ -225,6 +269,20 @@ Future<void> main() async {
   VrxSystem.device.watch().listen((d) => fact(() => model.device = d), onError: failed);
   VrxSystem.power.watchLight().listen((on) => fact(() => model.light = on), onError: failed);
   VrxSystem.power.watchSupplyLow().listen((low) => fact(() => model.supplyLow = low), onError: failed);
+  // applets' declared settings, each file watched so a change shows
+  unawaited(() async {
+    final service = AppletsService.installed;
+    if (service == null) return;
+    try {
+      final declared = await service.settings();
+      fact(() => model.declared = declared);
+      for (final a in declared) {
+        _settings.watch(a.id).listen((v) => fact(() => model.values[a.id] = v), onError: failed);
+      }
+    } on Object catch (err) {
+      failed(err);
+    }
+  }());
   try {
     final levels = await VrxSystem.power.lightLevels();
     final canOff = await VrxSystem.power.canPowerOff();

@@ -62,6 +62,7 @@ class ClockView {
     required this.ringNote,
     required this.ringIsTimer,
     required this.canSnooze,
+    required this.h12,
   });
 
   final ClockScreen screen;
@@ -106,6 +107,9 @@ class ClockView {
   final String ringNote;
   final bool ringIsTimer;
   final bool canSnooze;
+
+  /// Times in 12-hour form (the clock_format setting).
+  final bool h12;
 }
 
 class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
@@ -135,6 +139,9 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
   int precise = 20;
 
   Ring? ring;
+
+  /// The declared clock_format setting (plan 0008 D5) is 12h.
+  bool h12 = false;
 
   int get now => _now();
   ClockScreen get screen => _stack.last;
@@ -382,8 +389,8 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
     if (due != null) {
       final s = home.local(due);
       next = snooze == due
-          ? 'Snoozed until ${hm(s.hour * 60 + s.minute)}.'
-          : 'Next ${due == book.timerEnd ? 'timer' : 'alarm'} at ${hm(s.hour * 60 + s.minute)}.';
+          ? 'Snoozed until ${hm(s.hour * 60 + s.minute, h12: h12)}.'
+          : 'Next ${due == book.timerEnd ? 'timer' : 'alarm'} at ${hm(s.hour * 60 + s.minute, h12: h12)}.';
     }
     final homeDay = DateTime.utc(wall.year, wall.month, wall.day);
     final cities = <(String, String, String)>[];
@@ -391,7 +398,7 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
       final w = (world[z] ?? Zone.fixed(z, 0)).local(t);
       final shift = DateTime.utc(w.year, w.month, w.day).difference(homeDay).inDays;
       final mark = shift == 0 ? '' : (shift > 0 ? ' +$shift' : ' −${-shift}');
-      cities.add((vrxCityOf(z), '${hm(w.hour * 60 + w.minute)}$mark', z));
+      cities.add((vrxCityOf(z), '${hm(w.hour * 60 + w.minute, h12: h12)}$mark', z));
     }
     final left = (book.timerEnd ?? 0) - t;
     final run = left > 0;
@@ -410,13 +417,13 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
       screen: screen,
       tab: tab,
       valid: valid,
-      time: valid ? hm(wall.hour * 60 + wall.minute) : '--:--',
+      time: valid ? hm(wall.hour * 60 + wall.minute, h12: h12) : '--:--',
       date: valid ? '${days[wall.weekday - 1]} ${wall.day} ${months[wall.month - 1]}' : '',
       zone: home.name,
       next: next,
       cities: cities,
       canAddCity: book.world.length < worldMax,
-      alarms: [for (final a in book.alarms) (hm(a.minutes), describeDays(a.days), a.enabled)],
+      alarms: [for (final a in book.alarms) (hm(a.minutes, h12: h12), describeDays(a.days), a.enabled)],
       canAddAlarm: book.alarms.length < alarmsMax,
       mode: mode,
       dial: dial,
@@ -433,6 +440,7 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
       ringNote: ringNote,
       ringIsTimer: r?.kind == FireKind.timer,
       canSnooze: canSnooze,
+      h12: h12,
     );
   }
 }

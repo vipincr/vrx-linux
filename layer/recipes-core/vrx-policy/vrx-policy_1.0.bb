@@ -11,7 +11,7 @@ SUMMARY = "vrx grant groups"
 LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
 
-SRC_URI = "file://zz-vrx.conf file://50-vrx.rules file://70-vrx-backlight.rules"
+SRC_URI = "file://zz-vrx.conf file://50-vrx.rules file://70-vrx-backlight.rules file://vrx-settings.conf"
 S = "${UNPACKDIR}"
 
 inherit allarch useradd
@@ -42,10 +42,12 @@ do_install() {
     # polkit recipe's
     install -D -m 0644 ${UNPACKDIR}/50-vrx.rules ${D}${datadir}/polkit-1/rules.d/50-vrx.rules
     install -D -m 0644 ${UNPACKDIR}/70-vrx-backlight.rules ${D}${nonarch_base_libdir}/udev/rules.d/70-vrx-backlight.rules
+    install -D -m 0644 ${UNPACKDIR}/vrx-settings.conf ${D}${nonarch_libdir}/tmpfiles.d/vrx-settings.conf
 }
 
 FILES:${PN} = "${sysconfdir}/dbus-1/system.d/zz-vrx.conf \
                ${datadir}/polkit-1/rules.d/50-vrx.rules \
-               ${nonarch_base_libdir}/udev/rules.d/70-vrx-backlight.rules"
+               ${nonarch_base_libdir}/udev/rules.d/70-vrx-backlight.rules \
+               ${nonarch_libdir}/tmpfiles.d/vrx-settings.conf"
 # polkit evaluates the rules; the time grant is meta-oe's own rule
 RDEPENDS:${PN} = "polkit polkit-group-rule-datetime"

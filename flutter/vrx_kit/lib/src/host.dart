@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart';
 
 import 'intent.dart';
 import 'nav.dart';
+import 'settings.dart';
 
 /// One tile's worth of registry: an applet the launcher shows.
 class RegistryApplet {
@@ -62,6 +63,9 @@ abstract class AppletsService implements IntentTransport, NavDelegate {
 
   /// The front applet now, and again on every change.
   Stream<FrontApplet> watch();
+
+  /// Every applet's declared settings (plan 0008 D5).
+  Future<List<AppletSettingsDecl>> settings();
 }
 
 /// A Varlink call failed: the error name and its parameters, as vrxhost
@@ -161,6 +165,23 @@ class VarlinkAppletsService extends AppletsService {
           name: '${a['name']}',
           position: (a['position'] as num?)?.toInt() ?? 0,
           icon: a['icon'] as String?,
+        ),
+    ];
+  }
+
+  @override
+  Future<List<AppletSettingsDecl>> settings() async {
+    final reply = await _client.call('io.vrx.Host.Settings');
+    final list = reply['applets'];
+    if (list is! List) return const [];
+    return [
+      for (final a in list.whereType<Map<String, dynamic>>())
+        AppletSettingsDecl(
+          id: '${a['id']}',
+          name: '${a['name']}',
+          settings: [
+            for (final s in (a['settings'] as List? ?? const []).whereType<Map<String, dynamic>>()) SettingDecl.fromJson(s),
+          ],
         ),
     ];
   }
