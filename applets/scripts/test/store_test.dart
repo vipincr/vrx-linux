@@ -19,4 +19,19 @@ void main() {
     h.dispatch(ScriptsAction.closed);
     h.assertView((v) => v.open == null && v.lines.isEmpty);
   });
+
+  test("a new script's file name is safe; back goes one step at a time", () {
+    expect(ScriptsModel.fileNameFor(' my script '), 'my_script.py');
+    expect(ScriptsModel.fileNameFor('blink.py'), 'blink.py');
+    expect(ScriptsModel.fileNameFor('../../etc/passwd'), 'etc_passwd.py');
+    expect(ScriptsModel.fileNameFor('...'), '');
+    final m = ScriptsModel()
+      ..selected = 'a.py'
+      ..editing = true;
+    expect(m.back(), isTrue);
+    expect((m.editing, m.selected), (false, 'a.py'));
+    expect(m.back(), isTrue);
+    expect(m.selected, isNull);
+    expect(m.back(), isFalse, reason: 'at the list Back leaves the applet');
+  });
 }
