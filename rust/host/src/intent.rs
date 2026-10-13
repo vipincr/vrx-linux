@@ -1,64 +1,51 @@
-// The intent router: vrxhost's signal mechanism. Handlers are asked in
-// the registry's order (priority descending, built-ins first); the first
-// HANDLED wins. An **opened** handler (declared `at <route>`) makes
-// vrxhost start or front the applet at that route with the payload (a
-// trail push, through the session). A **told** handler must be running to
-// answer; a told handler that is not running (or stays silent past its
-// 100ms) is a PASS and the next handler is asked. Told delivery needs the
-// applet protocol (part G); until then a told handler without a live
-// connection passes, which is the same answer silence gives.
+// The intent router: vrxhost's signal mechanism (plan 0008 D15). Handlers
+// are asked in the registry's order (priority descending, built-ins
+// first); the first that takes it wins. An **opened** handler (declared
+// `at <route>`) takes it by being started or fronted at that route (a
+// trail push, through the session); if it is already running it also
+// receives the payload over its Listen. A **told** handler must be
+// running and listening: it is asked over its Listen and answers
+// handled or pass within 100 ms; silence, or not listening, is a pass
+// and the next handler is asked.
 //
-// The wire is vrxhost's Varlink interface (varlink.rs, `io.vrx.Host.Intent`);
-// this module is the routing decision alone.
+// The wire is vrxhost's Varlink interface (varlink.rs: `Intent`, `Listen`,
+// `Answer`); this module is the order alone.
 
 use vrx_protocol::{Intent, Registry};
 
-/// How a routed intent settled.
+/// One handler of an intent, in the order they are asked.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Outcome {
-    /// An opened handler took it: start/front this applet at the route.
+pub enum Handler {
+    /// Takes it by being fronted at this route.
     Opened { applet: String, route: u32 },
-    /// Every handler passed: the intent is dropped, logged.
-    PassAll,
-    /// No handler is declared for the intent.
-    NotFound,
+    /// Asked over its Listen; it answers handled or pass.
+    Told { applet: String },
 }
 
-/// Route one intent against the registry.
-pub fn route(registry: &Registry, intent: &Intent) -> Outcome {
-    let handlers = registry.handlers_for(&intent.name);
-    let mut asked: Vec<&str> = Vec::new();
-    for entry in handlers {
-        let handle = entry
-            .manifest
-            .applet
-            .intents
-            .handles
-            .iter()
-            .find(|h| h.name == intent.name);
-        let Some(handle) = handle else { continue };
-        match &handle.at {
-            Some(route_name) => {
-                // opened: vrxhost fronts the applet at the route
-                let number = entry.manifest.route_number(route_name).unwrap_or(0);
-                return Outcome::Opened {
-                    applet: entry.manifest.applet.id.clone(),
-                    route: number,
-                };
-            }
-            None => {
-                // told: needs a live applet connection (part G); a
-                // handler that cannot answer is a PASS
-                asked.push(&entry.manifest.applet.id);
-            }
-        }
-    }
-    if asked.is_empty() {
-        Outcome::NotFound
-    } else {
-        tracing::debug!(intent = %intent.name, asked = ?asked, "all handlers passed");
-        Outcome::PassAll
-    }
+/// The handlers of one intent, in the order they are asked; empty when
+/// none is declared.
+pub fn handlers(registry: &Registry, intent: &Intent) -> Vec<Handler> {
+    registry
+        .handlers_for(&intent.name)
+        .into_iter()
+        .filter_map(|entry| {
+            let handle = entry
+                .manifest
+                .applet
+                .intents
+                .handles
+                .iter()
+                .find(|h| h.name == intent.name)?;
+            let applet = entry.manifest.applet.id.clone();
+            Some(match &handle.at {
+                Some(route_name) => Handler::Opened {
+                    route: entry.manifest.route_number(route_name).unwrap_or(0),
+                    applet,
+                },
+                None => Handler::Told { applet },
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -124,23 +111,27 @@ mod tests {
     }
 
     #[test]
-    fn an_opened_handler_takes_the_intent() {
+    fn handlers_come_in_priority_order_opened_and_told() {
         let intent =
             Intent::new("sys.alarm.ring", serde_json::json!({"id": 7})).expect("intent");
-        // the opened handler (clock, priority 900) outranks the told
-        // one (listener, 100): opened wins
+        // clock (opened, 900) is asked before listener (told, 100)
         assert_eq!(
-            route(&registry(), &intent),
-            Outcome::Opened {
-                applet: "clock".into(),
-                route: 1,
-            }
+            handlers(&registry(), &intent),
+            vec![
+                Handler::Opened {
+                    applet: "clock".into(),
+                    route: 1,
+                },
+                Handler::Told {
+                    applet: "listener".into()
+                },
+            ]
         );
     }
 
     #[test]
-    fn an_intent_without_handlers_is_enoent() {
+    fn an_intent_without_handlers_has_none() {
         let intent = Intent::new("ghost.ping", serde_json::json!(null)).expect("intent");
-        assert_eq!(route(&registry(), &intent), Outcome::NotFound);
+        assert!(handlers(&registry(), &intent).is_empty());
     }
 }

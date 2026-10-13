@@ -14,7 +14,8 @@ use vrx_protocol::{Intent, Registry};
 use zlink::{Call, Reply};
 
 use crate::applets::applet_of_pid;
-use crate::intent::{route, Outcome};
+use crate::bridge::{Bridge, Delivery, ANSWER_BUDGET};
+use crate::intent::{handlers, Handler};
 use crate::session::{NavError, NavOp};
 
 pub const INTERFACE: &str = "io.vrx.Host";
@@ -40,8 +41,26 @@ method Pop() -> (top: string)
 # Clear the trail to the home applet.
 method Home() -> (top: string)
 
-# Route an intent; an opened handler is pushed at its route.
+# Route an intent: handlers in priority order; an opened one is pushed at
+# its route (and, running, told over its Listen); a told one is asked over
+# its Listen and has 100 ms to Answer. verdict: opened, handled or pass.
 method Intent(name: string, payload: ?object) -> (verdict: string, handled_by: ?string, route: ?int)
+
+# Held with \"more\" by a running applet (plan 0008 D15): each reply is an
+# intent it handles (kind \"intent\"; with an id, Answer it) or a channel
+# another applet opened on it (kind \"channel\"; the stream's end rides as
+# a file descriptor). The newest Listen of an applet wins.
+method Listen() -> (kind: string, id: ?int, name: ?string, payload: ?object, from: ?string, channel: ?string)
+
+# The answer to an intent a Listen asked about: handled or pass.
+method Answer(id: int, verdict: string) -> ()
+
+# Open a channel another applet offers (its manifest's channels.offers;
+# yours must list <to>.<channel> in channels.opens): a stream socket, one
+# end in the reply as a file descriptor, the other handed to that applet's
+# Listen. A descriptor sent with the call (a memfd, a dmabuf) is handed
+# instead, and the reply carries none.
+method Open(to: string, channel: string) -> ()
 
 # The applets the launcher shows (display.tile), in position order.
 method Applets() -> (applets: []Applet)
@@ -57,6 +76,10 @@ error NoSuchRoute (applet: string, route: string)
 error NotOpenable (applet: string)
 error Disabled (applet: string)
 error NoHandler (name: string)
+error NotDeclared (channel: string)
+error NotOffered (applet: string, channel: string)
+error NotListening (applet: string)
+error NotAnApplet ()
 error Unavailable ()
 ";
 
@@ -141,6 +164,7 @@ pub struct Host {
     pub registry: Arc<Registry>,
     pub nav: mpsc::UnboundedSender<NavRequest>,
     pub front: watch::Receiver<Front>,
+    pub bridge: Bridge,
 }
 
 /// Serve `io.vrx.Host` until the listener fails.
@@ -161,16 +185,20 @@ pub async fn serve(socket: &Path, host: Host) -> std::io::Result<()> {
 }
 
 async fn handle(mut conn: zlink::tokio::unix::Connection, host: Host) {
-    let caller = match conn.peer_credentials().await {
+    // the caller: its applet (the cgroup of the socket peer's pid), or
+    // what it is for the log
+    let (applet, caller) = match conn.peer_credentials().await {
         Ok(creds) => {
             let pid =
                 u32::try_from(creds.process_id().as_raw_nonzero().get()).unwrap_or(0);
-            applet_of_pid(pid).unwrap_or_else(|| format!("pid {pid}"))
+            let applet = applet_of_pid(pid);
+            let caller = applet.clone().unwrap_or_else(|| format!("pid {pid}"));
+            (applet, caller)
         }
-        Err(_) => "unknown".to_owned(),
+        Err(_) => (None, "unknown".to_owned()),
     };
     loop {
-        let (call, _fds) = match conn.receive_call::<AnyMethod>().await {
+        let (call, fds) = match conn.receive_call::<AnyMethod>().await {
             Ok(call) => call,
             Err(err) => {
                 tracing::debug!(%caller, error = %err, "io.vrx.Host connection ended");
@@ -184,6 +212,28 @@ async fn handle(mut conn: zlink::tokio::unix::Connection, host: Host) {
             watch_front(&mut conn, host.front.clone()).await;
             return;
         }
+        if method == format!("{INTERFACE}.Listen") && call.more() {
+            match applet {
+                Some(applet) => listen(conn, &host.bridge, &applet).await,
+                None => {
+                    let _ = conn
+                        .send_error(&Failure::host("NotAnApplet", json!({})), Vec::new())
+                        .await;
+                }
+            }
+            return;
+        }
+        if method == format!("{INTERFACE}.Open") {
+            let params = call.method().parameters.clone();
+            let sent = match open(&host, applet.as_deref(), &params, fds) {
+                Ok(back) => conn.send_reply(&Reply::new(Some(json!({}))), back).await,
+                Err(failure) => conn.send_error(&failure, Vec::new()).await,
+            };
+            if sent.is_err() {
+                return;
+            }
+            continue;
+        }
         let answer = dispatch(&host, &method, &call.method().parameters).await;
         if call.oneway() {
             continue;
@@ -195,6 +245,106 @@ async fn handle(mut conn: zlink::tokio::unix::Connection, host: Host) {
         if sent.is_err() {
             return;
         }
+    }
+}
+
+/// Hold a Listen: every delivery for `applet` becomes a reply with
+/// `continues`, until the applet hangs up or a newer Listen replaces it.
+async fn listen(conn: zlink::tokio::unix::Connection, bridge: &Bridge, applet: &str) {
+    let (generation, mut deliveries) = bridge.listen(applet);
+    tracing::info!(%applet, "listening");
+    let (mut read, mut write) = conn.split();
+    loop {
+        tokio::select! {
+            // a Listen connection carries nothing more from the applet:
+            // a read that ends is the applet hanging up
+            ended = read.receive_call::<AnyMethod>() => {
+                if ended.is_err() {
+                    break;
+                }
+            }
+            delivery = deliveries.recv() => {
+                let Some(delivery) = delivery else { break };
+                let (body, fds) = match delivery {
+                    Delivery::Intent { id, name, payload } => (
+                        json!({ "kind": "intent", "id": id, "name": name, "payload": payload }),
+                        Vec::new(),
+                    ),
+                    Delivery::Channel { from, channel, fd } => (
+                        json!({ "kind": "channel", "from": from, "channel": channel }),
+                        vec![fd],
+                    ),
+                };
+                let reply = Reply::new(Some(body)).set_continues(Some(true));
+                if write.send_reply(&reply, fds).await.is_err() {
+                    break;
+                }
+            }
+        }
+    }
+    bridge.unlisten(applet, generation);
+    tracing::info!(%applet, "stopped listening");
+}
+
+/// Open a channel: the caller's manifest must open it and the target's
+/// offer it. The descriptor that goes back to the caller, if any.
+fn open(
+    host: &Host,
+    caller: Option<&str>,
+    params: &Value,
+    mut fds: Vec<std::os::fd::OwnedFd>,
+) -> Result<Vec<std::os::fd::OwnedFd>, Failure> {
+    let caller = caller.ok_or_else(|| Failure::host("NotAnApplet", json!({})))?;
+    let to = params
+        .get("to")
+        .and_then(Value::as_str)
+        .ok_or_else(|| Failure::invalid("to"))?;
+    let channel = params
+        .get("channel")
+        .and_then(Value::as_str)
+        .ok_or_else(|| Failure::invalid("channel"))?;
+    let wanted = format!("{to}.{channel}");
+    let declared = host
+        .registry
+        .find(caller)
+        .is_some_and(|e| e.manifest.applet.channels.opens.contains(&wanted));
+    if !declared {
+        return Err(Failure::host("NotDeclared", json!({ "channel": wanted })));
+    }
+    let offered = host.registry.find(to).is_some_and(|e| {
+        e.manifest
+            .applet
+            .channels
+            .offers
+            .iter()
+            .any(|c| c == channel)
+    });
+    if !offered {
+        return Err(Failure::host(
+            "NotOffered",
+            json!({ "applet": to, "channel": channel }),
+        ));
+    }
+    let not_listening = || Failure::host("NotListening", json!({ "applet": to }));
+    if !fds.is_empty() {
+        // the caller's own descriptor (device data): handed as it came
+        let fd = fds.swap_remove(0);
+        return if host.bridge.hand(to, caller, channel, fd) {
+            Ok(Vec::new())
+        } else {
+            Err(not_listening())
+        };
+    }
+    let (mine, theirs) = std::os::unix::net::UnixStream::pair()
+        .map_err(|_| Failure::host("Unavailable", json!({})))?;
+    if host
+        .bridge
+        .hand(to, caller, channel, std::os::fd::OwnedFd::from(theirs))
+    {
+        tracing::info!(from = %caller, %to, %channel, "channel opened");
+        Ok(vec![std::os::fd::OwnedFd::from(mine)])
+    } else {
+        Err(not_listening())
     }
 }
 
@@ -255,6 +405,20 @@ async fn dispatch(host: &Host, method: &str, params: &Value) -> Result<Value, Fa
                 Intent::new(name, payload).map_err(|_| Failure::invalid("name"))?;
             deliver(host, &intent).await
         }
+        "io.vrx.Host.Answer" => {
+            let id = params
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| Failure::invalid("id"))?;
+            let handled = match str_param("verdict") {
+                Some("handled") => true,
+                Some("pass") => false,
+                _ => return Err(Failure::invalid("verdict")),
+            };
+            // a late answer finds nobody waiting: the intent moved on
+            host.bridge.answer(id, handled);
+            Ok(json!({}))
+        }
         "io.vrx.Host.Applets" => Ok(json!({ "applets": tiles(&host.registry) })),
         "io.vrx.Host.Settings" => {
             Ok(json!({ "applets": declared_settings(&host.registry) }))
@@ -285,26 +449,45 @@ async fn dispatch(host: &Host, method: &str, params: &Value) -> Result<Value, Fa
     }
 }
 
-/// Route an intent and carry out an opened verdict. The Varlink `Intent`
-/// call and vrxhost's own sources (the USB watcher) share it.
+/// Route an intent through its handlers in order (intent.rs): an opened
+/// one is pushed (and told over its Listen when running); a told one is
+/// asked and has the answer budget. The Varlink `Intent` call and
+/// vrxhost's own sources (the USB watcher) share it.
 async fn deliver(host: &Host, intent: &Intent) -> Result<Value, Failure> {
-    match route(&host.registry, intent) {
-        Outcome::Opened { applet, route } => {
-            navigate(
-                host,
-                NavOp::Push {
-                    applet: applet.clone(),
-                    route,
-                },
-            )
-            .await?;
-            Ok(json!({ "verdict": "opened", "handled_by": applet, "route": route }))
-        }
-        Outcome::PassAll => Ok(json!({ "verdict": "pass" })),
-        Outcome::NotFound => {
-            Err(Failure::host("NoHandler", json!({ "name": intent.name })))
+    let order = handlers(&host.registry, intent);
+    if order.is_empty() {
+        return Err(Failure::host("NoHandler", json!({ "name": intent.name })));
+    }
+    for handler in order {
+        match handler {
+            Handler::Opened { applet, route } => {
+                navigate(
+                    host,
+                    NavOp::Push {
+                        applet: applet.clone(),
+                        route,
+                    },
+                )
+                .await?;
+                host.bridge.tell(&applet, &intent.name, &intent.payload);
+                return Ok(
+                    json!({ "verdict": "opened", "handled_by": applet, "route": route }),
+                );
+            }
+            Handler::Told { applet } => {
+                if host
+                    .bridge
+                    .ask(&applet, &intent.name, &intent.payload, ANSWER_BUDGET)
+                    .await
+                    == Some(true)
+                {
+                    return Ok(json!({ "verdict": "handled", "handled_by": applet }));
+                }
+            }
         }
     }
+    tracing::debug!(intent = %intent.name, "every handler passed");
+    Ok(json!({ "verdict": "pass" }))
 }
 
 /// An intent vrxhost raises itself; the outcome is logged.
@@ -453,6 +636,7 @@ mod tests {
             registry: Arc::new(registry()),
             nav: nav_tx,
             front: front_rx,
+            bridge: Bridge::default(),
         };
         let bound = socket.clone();
         tokio::spawn(async move { serve(&bound, host).await });

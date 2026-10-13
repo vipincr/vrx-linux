@@ -75,7 +75,7 @@ impl store::EffectSink for RuntimeSink {
 /// Everything an applet needs, from one import.
 pub mod prelude {
     pub use crate::applet::Applet;
-    pub use crate::ipc::{intent_send, File, Pipe, PipeReader};
+    pub use crate::ipc::{answer, intent_send, Channel, Delivery, File, Listener};
     pub use crate::kit::{button, screen, text_body, text_row, text_title, Screen};
     pub use crate::layout::{assert_clean_layout, check as check_layout, displays};
     pub use crate::store::{Effect, Store, StoreHarness};

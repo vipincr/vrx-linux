@@ -11,6 +11,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod applets;
+pub mod bridge;
 pub mod compositor;
 pub mod intent;
 pub mod paths;

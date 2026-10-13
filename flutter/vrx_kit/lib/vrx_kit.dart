@@ -8,6 +8,7 @@
 library;
 
 export 'src/applet.dart';
+export 'src/channel.dart';
 export 'src/chrome.dart';
 export 'src/components.dart';
 export 'src/entry.dart';
@@ -20,7 +21,6 @@ export 'src/metrics.dart';
 export 'src/modals.dart';
 export 'src/motion.dart';
 export 'src/nav.dart';
-export 'src/pipe.dart';
 export 'src/scale.dart';
 export 'src/screens.dart';
 export 'src/settings.dart';

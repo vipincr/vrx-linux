@@ -1,5 +1,6 @@
-// The IPC clients: intent send, pipes, file watch — the three shapes
-// an applet uses from the SDK side. Synchronous std Unix sockets: an
+// The IPC clients: intents (sent, and received over Listen), channels and
+// file watch, the shapes an applet uses from the SDK side (plan 0008
+// D15). Synchronous std Unix sockets: an
 // applet is simple, small, and single-purpose; async belongs to the
 // runtime, not the applet developer. Intents go to vrxhost's Varlink
 // interface io.vrx.Host (plan 0008 D8): JSON objects, NUL-terminated.
@@ -14,9 +15,8 @@ use std::path::{Path, PathBuf};
 
 use vrx_protocol::{Intent, PipeMessage};
 
-/// The runtime directory (vrxhost's socket lives at <runtime>/io.vrx.Host,
-/// the pipes at <runtime>/pipes). VRX_RUNTIME overrides the default for
-/// tests and chroots.
+/// The runtime directory (vrxhost's socket lives at <runtime>/io.vrx.Host).
+/// VRX_RUNTIME overrides the default for tests and chroots.
 pub fn runtime_dir() -> PathBuf {
     std::env::var_os("VRX_RUNTIME")
         .map(PathBuf::from)
@@ -40,12 +40,14 @@ pub enum IpcError {
     },
     #[error("malformed vrxhost answer: {0}")]
     BadAnswer(String),
-    #[error("pipe {pipe:?}: {source}")]
-    Pipe {
-        pipe: String,
+    #[error("channel {channel:?}: {source}")]
+    Channel {
+        channel: String,
         #[source]
         source: std::io::Error,
     },
+    #[error("channels and Listen pass file descriptors: Linux only")]
+    Unsupported,
 }
 
 /// The answer from vrxhost for a sent intent.
@@ -53,6 +55,8 @@ pub enum IpcError {
 pub enum SendResult {
     /// An opened handler took it: this applet, at this route.
     Opened { applet: String, route: u32 },
+    /// A told handler answered handled.
+    Handled { applet: String },
     /// Everyone passed; the intent was dropped.
     Pass,
 }
@@ -124,28 +128,60 @@ fn parse_answer(reply: &serde_json::Value) -> Result<SendResult, IpcError> {
             )
             .unwrap_or(0),
         }),
+        Some("handled") => Ok(SendResult::Handled {
+            applet: params
+                .get("handled_by")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_owned(),
+        }),
         Some("pass") => Ok(SendResult::Pass),
         other => Err(IpcError::BadAnswer(format!("unknown verdict {other:?}"))),
     }
 }
 
-/// A pipe handle: ordered records, one writer to one reader.
+/// A channel (plan 0008 D15): a stream between two applets that vrxhost
+/// opened, carrying ordered JSON records, one per line.
 #[derive(Debug)]
-pub struct Pipe {
+pub struct Channel {
     name: String,
     writer: UnixStream,
+    reader: BufReader<UnixStream>,
 }
 
-impl Pipe {
-    /// Open a pipe for writing by dotted name.
-    pub fn open(name: impl Into<String>) -> Result<Self, IpcError> {
-        let name = name.into();
-        let path = pipe_path(&name);
-        let writer = UnixStream::connect(&path).map_err(|source| IpcError::Pipe {
-            pipe: name.clone(),
+impl Channel {
+    /// Open `<to>.<channel>`: the channel must be in this applet's
+    /// channels.opens and the other applet's channels.offers, and that
+    /// applet must be listening.
+    pub fn open(to: &str, channel: &str) -> Result<Self, IpcError> {
+        let name = format!("{to}.{channel}");
+        let (reply, mut fds) = fd::call(
+            "io.vrx.Host.Open",
+            serde_json::json!({ "to": to, "channel": channel }),
+        )?;
+        refused(&reply)?;
+        let fd = fds
+            .pop()
+            .ok_or_else(|| IpcError::BadAnswer("Open replied without a stream".into()))?;
+        Self::from_stream(name, UnixStream::from(fd))
+    }
+
+    /// A stream handed over by vrxhost (a Listen delivery).
+    pub fn from_stream(name: String, stream: UnixStream) -> Result<Self, IpcError> {
+        let reader = stream.try_clone().map_err(|source| IpcError::Channel {
+            channel: name.clone(),
             source,
         })?;
-        Ok(Self { name, writer })
+        Ok(Self {
+            name,
+            writer: stream,
+            reader: BufReader::new(reader),
+        })
+    }
+
+    /// `<applet>.<channel>`.
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// Write one JSON record.
@@ -157,44 +193,231 @@ impl Pipe {
         line.push('\n');
         self.writer
             .write_all(line.as_bytes())
-            .map_err(|source| IpcError::Pipe {
-                pipe: self.name.clone(),
+            .map_err(|source| IpcError::Channel {
+                channel: self.name.clone(),
                 source,
             })
     }
-}
 
-fn pipe_path(name: &str) -> PathBuf {
-    runtime_dir().join("pipes").join(name)
-}
-
-/// A reader for a pipe: yields each record as it arrives.
-pub struct PipeReader {
-    reader: BufReader<UnixStream>,
-}
-
-impl PipeReader {
-    /// Open the reading end of a pipe by dotted name.
-    pub fn open(name: impl Into<String>) -> Result<Self, IpcError> {
-        let name = name.into();
-        let path = pipe_path(&name);
-        let stream = UnixStream::connect(&path)
-            .map_err(|source| IpcError::Pipe { pipe: name, source })?;
-        Ok(Self {
-            reader: BufReader::new(stream),
-        })
-    }
-
-    /// Block for the next record.
+    /// Block for the next record; None when the other end closed.
     pub fn next_record(&mut self) -> Option<vrx_protocol::IntentPayload> {
         let mut line = String::new();
         match self.reader.read_line(&mut line) {
-            Ok(0) | Err(_) => None, // EOF or broken pipe: the stream ended
-            Ok(_) => {
-                let message: Option<PipeMessage> = serde_json::from_str(line.trim()).ok();
-                message.map(|m| m.record)
+            Ok(0) | Err(_) => None,
+            Ok(_) => serde_json::from_str::<PipeMessage>(line.trim())
+                .ok()
+                .map(|m| m.record),
+        }
+    }
+}
+
+/// What vrxhost hands a listening applet.
+#[derive(Debug)]
+pub enum Delivery {
+    /// An intent this applet handles; with an id, [answer] it within
+    /// 100 ms (silence is a pass).
+    Intent {
+        id: Option<u64>,
+        name: String,
+        payload: vrx_protocol::IntentPayload,
+    },
+    /// Another applet opened one of this applet's channels.
+    Channel { from: String, channel: Channel },
+}
+
+/// This applet's Listen: the intents it handles and the channels opened
+/// on it, as they come.
+pub struct Listener {
+    inner: fd::Stream,
+}
+
+impl Listener {
+    /// Start listening (the newest Listen of an applet wins).
+    pub fn start() -> Result<Self, IpcError> {
+        Ok(Self {
+            inner: fd::Stream::call("io.vrx.Host.Listen")?,
+        })
+    }
+
+    /// Block for the next delivery; None when vrxhost hung up.
+    pub fn next_delivery(&mut self) -> Option<Delivery> {
+        let (reply, fd) = self.inner.next()?;
+        let params = reply.get("parameters")?;
+        let text = |k: &str| {
+            params
+                .get(k)
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_owned()
+        };
+        match params.get("kind").and_then(|v| v.as_str())? {
+            "intent" => Some(Delivery::Intent {
+                id: params.get("id").and_then(|v| v.as_u64()),
+                name: text("name"),
+                payload: params.get("payload").cloned().unwrap_or_default(),
+            }),
+            "channel" => {
+                let stream = UnixStream::from(fd?);
+                let channel = Channel::from_stream(text("channel"), stream).ok()?;
+                Some(Delivery::Channel {
+                    from: text("from"),
+                    channel,
+                })
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Answer an intent a Listen asked about.
+pub fn answer(id: u64, handled: bool) -> Result<(), IpcError> {
+    let reply = varlink_call(
+        "io.vrx.Host.Answer",
+        serde_json::json!({ "id": id, "verdict": if handled { "handled" } else { "pass" } }),
+    )?;
+    refused(&reply)
+}
+
+fn refused(reply: &serde_json::Value) -> Result<(), IpcError> {
+    match reply.get("error").and_then(|v| v.as_str()) {
+        Some(error) => Err(IpcError::Refused {
+            error: error.to_owned(),
+            parameters: reply.get("parameters").cloned().unwrap_or_default(),
+        }),
+        None => Ok(()),
+    }
+}
+
+/// Varlink with file descriptors: a reply's descriptors arrive with its
+/// first byte (SCM_RIGHTS), read through rustix's recvmsg.
+#[cfg(target_os = "linux")]
+mod fd {
+    use std::collections::VecDeque;
+    use std::io::{IoSliceMut, Write};
+    use std::mem::MaybeUninit;
+    use std::os::fd::OwnedFd;
+    use std::os::unix::net::UnixStream;
+
+    use rustix::net::{recvmsg, RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags};
+
+    use super::{host_socket, IpcError};
+
+    pub struct Stream {
+        socket: UnixStream,
+        bytes: Vec<u8>,
+        fds: VecDeque<OwnedFd>,
+    }
+
+    impl Stream {
+        fn connect(
+            method: &str,
+            parameters: serde_json::Value,
+            more: bool,
+        ) -> Result<Self, IpcError> {
+            let path = host_socket();
+            let mut socket =
+                UnixStream::connect(&path).map_err(|_| IpcError::NoHost { path })?;
+            let mut call = serde_json::to_vec(&serde_json::json!({
+                "method": method, "parameters": parameters, "more": more,
+            }))
+            .map_err(|e| IpcError::BadAnswer(e.to_string()))?;
+            call.push(0);
+            socket
+                .write_all(&call)
+                .map_err(|e| IpcError::BadAnswer(e.to_string()))?;
+            Ok(Self {
+                socket,
+                bytes: Vec::new(),
+                fds: VecDeque::new(),
+            })
+        }
+
+        /// A `more` call: its replies, one by one.
+        pub fn call(method: &str) -> Result<Self, IpcError> {
+            Self::connect(method, serde_json::json!({}), true)
+        }
+
+        /// The next reply, and the descriptor that came with it, if any.
+        pub fn next(&mut self) -> Option<(serde_json::Value, Option<OwnedFd>)> {
+            loop {
+                if let Some(end) = self.bytes.iter().position(|b| *b == 0) {
+                    let message: Vec<u8> = self.bytes.drain(..=end).collect();
+                    let reply = serde_json::from_slice(&message[..end]).ok()?;
+                    // descriptors stop a read at their message, so the next
+                    // queued one belongs to the next reply that carries one
+                    let carries = message_carries_fd(&reply);
+                    let fd = if carries { self.fds.pop_front() } else { None };
+                    return Some((reply, fd));
+                }
+                let mut chunk = [0u8; 4096];
+                let mut space =
+                    [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(4))];
+                let mut control = RecvAncillaryBuffer::new(&mut space);
+                let got = recvmsg(
+                    &self.socket,
+                    &mut [IoSliceMut::new(&mut chunk)],
+                    &mut control,
+                    RecvFlags::CMSG_CLOEXEC,
+                )
+                .ok()?;
+                for message in control.drain() {
+                    if let RecvAncillaryMessage::ScmRights(fds) = message {
+                        self.fds.extend(fds);
+                    }
+                }
+                if got.bytes == 0 {
+                    return None;
+                }
+                self.bytes.extend_from_slice(&chunk[..got.bytes]);
             }
         }
+    }
+
+    /// A Listen channel delivery or an Open reply rides with a stream.
+    fn message_carries_fd(reply: &serde_json::Value) -> bool {
+        let params = reply.get("parameters");
+        let kind = params.and_then(|p| p.get("kind")).and_then(|k| k.as_str());
+        kind == Some("channel") || (kind.is_none() && reply.get("error").is_none())
+    }
+
+    /// One call: its reply and the descriptors it carried.
+    pub fn call(
+        method: &str,
+        parameters: serde_json::Value,
+    ) -> Result<(serde_json::Value, Vec<OwnedFd>), IpcError> {
+        let mut stream = Stream::connect(method, parameters, false)?;
+        let (reply, fd) = stream
+            .next()
+            .ok_or_else(|| IpcError::BadAnswer("vrxhost closed mid-reply".into()))?;
+        Ok((reply, fd.into_iter().collect()))
+    }
+}
+
+/// Descriptor passing is Linux's; a host build (tests, a developer's
+/// machine) names the gap instead of pretending.
+#[cfg(not(target_os = "linux"))]
+mod fd {
+    use std::os::fd::OwnedFd;
+
+    use super::IpcError;
+
+    pub struct Stream;
+
+    impl Stream {
+        pub fn call(_method: &str) -> Result<Self, IpcError> {
+            Err(IpcError::Unsupported)
+        }
+
+        pub fn next(&mut self) -> Option<(serde_json::Value, Option<OwnedFd>)> {
+            None
+        }
+    }
+
+    pub fn call(
+        _method: &str,
+        _parameters: serde_json::Value,
+    ) -> Result<(serde_json::Value, Vec<OwnedFd>), IpcError> {
+        Err(IpcError::Unsupported)
     }
 }
 
@@ -290,9 +513,12 @@ mod tests {
     }
 
     #[test]
-    fn pipe_open_without_vrxhost_is_a_named_error() {
-        let err = Pipe::open("test.samples").expect_err("no host");
-        assert!(err.to_string().contains("test.samples"), "{err}");
+    fn channel_open_without_vrxhost_is_a_named_error() {
+        let err = Channel::open("test", "samples").expect_err("no host");
+        assert!(
+            matches!(err, IpcError::NoHost { .. } | IpcError::Unsupported),
+            "{err}"
+        );
     }
 
     #[test]
@@ -324,6 +550,13 @@ mod tests {
         );
         let pass = serde_json::json!({"parameters": {"verdict": "pass"}});
         assert_eq!(parse_answer(&pass).expect("parses"), SendResult::Pass);
+        let handled = serde_json::json!({"parameters": {"verdict": "handled", "handled_by": "notes"}});
+        assert_eq!(
+            parse_answer(&handled).expect("parses"),
+            SendResult::Handled {
+                applet: "notes".into()
+            }
+        );
         let refused = serde_json::json!({"error": "io.vrx.Host.NoHandler", "parameters": {"name": "x.y"}});
         assert!(matches!(
             parse_answer(&refused),

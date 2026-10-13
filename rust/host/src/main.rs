@@ -82,6 +82,7 @@ async fn main() -> ExitCode {
         registry,
         nav: nav_tx,
         front: front_rx,
+        bridge: vrx_host::bridge::Bridge::default(),
     };
     // a computer on the USB device port (plan 0008 D11), on boards with one
     if let Some(state) = usb::state_file(std::path::Path::new(usb::UDC_ROOT)) {

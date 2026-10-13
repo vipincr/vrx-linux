@@ -197,6 +197,8 @@ pub struct AppletSection {
     #[serde(default)]
     pub intents: IntentsSection,
     #[serde(default)]
+    pub channels: ChannelsSection,
+    #[serde(default)]
     pub routes: IndexMap<String, RouteSection>,
     #[serde(default)]
     pub command: Option<CommandSection>,
@@ -292,6 +294,27 @@ pub struct IntentsSection {
     pub handles: Vec<HandleDecl>,
     #[serde(default)]
     pub emits: Vec<String>,
+}
+
+/// The streams an applet offers and opens through vrxhost (plan 0008
+/// D15): `offers` are channel names others may open on this applet;
+/// `opens` are `<applet>.<channel>` this applet may open. vrxhost refuses
+/// any other.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChannelsSection {
+    #[serde(default)]
+    pub offers: Vec<String>,
+    #[serde(default)]
+    pub opens: Vec<String>,
+}
+
+/// A channel or applet name: [a-z][a-z0-9_]*, at most 32.
+fn is_name(s: &str) -> bool {
+    s.len() <= 32
+        && s.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
 /// Route 0 is the root and is never declared; declaration order is the
@@ -395,6 +418,23 @@ impl Manifest {
         for name in &a.intents.emits {
             intent::validate_name(name)
                 .map_err(|e| ManifestError::Invalid(format!("emits entry: {e}")))?;
+        }
+        for name in &a.channels.offers {
+            if !is_name(name) {
+                return invalid(format!(
+                    "channels.offers {name:?}: must match [a-z][a-z0-9_]* (max 32)"
+                ));
+            }
+        }
+        for name in &a.channels.opens {
+            let ok = name
+                .split_once('.')
+                .is_some_and(|(applet, channel)| is_name(applet) && is_name(channel));
+            if !ok {
+                return invalid(format!(
+                    "channels.opens {name:?}: must be <applet>.<channel>"
+                ));
+            }
         }
 
         if a.settings.len() > SETTINGS_MAX {
@@ -539,6 +579,26 @@ network = true
             err.to_string().contains("permissioms"),
             "the unknown key must be named: {err}"
         );
+    }
+
+    #[test]
+    fn channels_are_names_and_opens_name_the_applet() {
+        let with =
+            |body: &str| format!("{}\n[applet.channels]\n{body}\n", minimal("cam"));
+        let m: Manifest = with("offers = [\"frames\"]\nopens = [\"mic.samples\"]")
+            .parse()
+            .unwrap();
+        assert_eq!(m.applet.channels.offers, vec!["frames"]);
+        assert_eq!(m.applet.channels.opens, vec!["mic.samples"]);
+        for bad in [
+            "offers = [\"Frames\"]",
+            "opens = [\"samples\"]",
+            "opens = [\"mic.\"]",
+            "opens = [\"a.b.c\"]",
+        ] {
+            let err = with(bad).parse::<Manifest>().unwrap_err();
+            assert!(err.to_string().contains("channels."), "{bad}: {err}");
+        }
     }
 
     #[test]
