@@ -5,7 +5,7 @@ version = "1.0.0"
 runtime = "flutter"
 
 [applet.display]
-icon = "settings.png"
+icon = "settings"
 tile = true
 position = 4
 orientation = "any"

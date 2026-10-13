@@ -76,12 +76,16 @@ class VrxIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // the glyph is the 5mm chrome square; the hit area is the touch
+    // minimum around it (on a touch display), so Back is never a 5mm aim
+    final hit = ScaledSpacing.minInteractive(context);
+    final square = Chrome.iconButton * VrxScale.of(context);
     return VrxPress(
       onTap: onTap,
       child: SizedBox(
-        width: Chrome.iconButton,
-        height: Chrome.iconButton,
-        child: Icon(glyph, size: VrxTypeRole.icon.size),
+        width: hit > square ? hit : square,
+        height: hit > square ? hit : square,
+        child: Icon(glyph, size: square),
       ),
     );
   }
@@ -163,7 +167,7 @@ class VrxRow extends StatelessWidget {
         child: Row(
           children: [
             if (glyph != null) ...[
-              Icon(glyph, size: VrxTypeRole.body.size),
+              Icon(glyph, size: VrxTypeRole.body.dp * VrxScale.of(context)),
               SizedBox(width: ScaledSpacing.of(context).sm),
             ],
             ConstrainedBox(

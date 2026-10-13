@@ -5,7 +5,7 @@ version = "1.0.0"
 runtime = "flutter"            # "flutter" | "rust" | "native"
 
 [applet.display]
-icon = "clock.png"
+icon = "clock"                 # a VrxGlyphs name (the icon font)
 tile = true
 position = 3
 orientation = "landscape"

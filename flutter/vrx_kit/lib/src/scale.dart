@@ -19,10 +19,13 @@ import 'metrics.dart';
 /// The reference short side: 480 logical px (the evrx-rt UI space).
 const double referenceShortSide = 480;
 
-/// The scale bounds: below 0.75 the UI would be unusably small
-/// (a display that small needs its own layout), above 3.0 it has
-/// left the design's proportions behind.
-const double minScale = 0.75;
+/// The scale bounds. Never below 1.0: the metrics are physical (a 9mm
+/// touch minimum, 3.5mm body text, given a pixel ratio from the panel's
+/// real size), so a display smaller than the reference keeps them and
+/// fits fewer elements rather than shrinking them under a finger
+/// (bench 2026-10-13: the 2.8" disp28a at 0.75 was unreadable). Above
+/// 3.0 a display has left the design's proportions behind.
+const double minScale = 1.0;
 const double maxScale = 3.0;
 
 /// The display's scale factor.

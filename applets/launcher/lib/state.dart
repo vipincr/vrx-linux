@@ -15,7 +15,7 @@ class Tile {
     required this.id,
     required this.name,
     required this.position,
-    this.icon = '■',
+    this.icon = '',
   });
 
   final String id;
@@ -26,7 +26,8 @@ class Tile {
   /// Launcher order (the manifest's display.position).
   final int position;
 
-  /// A glyph until icon assets arrive with the compositor (part E).
+  /// The manifest's display.icon: a VrxGlyphs name (the tile falls
+  /// back to the name's initial for an unknown one).
   final String icon;
 }
 
@@ -46,8 +47,8 @@ class LauncherView {
 class LauncherModel
     extends StoreModel<LauncherState, LauncherAction, LauncherView> {
   LauncherModel({Map<String, Tile> registry = const {
-    'clock': Tile(id: 'clock', name: 'Clock', position: 3, icon: '🕑'),
-    'settings': Tile(id: 'settings', name: 'Settings', position: 4, icon: '⚙'),
+    'clock': Tile(id: 'clock', name: 'Clock', position: 3, icon: 'clock'),
+    'settings': Tile(id: 'settings', name: 'Settings', position: 4, icon: 'settings'),
   }})
       : _registry = Map.of(registry),
         _query = '',

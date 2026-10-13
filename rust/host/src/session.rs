@@ -163,7 +163,13 @@ impl Session {
             LinkEvent::Connected => {
                 self.linked = true;
                 self.sent = None; // a new compositor knows no focus
-                self.refocus()
+                                  // an applet disabled while the compositor was away most
+                                  // likely died of that; a returning compositor is a new
+                                  // chance (and Home must come back regardless)
+                self.procs.retain(|_, p| *p != Proc::Disabled);
+                let mut orders = self.start(&self.home.clone());
+                orders.extend(self.refocus());
+                orders
             }
             LinkEvent::Lost => {
                 self.linked = false;
@@ -357,6 +363,25 @@ mod tests {
         assert_eq!(
             s.nav(&reg, push("settings")),
             Err(NavError::Disabled("settings".into()))
+        );
+    }
+
+    #[test]
+    fn a_returning_compositor_revives_what_died_while_it_was_away() {
+        let (_reg, mut s) = booted();
+        assert_eq!(s.link(&LinkEvent::Lost), vec![]);
+        let dead = Event::Disabled {
+            applet: "launcher".into(),
+            crashes: 4,
+        };
+        assert_eq!(s.supervision(&dead), vec![]);
+        assert_eq!(
+            s.link(&LinkEvent::Connected),
+            vec![Order::Start("launcher".into())]
+        );
+        assert_eq!(
+            s.supervision(&started("launcher", 900)),
+            vec![Order::Focus(900)]
         );
     }
 

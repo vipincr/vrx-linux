@@ -99,8 +99,9 @@ pub fn for_entry(
         ),
         ("VRX_APPLET".into(), applet.id.clone().into()),
     ];
-    // the locale is the system's, not vrxhost's business to pick
-    for key in ["LANG", "LC_ALL", "TZ"] {
+    // the locale is the system's, not vrxhost's business to pick; the
+    // display kind (VRX_DISPLAY=epaper) picks the applet palette
+    for key in ["LANG", "LC_ALL", "TZ", "VRX_DISPLAY"] {
         if let Some(value) = std::env::var_os(key) {
             env.push((key.into(), value));
         }

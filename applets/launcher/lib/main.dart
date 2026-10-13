@@ -31,29 +31,100 @@ class LauncherApplet
 
   @override
   Widget build(BuildContext context, LauncherView view) {
+    final space = ScaledSpacing.of(context);
     return Scaffold(
       body: SafeArea(
-        child: Column(
-          children: [
-            VrxHeader(title: 'vrx'),
-            Expanded(
-              child: view.tiles.isEmpty
-                  ? _NoApps()
-                  : GridView.count(
-                      crossAxisCount: 3,
-                      childAspectRatio: 1.0,
-                      padding: EdgeInsets.all(ScaledSpacing.of(context).md),
-                      mainAxisSpacing: ScaledSpacing.of(context).sm,
-                      crossAxisSpacing: ScaledSpacing.of(context).sm,
-                      children: [
-                        for (final tile in view.tiles)
-                          _Tile(tile: tile),
-                      ],
-                    ),
-            ),
-          ],
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: space.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(height: space.xl),
+              const _Now(),
+              SizedBox(height: space.xl),
+              Expanded(
+                child: view.tiles.isEmpty
+                    ? _NoApps()
+                    : LayoutBuilder(builder: (context, box) {
+                        // as many columns as fit tiles of two touch
+                        // minimums (18mm): two on a 43mm panel, more
+                        // on a larger display
+                        final columns =
+                            (box.maxWidth / (space.touch * 1.8)).floor().clamp(2, 8);
+                        final tileWidth =
+                            (box.maxWidth - space.md * (columns - 1)) / columns;
+                        final label = TypeRole.caption(context);
+                        final labelHeight =
+                            space.xs + (label.fontSize ?? 14) * 1.4;
+                        return GridView.count(
+                          crossAxisCount: columns,
+                          mainAxisSpacing: space.md,
+                          crossAxisSpacing: space.md,
+                          childAspectRatio: tileWidth / (tileWidth + labelHeight),
+                          children: [
+                            for (final tile in view.tiles) _Tile(tile: tile),
+                          ],
+                        );
+                      }),
+              ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+/// The home screen's time and date, following the wall clock.
+class _Now extends StatefulWidget {
+  const _Now();
+
+  @override
+  State<_Now> createState() => _NowState();
+}
+
+class _NowState extends State<_Now> {
+  late Timer _timer;
+  DateTime _now = DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final now = DateTime.now();
+      if (now.minute != _now.minute) setState(() => _now = now);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  static const _days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  static const _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = VrxTheme.of(context);
+    String two(int n) => n.toString().padLeft(2, '0');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${two(_now.hour)}:${two(_now.minute)}',
+          style: TypeRole.display(context).copyWith(
+            fontWeight: FontWeight.w300,
+            height: 1.0,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+        Text(
+          '${_days[_now.weekday - 1]}, ${_now.day} ${_months[_now.month - 1]}',
+          style: TypeRole.subtext(context).copyWith(color: palette.secondary),
+        ),
+      ],
     );
   }
 }
@@ -65,15 +136,37 @@ class _Tile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = VrxTheme.of(context);
+    final space = ScaledSpacing.of(context);
+    final glyph = VrxGlyphs.named(tile.icon);
     return InkWell(
       onTap: () => Nav.push(tile.id),
-      borderRadius: BorderRadius.circular(ScaledSpacing.of(context).sm),
+      borderRadius: BorderRadius.circular(Radii.md * 2),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(tile.icon, style: TypeRole.display(context)),
-          SizedBox(height: ScaledSpacing.of(context).xs),
-          Text(tile.name, style: TypeRole.list(context)),
+          Expanded(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: palette.fill.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(Radii.md * 2),
+              ),
+              child: Center(
+                child: glyph != null
+                    ? Icon(glyph, color: palette.fill, size: space.touch * 0.75)
+                    : Text(
+                        tile.name.isEmpty ? '?' : tile.name.characters.first,
+                        style: TypeRole.title(context).copyWith(color: palette.fill),
+                      ),
+              ),
+            ),
+          ),
+          SizedBox(height: space.xs),
+          Text(
+            tile.name,
+            style: TypeRole.caption(context).copyWith(height: 1.2),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
     );
@@ -101,16 +194,8 @@ void main() {
   VrxHost.installed?.applets().then((applets) {
     applet.replaceRegistry({
       for (final a in applets)
-        a.id: Tile(id: a.id, name: a.name, position: a.position, icon: glyphFor(a)),
+        a.id: Tile(id: a.id, name: a.name, position: a.position, icon: a.icon ?? ''),
     });
     actions.add(LauncherAction.registryChanged);
   }, onError: (Object err) => debugPrint('launcher: registry: $err'));
-}
-
-/// The tile glyph: the manifest's icon when it is a glyph, else the
-/// name's initial (icon files arrive with the asset pipeline).
-String glyphFor(RegistryApplet applet) {
-  final icon = applet.icon ?? '';
-  if (icon.isNotEmpty && !icon.contains('.')) return icon;
-  return applet.name.isEmpty ? '■' : applet.name.characters.first.toUpperCase();
 }

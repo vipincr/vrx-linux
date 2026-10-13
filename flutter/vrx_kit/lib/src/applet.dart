@@ -4,6 +4,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 
@@ -41,6 +42,12 @@ void runApplet<S, A, V>(
   VrxHost.installIfPresent();
   runApp(AppletHost<S, A, V>(applet: applet, actions: actions, palette: palette));
 }
+
+/// The palette the runtime picks when the applet names none: colour,
+/// unless the board says its panel is e-paper (VRX_DISPLAY=epaper in
+/// the applet's environment, which vrxhost passes through).
+VrxPalette defaultPalette() =>
+    paletteFor(colour: Platform.environment['VRX_DISPLAY'] != 'epaper');
 
 /// The applet's root widget: owns the [Store], rebuilds the view on
 /// every published view model. `runApplet` mounts it; tests may pump
@@ -85,15 +92,12 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
 
   @override
   Widget build(BuildContext context) {
-    final palette = widget.palette ?? VrxPalette.paper();
+    final palette = widget.palette ?? defaultPalette();
     return VrxTheme(
       palette: palette,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          scaffoldBackgroundColor: palette.page,
-          colorScheme: ColorScheme.fromSeed(seedColor: palette.fill),
-        ),
+        theme: vrxThemeData(palette),
         home: VrxScale.install(
           child: VrxInput.install(
             child: AppletScope<A>(

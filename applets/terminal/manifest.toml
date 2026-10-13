@@ -13,7 +13,7 @@ version = "0.1.0"
 runtime = "rust"
 
 [applet.display]
-icon = "terminal.png"
+icon = "terminal"
 tile = true
 position = 9
 

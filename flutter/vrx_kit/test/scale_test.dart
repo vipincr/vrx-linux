@@ -39,6 +39,14 @@ void main() { _modalityTests();
     expect(hdmi / reference, closeTo(2.25, 0.05));
   });
 
+  testWidgets('a panel smaller than the reference keeps the physical size',
+      (tester) async {
+    // the 2.8" disp28a: 480 px over 43 mm at the vrx density is a
+    // 271 dp short side; the touch row stays 9mm, never shrinks
+    final small = await rowHeightAtShortSide(tester, 271, longestSide: 362);
+    expect(small, closeTo(56.69, 0.5));
+  });
+
   testWidgets('a pathological display clamps, never explodes',
       (tester) async {
     final huge = await rowHeightAtShortSide(tester, 4800);

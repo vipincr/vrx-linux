@@ -2,8 +2,9 @@
 /// scale and `ui_palette.c` — the numbers are the design.
 ///
 /// Type roles by meaning, never by size; roles outnumber sizes on
-/// purpose. Sizes are evrx-rt's pt10 values (pt ports to Flutter's
-/// logical dp 1:1), snapped as evrx-rt snaps them.
+/// purpose. Sizes are evrx-rt's values in typographic points, snapped
+/// as evrx-rt snaps them, and convert to dp through [ptToDp] (a point
+/// is 1/72 inch): the type is physically the size evrx-rt draws it.
 ///
 /// Ink roles resolve from the active palette: `paper` (the e-paper
 /// lineage, light page) or `dark` (the scanned-panel palette with the
@@ -13,6 +14,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'metrics.dart';
 import 'scale.dart';
 
 /// The type scale. CLOCK renders digits only (`0-9:-`, no fallback
@@ -35,8 +37,11 @@ enum VrxTypeRole {
 
   const VrxTypeRole(this.size);
 
-  /// The size in logical dp (evrx-rt pt).
+  /// The size in typographic points (evrx-rt's numbers).
   final double size;
+
+  /// The size in logical dp, before the display scale.
+  double get dp => size * ptToDp;
 }
 
 /// Resolve a role to a style from the active theme's fonts.
@@ -62,10 +67,9 @@ abstract final class TypeRole {
         Theme.of(context).textTheme.bodySmall,
       VrxTypeRole.micro => Theme.of(context).textTheme.labelSmall,
     };
-    // scaled with the display: exact pt at the reference UI space,
-    // proportional on any other
+    // physical points, scaled up on displays larger than the reference
     return (base ?? const TextStyle())
-        .copyWith(fontSize: role.size * VrxScale.of(context));
+        .copyWith(fontSize: role.dp * VrxScale.of(context));
   }
 
   /// Convenience: the one large thing on a screen.
@@ -149,7 +153,8 @@ class VrxPalette {
         onFill: accent.computeLuminance() > 0.5
             ? Colors.black
             : Colors.white,
-        line: const Color(0xFF8A8A8A),
+        // a divider is structure, not ink: quiet on a lit panel
+        line: const Color(0xFF2E2E30),
         focus: const Color(0xFFEDEDED),
         highlight: Colors.white.withValues(alpha: 0.05),
       );
@@ -163,6 +168,45 @@ class VrxPalette {
   final Color line;
   final Color focus;
   final Color highlight;
+}
+
+/// The product accent on colour panels.
+const Color vrxAccent = Color(0xFF4C8DFF);
+
+/// The palette for a display: `paper` for e-paper, the dark palette
+/// with the product accent for colour panels.
+VrxPalette paletteFor({required bool colour}) =>
+    colour ? VrxPalette.dark(accent: vrxAccent) : VrxPalette.paper();
+
+/// Material's theme, derived from a vrx palette, so stock widgets
+/// (scaffolds, ink, icons, dividers) speak the same colours as vrx's.
+/// Roboto is the UI face (the image ships it, ttf-roboto); the clock
+/// role uses its tabular digits.
+ThemeData vrxThemeData(VrxPalette palette) {
+  final dark = palette.page.computeLuminance() < 0.5;
+  final scheme = ColorScheme(
+    brightness: dark ? Brightness.dark : Brightness.light,
+    primary: palette.fill,
+    onPrimary: palette.onFill,
+    secondary: palette.fill,
+    onSecondary: palette.onFill,
+    error: const Color(0xFFFF5A5F),
+    onError: Colors.white,
+    surface: palette.page,
+    onSurface: palette.text,
+  );
+  final base = ThemeData(
+    colorScheme: scheme,
+    fontFamily: 'Roboto',
+    scaffoldBackgroundColor: palette.page,
+    dividerColor: palette.line,
+    iconTheme: IconThemeData(color: palette.text),
+    splashColor: palette.fill.withValues(alpha: 0.24),
+    highlightColor: palette.highlight,
+  );
+  return base.copyWith(
+    textTheme: base.textTheme.apply(bodyColor: palette.text, displayColor: palette.text),
+  );
 }
 
 /// [InheritedWidget] installing the active palette (the host resolves

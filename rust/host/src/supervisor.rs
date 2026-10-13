@@ -5,6 +5,7 @@
 // (app.finished), not a crash.
 
 use std::process::Stdio;
+use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 
@@ -12,6 +13,16 @@ use crate::launch::{self, Launch};
 
 /// Restarts allowed after a crash before the applet is disabled.
 pub const MAX_RESTARTS: u32 = 3;
+
+/// The wait before restart n (1-based) is BACKOFF << (n-1): 0.5, 1, 2s.
+/// Without it, three restarts burn in milliseconds against a cause that
+/// takes a second to clear (bench 2026-10-13: a compositor restart
+/// disabled every applet, Home included, before the compositor was back).
+pub const BACKOFF: Duration = Duration::from_millis(500);
+
+/// A process that ran this long before crashing was healthy: its crash
+/// count starts over, so one crash a day never adds up to a disable.
+pub const STABLE: Duration = Duration::from_secs(30);
 
 /// What the supervisor tells vrxhost about a supervised applet.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +102,7 @@ impl Supervisor {
                     applet: applet.clone(),
                     pid: child.id().unwrap_or(0),
                 });
+                let started = Instant::now();
                 match child.wait().await {
                     Ok(status) if status.success() => {
                         let _ = events.send(Event::Finished {
@@ -100,6 +112,9 @@ impl Supervisor {
                     }
                     Ok(status) => {
                         tracing::warn!(applet = %applet, %status, "applet crashed");
+                        if started.elapsed() >= STABLE {
+                            restarts = 0;
+                        }
                         if restarts >= MAX_RESTARTS {
                             let _ = events.send(Event::Disabled {
                                 applet: applet.clone(),
@@ -112,6 +127,7 @@ impl Supervisor {
                             applet: applet.clone(),
                             attempt: restarts,
                         });
+                        tokio::time::sleep(BACKOFF * (1 << (restarts - 1))).await;
                     }
                     Err(err) => {
                         tracing::warn!(applet = %applet, error = %err, "wait failed");

@@ -11,6 +11,11 @@ library;
 /// Millimetres to logical dp.
 const double mmToDp = 160.0 / 25.4;
 
+/// Typographic points to logical dp: a point is 1/72 inch, a dp 1/160
+/// inch. evrx-rt's type scale is in points (rendered at the panel's
+/// PPI), so 9.9pt body text is 3.5mm on every panel, here as there.
+const double ptToDp = 160.0 / 72.0;
+
 /// The spacing scale: 1 / 2 / 3 / 4 / 6mm. Pick by role, never by
 /// number: XS glyph gaps, SM inside a control, MD a control's default
 /// margin, LG between groups, XL screen margins.

@@ -11,6 +11,7 @@ export 'src/applet.dart';
 export 'src/chrome.dart';
 export 'src/components.dart';
 export 'src/file.dart';
+export 'src/glyphs.dart';
 export 'src/host.dart';
 export 'src/intent.dart';
 export 'src/metrics.dart';

@@ -48,11 +48,23 @@ class _ClockFace extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: ScaledSpacing.of(context).lg),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(view.time, style: TypeRole.clock(context)),
+          // the face is the screen's width at most: a narrow portrait
+          // panel fits the digits rather than clipping them
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              view.time,
+              style: TypeRole.clock(context).copyWith(
+                fontWeight: FontWeight.w300,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
           SizedBox(height: ScaledSpacing.of(context).sm),
           Text(
             view.is24h ? '24-hour' : '12-hour',
