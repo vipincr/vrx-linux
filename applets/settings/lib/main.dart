@@ -41,6 +41,21 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
   @override
   SettingsState get snapshot => model.snapshot;
 
+  @override
+  bool get followsRoutes => true;
+
+  // opened at a category (plan 0011 D5): `time` from Clock; anything else
+  // keeps where the person was
+  @override
+  SettingsAction? onRoute(String route, Object? payload) {
+    if (route != 'time') return null;
+    model
+      ..open = SettingsCategory.time
+      ..pickingZone = false
+      ..settingTime = SettingTime.none;
+    return SettingsAction.navigated;
+  }
+
   void _go(BuildContext context, void Function() change) {
     change();
     AppletScope.dispatch(context, SettingsAction.navigated);
@@ -93,6 +108,47 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
         onPick: (id) {
           _go(context, () => model.pickingScheme = false);
           unawaited(_setSetting('vrx', 'scheme', '$id'));
+        },
+      );
+    } else if (view.pickingTimeFormat) {
+      body = VrxList(children: [
+        VrxHeader(title: 'Time format', onBack: () => _go(context, () => model.pickingTimeFormat = false)),
+        for (final l in view.timeLocales)
+          VrxRow(
+            label: l.timeExample,
+            detail: '${l.dateExample} · ${l.name}',
+            valueGlyph: l.name == model.timeLocale ? VrxSymbols.check : null,
+            onTap: () {
+              _go(context, () => model.pickingTimeFormat = false);
+              unawaited(_ask(context, () async {
+                await VrxSystem.locale.setTimeLocale(l.name);
+                model.timeLocale = await VrxSystem.locale.timeLocale();
+                _facts.add(SettingsAction.factsChanged);
+              }));
+            },
+          ),
+      ]);
+    } else if (view.settingTime == SettingTime.date) {
+      body = VrxDatePicker(
+        title: 'Set the date',
+        date: DateTime.now(),
+        onBack: () => _go(context, () => model.settingTime = SettingTime.none),
+        onSet: (d) {
+          _go(context, () => model.settingTime = SettingTime.none);
+          final now = DateTime.now();
+          unawaited(_ask(context, () => VrxSystem.time.setTime(DateTime(d.year, d.month, d.day, now.hour, now.minute, now.second))));
+        },
+      );
+    } else if (view.settingTime == SettingTime.time) {
+      final now = DateTime.now();
+      body = VrxTimePicker(
+        title: 'Set the time',
+        minutes: now.hour * 60 + now.minute,
+        onBack: () => _go(context, () => model.settingTime = SettingTime.none),
+        onSet: (m) {
+          _go(context, () => model.settingTime = SettingTime.none);
+          final t = DateTime.now();
+          unawaited(_ask(context, () => VrxSystem.time.setTime(DateTime(t.year, t.month, t.day, m ~/ 60, m % 60))));
         },
       );
     } else if (view.pickingZone) {
@@ -175,6 +231,12 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
         _go(context, () => model.pickingScheme = true);
       case 'polarity':
         unawaited(_setSetting('vrx', 'polarity', row.on ? 'light' : 'dark'));
+      case 'time_format':
+        _go(context, () => model.pickingTimeFormat = true);
+      case 'set_date':
+        _go(context, () => model.settingTime = SettingTime.date);
+      case 'set_time':
+        _go(context, () => model.settingTime = SettingTime.time);
       case 'automatic':
         unawaited(_ask(context, () => VrxSystem.time.setAutomatic(!row.on)));
       case 'zone':
@@ -304,6 +366,20 @@ Future<void> main() async {
   unawaited(_screen.dimming().then((d) => fact(() => model.dimming = d)));
   VrxSystem.power.watchSupplyLow().listen((low) => fact(() => model.supplyLow = low), onError: failed);
   VrxSystem.usb.watch().listen((u) => fact(() => model.usbPresent = u.present), onError: failed);
+  VrxSystem.powerSupply.watch().listen((b) => fact(() => model.battery = b), onError: failed);
+  unawaited(deviceUsage().then((u) => fact(() => model.usage = u)));
+  // the locales a time format can come from, and LC_TIME now (localed)
+  unawaited(() async {
+    try {
+      final locales = await VrxSystem.locale.timeLocales();
+      final now = await VrxSystem.locale.timeLocale();
+      fact(() => model
+        ..timeLocales = locales
+        ..timeLocale = now);
+    } on Object catch (err) {
+      debugPrint('settings: no locales: $err');
+    }
+  }());
   // the look this boot draws, from the same snapshot every applet reads
   final boot = bootColors();
   model

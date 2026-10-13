@@ -20,6 +20,9 @@ enum SettingsAction {
   failed,
 }
 
+/// Which of the clock's wheels is up (Settings > Time, plan 0011 D14).
+enum SettingTime { none, date, time }
+
 /// The settings categories, in the order evrx-rt's Settings lists them.
 enum SettingsCategory { display, power, time, network, device, applets }
 
@@ -86,9 +89,17 @@ class SettingsView {
     required this.pickingZone,
     required this.renaming,
     required this.error,
+    this.timeLocales = const [],
+    this.pickingTimeFormat = false,
+    this.settingTime = SettingTime.none,
   });
 
   final List<CategoryRow> categories;
+
+  /// The installed locales a time format can be chosen from.
+  final List<TimeLocale> timeLocales;
+  final bool pickingTimeFormat;
+  final SettingTime settingTime;
   final SettingsCategory? open;
   final List<SettingRow> rows;
   final List<String> zones;
@@ -128,6 +139,18 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
 
   /// The supply is too low (null: the board has no supply sensor).
   bool? supplyLow;
+
+  /// The battery, where the kernel reports one (plan 0011 D12).
+  Battery? battery;
+
+  /// Free memory and space (About).
+  DeviceUsage usage = const DeviceUsage();
+
+  /// The installed locales and the one LC_TIME is now (plan 0011 D7).
+  List<TimeLocale> timeLocales = const [];
+  String timeLocale = '';
+  bool pickingTimeFormat = false;
+  SettingTime settingTime = SettingTime.none;
   /// Applets' declared settings (vrxhost) and their values (the files).
   List<AppletSettingsDecl> declared = const [];
   final values = <String, Map<String, String>>{};
@@ -157,13 +180,30 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
       pickingZone: pickingZone,
       renaming: renaming,
       error: error,
+      timeLocales: timeLocales,
+      pickingTimeFormat: pickingTimeFormat,
+      settingTime: settingTime,
     );
   }
 
+  /// The time locale now, with its example, or null when unknown.
+  TimeLocale? get currentTimeLocale {
+    for (final l in timeLocales) {
+      if (l.name == timeLocale) return l;
+    }
+    return null;
+  }
+
+  /// Setting the clock by hand is offered while network time is off or
+  /// has not synchronised (timedated refuses SetTime while NTP is on, and
+  /// says so through the words table).
+  bool get canSetTime => time != null && (!time!.automatic || !time!.synced);
+
   List<CategoryRow> _categories() => [
         CategoryRow(SettingsCategory.display, 'Display', 'brightness_6', _screenOffText),
-        if (canPowerOff || supplyLow != null)
-          CategoryRow(SettingsCategory.power, 'Power', 'power_settings_new', supplyLow == true ? 'Supply too low' : ''),
+        if (canPowerOff || supplyLow != null || battery != null)
+          CategoryRow(SettingsCategory.power, 'Power', 'power_settings_new',
+              supplyLow == true ? 'Supply too low' : (battery?.percent != null ? '${battery!.percent} %' : '')),
         CategoryRow(SettingsCategory.time, 'Time', 'schedule', time?.zone ?? ''),
         CategoryRow(SettingsCategory.network, 'Network', 'wifi', network?.connected?.name ?? (network?.ethernet == 'online' || network?.ethernet == 'ready' ? 'Wired' : '')),
         CategoryRow(SettingsCategory.device, 'Device', 'developer_board', device?.name ?? ''),
@@ -261,7 +301,21 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
           ],
         ];
       case SettingsCategory.power:
+        final b = battery;
         return [
+          if (b != null) ...[
+            SettingRow(
+              key: 'battery',
+              label: 'Battery',
+              value: [
+                if (b.percent != null) '${b.percent} %',
+                if (b.charging) 'charging' else if (b.full) 'full',
+              ].join(', '),
+              kind: RowKind.info,
+            ),
+            if (b.volts != null)
+              SettingRow(key: 'battery_volts', label: 'Battery voltage', value: '${b.volts!.toStringAsFixed(2)} V', kind: RowKind.info),
+          ],
           // a supply under ~4.63 V stalls storage and can hang the board
           // (bench 2026-10-13): said where someone looks for power
           if (supplyLow != null)
@@ -293,6 +347,18 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
             value: t == null ? '…' : (t.synced ? 'Synchronised' : 'Not synchronised'),
             kind: RowKind.info,
           ),
+          if (canSetTime) ...const [
+            SettingRow(key: 'set_date', label: 'Set the date', value: '', kind: RowKind.open),
+            SettingRow(key: 'set_time', label: 'Set the time', value: '', kind: RowKind.open),
+          ],
+          // the locale's way of writing the time (localed, LC_TIME)
+          if (timeLocales.isNotEmpty)
+            SettingRow(
+              key: 'time_format',
+              label: 'Time format',
+              value: currentTimeLocale?.example ?? 'System default',
+              kind: RowKind.open,
+            ),
         ];
       case SettingsCategory.network:
         final n = network;
@@ -328,7 +394,23 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
           if (d.model.isNotEmpty) SettingRow(key: 'model', label: 'Board', value: d.model, kind: RowKind.info),
           if (d.version.isNotEmpty) SettingRow(key: 'version', label: 'Software version', value: d.version, kind: RowKind.info),
           if (d.memoryMb > 0)
-            SettingRow(key: 'memory', label: 'Memory', value: '${(d.memoryMb / 1024).toStringAsFixed(1)} GB', kind: RowKind.info),
+            SettingRow(
+              key: 'memory',
+              label: 'Memory',
+              value: usage.memoryFreeMb > 0
+                  ? '${_size(usage.memoryFreeMb)} free of ${_size(d.memoryMb)}'
+                  : _size(d.memoryMb),
+              kind: RowKind.info,
+            ),
+          if (usage.dataTotalMb != null)
+            SettingRow(
+              key: 'storage',
+              label: 'Storage',
+              value: '${_size(usage.dataFreeMb!)} free of ${_size(usage.dataTotalMb!)}',
+              kind: RowKind.info,
+            ),
+          if (usage.rootFreeMb != null)
+            SettingRow(key: 'system_space', label: 'System space', value: '${_size(usage.rootFreeMb!)} free', kind: RowKind.info),
           if (d.serial.isNotEmpty) SettingRow(key: 'serial', label: 'Serial', value: d.serial, kind: RowKind.info),
           if (usbPresent) const SettingRow(key: 'usbport', label: 'USB', value: '', kind: RowKind.open),
           const SettingRow(key: 'manage', label: 'Manage from a browser', value: '', kind: RowKind.open),
@@ -355,6 +437,9 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
   @override
   SettingsState get snapshot => SettingsState(open: open, pickingZone: pickingZone);
 }
+
+/// "388 MB", "1.4 GB".
+String _size(int mb) => mb >= 1024 ? '${(mb / 1024).toStringAsFixed(1)} GB' : '$mb MB';
 
 /// What suspension keeps: where the person was.
 class SettingsState {

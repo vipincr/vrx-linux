@@ -17,10 +17,13 @@ export 'src/host.dart';
 export 'src/input.dart';
 export 'src/intent.dart';
 export 'src/keyboard.dart';
+export 'src/locale.dart';
 export 'src/metrics.dart';
 export 'src/modals.dart';
 export 'src/motion.dart';
 export 'src/nav.dart';
+export 'src/pickers.dart';
+export 'src/power_supply.dart';
 export 'src/scale.dart';
 export 'src/screen.dart';
 export 'src/screens.dart';
@@ -32,6 +35,7 @@ export 'src/symbols.dart';
 export 'src/system.dart';
 export 'src/theme.dart';
 export 'src/ticker.dart';
+export 'src/time_format.dart';
 export 'src/words.dart';
 // the slot names applets may say; the display class and the tables stay
 // the kit's (an applet never knows what panel it is on: plan 0009 D4,

@@ -145,4 +145,30 @@ void main() {
     h.assertView((v) => v.rows.first.value == '12h' && v.rows.last.value == 'On');
     expect(model.nextValue('clock', decl), '24h');
   });
+
+  // plan 0011 D12, D14, D7: rows follow what the services can do
+  test('time rows: set the clock only while network time cannot, the format from the locales', () {
+    final model = SettingsModel()
+      ..open = SettingsCategory.time
+      ..time = const TimeState(zone: 'Asia/Kolkata', automatic: true, synced: true);
+    final h = StoreHarness(model);
+    h.assertView((v) => !v.rows.any((r) => r.key == 'set_time') && !v.rows.any((r) => r.key == 'time_format'));
+    model
+      ..time = const TimeState(zone: 'Asia/Kolkata', automatic: false, synced: true)
+      ..timeLocales = const [TimeLocale(name: 'en_GB.utf8', timeFormat: '%T', dateFormat: '%d/%m/%y')]
+      ..timeLocale = 'en_GB.utf8';
+    h.dispatch(SettingsAction.factsChanged);
+    h.assertView((v) => v.rows.any((r) => r.key == 'set_time') && v.rows.any((r) => r.key == 'set_date'));
+    h.assertView((v) => v.rows.firstWhere((r) => r.key == 'time_format').value == '13:05:00 · 14/10/26');
+  });
+
+  test('a battery is a Power row only where one exists', () {
+    final model = SettingsModel()..open = SettingsCategory.power;
+    final h = StoreHarness(model);
+    h.assertView((v) => !v.categories.any((c) => c.category == SettingsCategory.power));
+    model.battery = const Battery(name: 'BAT0', percent: 41, charging: true);
+    h.dispatch(SettingsAction.factsChanged);
+    h.assertView((v) => v.rows.firstWhere((r) => r.key == 'battery').value == '41 %, charging');
+    h.assertView((v) => v.categories.firstWhere((c) => c.category == SettingsCategory.power).summary == '41 %');
+  });
 }

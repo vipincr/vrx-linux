@@ -205,9 +205,6 @@ String describeDays(int mask) {
   };
 }
 
-/// "07:45" from minutes after midnight.
-String hm(int minutes, {bool h12 = false}) {
-  final h = minutes ~/ 60, m = (minutes % 60).toString().padLeft(2, '0');
-  if (!h12) return '${h.toString().padLeft(2, '0')}:$m';
-  return '${h % 12 == 0 ? 12 : h % 12}:$m ${h < 12 ? 'AM' : 'PM'}';
-}
+/// "07:45" from minutes after midnight; "7:45 AM" in 12-hour form (the
+/// kit's one formatter, VrxTimeFormat.hm).
+String hm(int minutes, {bool h12 = false}) => VrxTimeFormat.hm(minutes, h24: !h12);

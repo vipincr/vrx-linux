@@ -108,7 +108,7 @@ class ClockView {
   final bool ringIsTimer;
   final bool canSnooze;
 
-  /// Times in 12-hour form (the clock_format setting).
+  /// Times in 12-hour form (the system's locale, VrxTimeFormat).
   final bool h12;
 }
 
@@ -140,7 +140,7 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
 
   Ring? ring;
 
-  /// The declared clock_format setting (plan 0008 D5) is 12h.
+  /// The system's locale says 12-hour (VrxTimeFormat, plan 0011 D7).
   bool h12 = false;
 
   int get now => _now();
@@ -429,7 +429,11 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
       next: next,
       cities: cities,
       canAddCity: book.world.length < worldMax,
-      alarms: [for (final a in book.alarms) (hm(a.minutes, h12: h12), describeDays(a.days), a.enabled)],
+      // an alarm's label, when it has one, before its days (evrx-rt's list)
+      alarms: [
+        for (final a in book.alarms)
+          (hm(a.minutes, h12: h12), a.label.isEmpty ? describeDays(a.days) : '${a.label} · ${describeDays(a.days)}', a.enabled)
+      ],
       canAddAlarm: book.alarms.length < alarmsMax,
       mode: mode,
       dial: dial,

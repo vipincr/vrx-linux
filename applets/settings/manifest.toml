@@ -21,12 +21,17 @@ system = ["network", "bluetooth", "time", "hostname", "display", "power", "setti
 fs = ["/data/settings"]
 
 [applet.intents]
-handles = [{ name = "vrx.open", priority = 600 }]
+handles = [
+    { name = "vrx.open", priority = 600 },
+    # the battery changed (vrxhost relays power_supply uevents, plan 0011 D12)
+    { name = "sys.power.changed", priority = 600 },
+]
 emits = ["settings.changed"]
 
 [applet.routes]
 root = {}
 list = {}
+time = {}                      # Settings > Time (Clock's "Set the time")
 
 [applet.command]
 enabled = false

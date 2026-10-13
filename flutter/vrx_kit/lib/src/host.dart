@@ -33,12 +33,16 @@ class RegistryApplet {
 
 /// What is on screen: the front applet and the trail depth.
 class FrontApplet {
-  const FrontApplet({required this.front, required this.depth});
+  const FrontApplet({required this.front, required this.depth, this.stopped});
 
   final String front;
 
   /// The trail's entries, Home included: 1 at Home.
   final int depth;
+
+  /// An applet whose unit just failed or restarted after a crash (its
+  /// id), for the shell to say once (plan 0011 D2); null otherwise.
+  final String? stopped;
 }
 
 /// The applet OS's own service: navigation, the registry, intents.
@@ -223,6 +227,7 @@ class VarlinkAppletsService extends AppletsService {
             (p) => FrontApplet(
               front: '${p['front'] ?? ''}',
               depth: (p['depth'] as num?)?.toInt() ?? 0,
+              stopped: p['stopped'] as String?,
             ),
           ));
 

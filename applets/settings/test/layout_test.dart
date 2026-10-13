@@ -8,7 +8,15 @@ import 'package:settings_applet/state.dart';
 /// Every Settings screen holds on every display vrx drives (vrx_check).
 void main() {
   SettingsModel model() => SettingsModel()
-    ..time = const TimeState(zone: 'America/Argentina/Buenos_Aires', automatic: true, synced: true)
+    // network time off: the set-the-time rows show
+    ..time = const TimeState(zone: 'America/Argentina/Buenos_Aires', automatic: false, synced: false)
+    ..timeLocales = const [
+      TimeLocale(name: 'en_GB.utf8', timeFormat: '%T', dateFormat: '%d/%m/%y'),
+      TimeLocale(name: 'en_US.utf8', timeFormat: '%r', dateFormat: '%m/%d/%Y'),
+    ]
+    ..timeLocale = 'en_US.utf8'
+    ..battery = const Battery(name: 'BAT0', percent: 41, charging: true, volts: 3.912)
+    ..usage = const DeviceUsage(memoryFreeMb: 1457, dataFreeMb: 11571, dataTotalMb: 13004, rootFreeMb: 388)
     ..network = const NetworkState(
       wifiPresent: true,
       wifiOn: true,
@@ -57,6 +65,15 @@ void main() {
     'colour scheme': () => model()
       ..open = SettingsCategory.display
       ..pickingScheme = true,
+    'time format': () => model()
+      ..open = SettingsCategory.time
+      ..pickingTimeFormat = true,
+    'set the date': () => model()
+      ..open = SettingsCategory.time
+      ..settingTime = SettingTime.date,
+    'set the time': () => model()
+      ..open = SettingsCategory.time
+      ..settingTime = SettingTime.time,
   };
   // every setting every repo applet declares, as Settings > Applets shows
   // it: a new applet's labels are measured with no new test

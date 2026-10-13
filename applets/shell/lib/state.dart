@@ -47,10 +47,20 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
   /// above Home (the bench showed it on Home at depth > 0).
   int depth = 0;
 
+  /// The battery, where the kernel reports one (plan 0011 D12).
+  Battery? battery;
+
+  /// "Recorder stopped.": said once in the strip, until the next
+  /// navigation (plan 0011 D2).
+  String? notice;
+
+  /// 12 or 24 hours: the system's locale (plan 0011 D7).
+  bool h24 = true;
+
   String get clockText {
     if (!clockValid) return '--:--';
     final t = DateTime.fromMillisecondsSinceEpoch(_now());
-    return '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+    return VrxTimeFormat.hm(t.hour * 60 + t.minute, h24: h24);
   }
 
   static const _days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -86,7 +96,15 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
     return ShellView(
       drawer: drawer,
       askingPower: askingPower,
-      facts: VrxStatusFacts(showBack: depth > 1, clockText: clockText, dateText: dateText, wifiUp: wifiUp),
+      facts: VrxStatusFacts(
+        showBack: depth > 1,
+        clockText: clockText,
+        dateText: dateText,
+        wifiUp: wifiUp,
+        notice: notice,
+        batteryLevel: battery?.percent,
+        batteryCharging: battery?.charging ?? false,
+      ),
       version: version,
       brightness: dimming == VrxDimming.none ? null : brightness,
       wifiUp: wifiUp,

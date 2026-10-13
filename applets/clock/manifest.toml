@@ -48,11 +48,3 @@ zone = {}                      # route 5 (choose the home zone)
 [applet.command]
 enabled = false
 
-# plan 0008 D5: /etc/vrx/settings/clock.conf, shown in Settings > Applets
-[[applet.settings]]
-key = "clock_format"
-label = "Time format"
-category = "Clock"
-type = "enum"
-default = "24h"
-options = ["24h", "12h"]

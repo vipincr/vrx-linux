@@ -102,7 +102,7 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
             onSave: () => _do(() => model.saveDraft(), save: true),
             onDelete: () => _do(model.deleteDraft, save: true),
           ),
-        ClockScreen.editTime => _TimePicker(
+        ClockScreen.editTime => VrxTimePicker(
             minutes: view.draft.minutes,
             onBack: _back,
             onSet: (m) => _do(() => model.setDraftTime(m)),
@@ -268,7 +268,11 @@ class _Face extends StatelessWidget {
           ),
         ),
         if (view.valid) Text(view.date, style: TypeRole.subtitle(context)),
-        if (!view.valid) const _Note('The clock has not been set. Connect to a network to sync it.'),
+        if (!view.valid) ...[
+          const _Note('The clock has not been set. Connect to a network, or set it by hand.'),
+          // Settings sets it (timedated), at its Time screen
+          VrxRow(glyph: VrxSymbols.schedule, label: 'Set the time', onTap: () => Nav.push('settings', route: 'time')),
+        ],
         VrxRow(label: 'Time zone', value: view.zone.replaceAll('_', ' '), onTap: onZone),
         if (view.next.isNotEmpty) _Note(view.next),
       ],
@@ -304,104 +308,6 @@ class _Editor extends StatelessWidget {
         ]),
       ),
       if (view.notice.isNotEmpty) VrxBanner(text: view.notice, signal: VrxSignal.info),
-    ]);
-  }
-}
-
-/// Hours and minutes on two wheels, each row the touch minimum.
-class _TimePicker extends StatefulWidget {
-  const _TimePicker({required this.minutes, required this.onBack, required this.onSet});
-
-  final int minutes;
-  final VoidCallback onBack;
-  final void Function(int) onSet;
-
-  @override
-  State<_TimePicker> createState() => _TimePickerState();
-}
-
-class _TimePickerState extends State<_TimePicker> {
-  late final _hours = FixedExtentScrollController(initialItem: widget.minutes ~/ 60);
-  late final _mins = FixedExtentScrollController(initialItem: widget.minutes % 60);
-
-  @override
-  void dispose() {
-    _hours.dispose();
-    _mins.dispose();
-    super.dispose();
-  }
-
-  /// Turn [c] to the nearest row showing [i] (the wheels loop).
-  void _turnTo(FixedExtentScrollController c, int count, int i) {
-    final now = c.selectedItem;
-    var d = i - now % count;
-    if (d > count ~/ 2) d -= count;
-    if (d < -(count ~/ 2)) d += count;
-    unawaited(c.animateToItem(now + d, duration: const Duration(milliseconds: 200), curve: Curves.easeOut));
-  }
-
-  Widget _wheel(FixedExtentScrollController c, int count) {
-    final touch = ScaledSpacing.of(context).touch;
-    // a finger drags it; a tap picks a row; a mouse wheel turns it; with
-    // it focused, the arrow keys step it
-    return Focus(
-      onKeyEvent: (node, event) {
-        if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
-        final step = switch (event.logicalKey) {
-          LogicalKeyboardKey.arrowUp => -1,
-          LogicalKeyboardKey.arrowDown => 1,
-          _ => 0,
-        };
-        if (step == 0) return KeyEventResult.ignored;
-        _turnTo(c, count, (c.selectedItem + step) % count);
-        return KeyEventResult.handled;
-      },
-      child: SizedBox(
-        width: touch * 2,
-        child: ListWheelScrollView.useDelegate(
-          controller: c,
-          itemExtent: touch,
-          // nearly flat: every row a tap can pick keeps the 9mm minimum
-          diameterRatio: 40,
-          perspective: 0.0001,
-          physics: const FixedExtentScrollPhysics(),
-          childDelegate: ListWheelChildLoopingListDelegate(children: [
-            for (var i = 0; i < count; i++)
-              VrxPress(
-                onTap: () => _turnTo(c, count, i),
-                child: Center(child: Text(i.toString().padLeft(2, '0'), style: TypeRole.title(context))),
-              ),
-          ]),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = VrxTheme.of(context);
-    final touch = ScaledSpacing.of(context).touch;
-    return Column(children: [
-      VrxHeader(title: 'Time', onBack: widget.onBack),
-      Expanded(
-        child: Padding(
-          padding: EdgeInsets.symmetric(vertical: ScaledSpacing.of(context).sm),
-          child: Stack(alignment: Alignment.center, children: [
-            // the band the chosen row sits in
-            Container(height: touch, color: colors.surfaceHigh),
-            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              _wheel(_hours, 24),
-              Text(':', style: TypeRole.title(context)),
-              _wheel(_mins, 60),
-            ]),
-          ]),
-        ),
-      ),
-      VrxRow(
-        glyph: VrxSymbols.check,
-        label: 'Set',
-        onTap: () => widget.onSet((_hours.selectedItem % 24) * 60 + _mins.selectedItem % 60),
-      ),
     ]);
   }
 }
@@ -790,11 +696,16 @@ class _Scheduler {
       arm();
       _events.add(ClockAction.changed);
     }, onError: (Object err) => debugPrint('clock: no time service: $err'));
-    // the 12/24-hour setting (plan 0008 D5), followed as it changes
-    AppletSettings().watch('clock').listen((v) {
-      model.h12 = v['clock_format'] == '12h';
+    // 12 or 24 hours is the system's locale (plan 0011 D7), followed as
+    // it changes
+    final format = VrxTimeFormat.changes;
+    void follow() {
+      model.h12 = !format.value;
       _events.add(ClockAction.changed);
-    }, onError: (Object err) => debugPrint('clock: no settings file: $err'));
+    }
+
+    follow();
+    format.addListener(follow);
     try {
       model.zones = await VrxSystem.time.zones();
     } on Object catch (err) {

@@ -15,6 +15,9 @@ import 'dart:io';
 
 import 'package:dbus/dbus.dart';
 
+import 'locale.dart';
+import 'power_supply.dart';
+
 /// A system call the service refused or could not do: its error name
 /// (`org.freedesktop.DBus.Error.AccessDenied`, ...) and message.
 class SystemError implements Exception {
@@ -93,6 +96,48 @@ class DeviceState {
 
   /// Installed memory (/proc/meminfo MemTotal).
   final int memoryMb;
+}
+
+/// What is free now: memory, and the space on the two file systems a
+/// person fills (`/data`) or the image fills (`/`).
+class DeviceUsage {
+  const DeviceUsage({this.memoryFreeMb = 0, this.dataFreeMb, this.dataTotalMb, this.rootFreeMb, this.rootTotalMb});
+
+  /// /proc/meminfo MemAvailable: what a new program could use.
+  final int memoryFreeMb;
+  final int? dataFreeMb, dataTotalMb, rootFreeMb, rootTotalMb;
+}
+
+/// Free memory and space, from where Linux says them: /proc/meminfo and
+/// `df` (statvfs).
+Future<DeviceUsage> deviceUsage({String meminfo = '/proc/meminfo'}) async {
+  var free = 0;
+  try {
+    final m = RegExp(r'MemAvailable:\s+(\d+) kB').firstMatch(await File(meminfo).readAsString());
+    free = (int.tryParse(m?.group(1) ?? '') ?? 0) ~/ 1024;
+  } on FileSystemException {
+    // a host without procfs: nothing to say
+  }
+  final sizes = <String, (int, int)>{};
+  try {
+    final df = await Process.run('df', ['-Pk', '/data', '/']);
+    for (final line in '${df.stdout}'.split('\n').skip(1)) {
+      final f = line.trim().split(RegExp(r'\s+'));
+      if (f.length < 6) continue;
+      sizes[f[5]] = ((int.tryParse(f[3]) ?? 0) ~/ 1024, (int.tryParse(f[1]) ?? 0) ~/ 1024);
+    }
+  } on ProcessException {
+    // no df: the rows are left out
+  }
+  final data = sizes['/data'];
+  final root = sizes['/'];
+  return DeviceUsage(
+    memoryFreeMb: free,
+    dataFreeMb: data?.$1,
+    dataTotalMb: data?.$2,
+    rootFreeMb: root?.$1,
+    rootTotalMb: root?.$2,
+  );
 }
 
 /// The device's name. Needs the `hostname` grant to change it.
@@ -465,6 +510,8 @@ abstract final class VrxSystem {
   static NetworkService? _network;
   static UsbService? _usb;
   static ManageService? _manage;
+  static LocaleService? _locale;
+  static PowerSupplyService? _supply;
 
   static DBusClient get _system => _bus ??= DBusClient.system();
 
@@ -474,6 +521,8 @@ abstract final class VrxSystem {
   static NetworkService get network => _network ??= ConnmanNetworkService(_system);
   static UsbService get usb => _usb ??= LinuxUsbService(_system);
   static ManageService get manage => _manage ??= SystemdManageService(_system);
+  static LocaleService get locale => _locale ??= LocaledLocaleService(_system);
+  static PowerSupplyService get powerSupply => _supply ??= PowerSupplyService();
 
   /// Replace any of the services (tests, a desktop `flutter run`).
   static void install({
@@ -483,7 +532,11 @@ abstract final class VrxSystem {
     NetworkService? network,
     UsbService? usb,
     ManageService? manage,
+    LocaleService? locale,
+    PowerSupplyService? powerSupply,
   }) {
+    _locale = locale ?? _locale;
+    _supply = powerSupply ?? _supply;
     _manage = manage ?? _manage;
     _usb = usb ?? _usb;
     _network = network ?? _network;

@@ -24,5 +24,9 @@ resident = true
 [applet.permissions]
 system = ["network", "display", "power"]
 
+[applet.intents]
+# the battery changed (vrxhost relays power_supply uevents, plan 0011 D12)
+handles = [{ name = "sys.power.changed", priority = 600 }]
+
 [applet.command]
 enabled = false

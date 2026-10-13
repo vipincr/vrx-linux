@@ -147,7 +147,37 @@ Future<void> main() async {
   VrxSystem.device.watch().listen(
       (d) => fact(() => model.version = d.version.isEmpty ? '' : 'vrx ${d.version.split(' ').first}'),
       onError: (Object _) {});
-  AppletsService.installed?.watch().listen((f) => fact(() => model.depth = f.depth), onError: (Object _) {});
+  // the trail's depth, and an applet that stopped: said once, by its
+  // name, until the next navigation (plan 0011 D2)
+  final names = <String, String>{};
+  var front = '';
+  AppletsService.installed?.watch().listen((f) async {
+    final stopped = f.stopped;
+    if (stopped != null && names.isEmpty) {
+      try {
+        for (final a in await AppletsService.installed!.applets()) {
+          names[a.id] = a.name;
+        }
+      } on Object catch (_) {
+        // the id is said instead
+      }
+    }
+    fact(() {
+      model.depth = f.depth;
+      if (stopped != null) {
+        model.notice = '${names[stopped] ?? stopped} stopped.';
+      } else if (f.front != front) {
+        model.notice = null;
+      }
+      front = f.front;
+    });
+  }, onError: (Object _) {});
+  VrxSystem.powerSupply.watch().listen((b) => fact(() => model.battery = b), onError: (Object _) {});
+  // 12 or 24 hours: the system's locale, followed as it changes
+  final format = VrxTimeFormat.changes;
+  void follow() => fact(() => model.h24 = format.value);
+  follow();
+  format.addListener(follow);
   // the strip's clock changes once a minute: a check every 10 s, a
   // repaint only when the minute turned
   var shown = '';
