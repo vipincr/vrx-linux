@@ -1,0 +1,20 @@
+# Scripts (plan 0008 Part F): the Python scripts in the applet's own
+# folder (/var/lib/vrx/scripts/scripts), run with python3 as the applet's
+# user, in its sandbox, their output in a console view. The samples
+# shipped in the bundle are copied there on first open.
+[applet]
+id = "scripts"
+name = "Scripts"
+version = "1.0.0"
+runtime = "flutter"
+
+[applet.display]
+icon = "code"
+tile = true
+position = 6
+
+[applet.resources]
+heap_mb = 64
+
+[applet.command]
+enabled = false

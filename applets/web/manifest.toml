@@ -1,0 +1,19 @@
+# Web requests (plan 0008 Part F): fetch a URL and see what came back,
+# the status, the headers and the start of the body; the last twenty
+# URLs kept in the applet's state directory.
+[applet]
+id = "web"
+name = "Web requests"
+version = "1.0.0"
+runtime = "flutter"
+
+[applet.display]
+icon = "language"
+tile = true
+position = 7
+
+[applet.resources]
+heap_mb = 64
+
+[applet.command]
+enabled = false
