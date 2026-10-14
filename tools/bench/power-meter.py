@@ -28,6 +28,11 @@ def packet(cmd, check):
 
 
 def open_meter():
+    # hidapi's module is `hid`, and so is the board's uinput helper beside
+    # this script (tools/bench/hid.py): drop this directory from the path
+    # so the import finds hidapi, not the helper
+    here = __import__("os").path.dirname(__import__("os").path.abspath(__file__))
+    sys.path[:] = [p for p in sys.path if __import__("os").path.abspath(p or ".") != here]
     import hid
     for info in hid.enumerate(VID, 0):
         if info["product_id"] in PIDS:
