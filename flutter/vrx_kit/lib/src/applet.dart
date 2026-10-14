@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import 'channel.dart';
 import 'components.dart';
+import 'focus_ring.dart';
 import 'frames.dart';
 import 'host.dart';
 import 'input.dart';
@@ -233,8 +234,10 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
         child: VrxScale.install(
           child: VrxInsets(
             child: VrxInputRoot(
-              child: _RefusalBand(
-                child: VrxKeyboardHost(settings: _screen, child: child ?? const SizedBox.shrink()),
+              child: VrxFocusRing(
+                child: _RefusalBand(
+                  child: VrxKeyboardHost(settings: _screen, child: child ?? const SizedBox.shrink()),
+                ),
               ),
             ),
           ),

@@ -14,10 +14,12 @@
 ///   spatial-fast spring — press is never eased on any panel
 library;
 
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'focus_ring.dart';
 import 'input.dart';
 import 'metrics.dart';
 import 'motion.dart';
@@ -111,21 +113,97 @@ class VrxIconButton extends StatelessWidget {
   }
 }
 
-/// The default screen shape: a vertical list, paged not dragged, no
-/// scrollbar. One gesture moves one screenful minus the page overlap.
-class VrxList extends StatelessWidget {
+/// The default screen shape: a vertical list, no scrollbar; the end of it
+/// bounces (VrxScrollBehavior's one physics, plan 0017 D10). Its first eight
+/// rows enter 16 ms apart (micro.list, full tier only), once: a row scrolled
+/// back into view stays where it is.
+class VrxList extends StatefulWidget {
   const VrxList({super.key, required this.children});
 
   final List<Widget> children;
 
+  /// How many rows enter in turn; the standard's row names the stagger.
+  static const entering = 8;
+
+  @override
+  State<VrxList> createState() => _VrxListState();
+}
+
+class _VrxListState extends State<VrxList> {
+  // rows that have entered (or been seen): a row built again enters no more
+  final Set<int> _entered = {};
+
   @override
   Widget build(BuildContext context) {
     return ListView.builder(
-      itemCount: children.length,
-      // no scrollbar ever; the end of the list bounces (VrxScrollBehavior's
-      // one physics, plan 0017 D10)
+      itemCount: widget.children.length,
       padding: EdgeInsets.zero,
-      itemBuilder: (context, i) => children[i],
+      itemBuilder: (context, i) => i < VrxList.entering
+          ? _VrxEnter(index: i, animate: _entered.add(i), child: widget.children[i])
+          : widget.children[i],
+    );
+  }
+}
+
+/// One of a list's first rows: a rise of [VrxMicroRow.shiftPx] and a fade,
+/// [VrxMicroRow.staggerMs] after the row above (micro.list). It paints in
+/// place at rest, so layout never sees it; a tap at half-way lands on the row
+/// where it is drawn.
+class _VrxEnter extends StatefulWidget {
+  const _VrxEnter({required this.index, required this.animate, required this.child});
+
+  final int index;
+  final bool animate;
+  final Widget child;
+
+  @override
+  State<_VrxEnter> createState() => _VrxEnterState();
+}
+
+class _VrxEnterState extends State<_VrxEnter> with SingleTickerProviderStateMixin {
+  late final VrxSpringValue _p = VrxSpringValue(vsync: this, value: 1, unit: VrxUnit.alpha);
+  Timer? _delay;
+  bool _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final mode = VrxMotion.of(context);
+    _p.mode = mode;
+    if (_started) return;
+    _started = true;
+    if (!widget.animate || !mode.staggers) return;
+    _p.jumpTo(0);
+    final wait = Duration(milliseconds: (vrxMicro[VrxMicro.list]!.staggerMs ?? 0) * widget.index);
+    void go() => _p.springTo(1, VrxSpring.micro(VrxMicro.list));
+    if (widget.index == 0) {
+      go();
+    } else {
+      _delay = Timer(wait, go);
+    }
+  }
+
+  @override
+  void dispose() {
+    _delay?.cancel();
+    _p.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rise = vrxMicro[VrxMicro.list]!.shiftPx ?? 0;
+    return ListenableBuilder(
+      listenable: _p,
+      child: widget.child,
+      builder: (context, child) {
+        // one structure at rest and in motion: the row's state is never rebuilt
+        final p = _p.value;
+        return Opacity(
+          opacity: p.clamp(0.0, 1.0),
+          child: Transform.translate(offset: Offset(0, p >= 1 ? 0 : (1 - p) * rise), child: child),
+        );
+      },
     );
   }
 }
@@ -336,8 +414,37 @@ class VrxSegmented extends StatefulWidget {
   State<VrxSegmented> createState() => _VrxSegmentedState();
 }
 
-class _VrxSegmentedState extends State<VrxSegmented> {
-  bool _focused = false;
+class _VrxSegmentedState extends State<VrxSegmented> with TickerProviderStateMixin {
+  // micro.select: the filled indicator slides to the new cell on spatial (a
+  // position, in cells), the colour swap of the two cells rides effects
+  late final VrxSpringValue _at = VrxSpringValue(vsync: this, value: widget.selected.toDouble(), unit: VrxUnit.fractionOf(160));
+  late final VrxSpringValue _swap = VrxSpringValue(vsync: this, value: 1, unit: VrxUnit.alpha);
+  int _from = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final mode = VrxMotion.of(context);
+    _at.mode = mode;
+    _swap.mode = mode;
+  }
+
+  @override
+  void didUpdateWidget(VrxSegmented old) {
+    super.didUpdateWidget(old);
+    if (widget.selected == old.selected) return;
+    _from = old.selected;
+    _at.springTo(widget.selected.toDouble(), VrxSpring.micro(VrxMicro.select));
+    _swap.jumpTo(0);
+    _swap.springTo(1, VrxSpring.micro(VrxMicro.select, follow: true));
+  }
+
+  @override
+  void dispose() {
+    _at.dispose();
+    _swap.dispose();
+    super.dispose();
+  }
 
   void _step(int by) {
     final next = (widget.selected + by).clamp(0, widget.labels.length - 1);
@@ -350,9 +457,10 @@ class _VrxSegmentedState extends State<VrxSegmented> {
     final s = ScaledSpacing.of(context);
     final style = TypeRole.of(context, VrxTypeRole.list);
     final enabled = widget.onSelected != null;
+    final n = widget.labels.length;
     return FocusableActionDetector(
       enabled: enabled,
-      onShowFocusHighlight: (v) => setState(() => _focused = v),
+      onShowFocusHighlight: (v) => VrxFocusRing.report(context, focused: v),
       shortcuts: const {
         SingleActivator(LogicalKeyboardKey.arrowLeft): _StepIntent(-1),
         SingleActivator(LogicalKeyboardKey.arrowRight): _StepIntent(1),
@@ -366,8 +474,8 @@ class _VrxSegmentedState extends State<VrxSegmented> {
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: s.inset),
         child: LayoutBuilder(builder: (context, box) {
-          final gaps = s.xs * (widget.labels.length - 1);
-          final cell = (box.maxWidth - gaps) / widget.labels.length - 2 * s.sm;
+          final gaps = s.xs * (n - 1);
+          final cell = (box.maxWidth - gaps) / n - 2 * s.sm;
           final scaler = MediaQuery.textScalerOf(context);
           var widest = 0.0;
           for (final l in widget.labels) {
@@ -381,51 +489,107 @@ class _VrxSegmentedState extends State<VrxSegmented> {
           }
           // one scale for every label: the widest decides
           final fit = widest > cell && widest > 0 ? cell / widest : 1.0;
-          return Row(children: [
-            for (var i = 0; i < widget.labels.length; i++)
-              Expanded(
-                child: _SegmentSemantics(
-                  selected: i == widget.selected,
-                  child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: enabled ? () => widget.onSelected!(i) : null,
-                  child: Container(
-                    margin: EdgeInsets.only(right: i + 1 < widget.labels.length ? s.xs : 0),
-                    constraints: BoxConstraints(minHeight: ScaledSpacing.minInteractive(context)),
-                    alignment: Alignment.center,
-                    padding: EdgeInsets.symmetric(horizontal: s.sm, vertical: s.sm),
-                    decoration: BoxDecoration(
-                      // segments rest on the secondary container; the chosen
-                      // one is the primary, and framed
-                      color: i == widget.selected ? colors.primary : colors.secondaryContainer,
-                      border: Border.all(
-                        color: i == widget.selected
-                            ? (_focused ? colors.focus : colors.outline)
-                            : (colors.secondaryContainer == colors.page ? colors.outlineFaint : colors.secondaryContainer),
-                        width: i == widget.selected ? Strokes.border : Strokes.hairline,
+          // every cell is an Expanded slot of this width; all but the last
+          // leave a 1mm gutter on their right
+          final slot = box.maxWidth / n;
+          double cellWidth(int i) => slot - (i + 1 < n ? s.xs : 0);
+          Color ink(int i) {
+            final on = colors.onPrimary, off = colors.onSecondaryContainer;
+            final t = _swap.value.clamp(0.0, 1.0);
+            if (i == widget.selected) return Color.lerp(off, on, t)!;
+            if (i == _from && t < 1) return Color.lerp(on, off, t)!;
+            return off;
+          }
+
+          // three layers of one geometry: the cells at rest, the sliding
+          // indicator, and the words and taps above it
+          return Stack(children: [
+            Positioned.fill(
+              child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                for (var i = 0; i < n; i++)
+                  Expanded(
+                    child: Container(
+                      margin: EdgeInsets.only(right: i + 1 < n ? s.xs : 0),
+                      decoration: BoxDecoration(
+                        color: colors.secondaryContainer,
+                        border: Border.all(
+                          color: colors.secondaryContainer == colors.page ? colors.outlineFaint : colors.secondaryContainer,
+                          width: Strokes.hairline,
+                        ),
                       ),
                     ),
-                    child: widget.glyphs != null
-                        ? Icon(
-                            widget.glyphs![i],
-                            semanticLabel: widget.labels[i],
-                            size: ScaledSpacing.of(context).touch * 0.5,
-                            color: i == widget.selected ? colors.onPrimary : colors.onSecondaryContainer,
-                          )
-                        : Text(
-                            widget.labels[i],
-                            maxLines: 1,
-                            softWrap: false,
-                            textAlign: TextAlign.center,
-                            style: style.copyWith(
-                              fontSize: (style.fontSize ?? 14) * fit,
-                              color: i == widget.selected ? colors.onPrimary : colors.onSecondaryContainer,
+                  ),
+              ]),
+            ),
+            Positioned.fill(
+              child: ListenableBuilder(
+                listenable: _at,
+                builder: (context, _) {
+                  final x = (_at.value * slot).clamp(-slot, box.maxWidth);
+                  return Stack(clipBehavior: Clip.none, children: [
+                    Positioned(
+                      left: x,
+                      top: 0,
+                      bottom: 0,
+                      width: cellWidth(widget.selected.clamp(0, n - 1)),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: colors.primary,
+                          border: Border.all(color: colors.outline, width: Strokes.border),
+                        ),
+                      ),
+                    ),
+                  ]);
+                },
+              ),
+            ),
+            ListenableBuilder(
+              listenable: _swap,
+              builder: (context, _) => Row(children: [
+                for (var i = 0; i < n; i++)
+                  Expanded(
+                    child: _SegmentSemantics(
+                      selected: i == widget.selected,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: enabled ? () => widget.onSelected!(i) : null,
+                        child: Container(
+                          margin: EdgeInsets.only(right: i + 1 < n ? s.xs : 0),
+                          constraints: BoxConstraints(minHeight: ScaledSpacing.minInteractive(context)),
+                          alignment: Alignment.center,
+                          padding: EdgeInsets.symmetric(horizontal: s.sm, vertical: s.sm),
+                          // the frame is padding to a Container (G035): kept
+                          // here, transparent, so a cell lays out as it did
+                          // when it drew its own fill
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: Colors.transparent,
+                              width: i == widget.selected ? Strokes.border : Strokes.hairline,
                             ),
                           ),
+                          child: widget.glyphs != null
+                              ? Icon(
+                                  widget.glyphs![i],
+                                  semanticLabel: widget.labels[i],
+                                  size: ScaledSpacing.of(context).touch * 0.5,
+                                  color: ink(i),
+                                )
+                              : Text(
+                                  widget.labels[i],
+                                  maxLines: 1,
+                                  softWrap: false,
+                                  textAlign: TextAlign.center,
+                                  style: style.copyWith(
+                                    fontSize: (style.fontSize ?? 14) * fit,
+                                    color: ink(i),
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-                ),
-              ),
+              ]),
+            ),
           ]);
         }),
       ),
@@ -519,8 +683,10 @@ class VrxChip extends StatelessWidget {
 
 /// A persistent message band across the bottom — deliberately NOT a
 /// toast: nothing transient. NULL text slides it away; with [onTap], a
-/// tap on it does too (the person read it).
-class VrxBanner extends StatelessWidget {
+/// tap on it does too (the person read it). It slides in from its edge on
+/// spatial and leaves on spatial fast, the content below moving with it
+/// (micro.banner); mounted with its text it slides in.
+class VrxBanner extends StatefulWidget {
   const VrxBanner({super.key, required this.text, this.signal = VrxSignal.error, this.onTap});
 
   final String? text;
@@ -530,9 +696,76 @@ class VrxBanner extends StatelessWidget {
   final VrxSignal signal;
 
   @override
+  State<VrxBanner> createState() => _VrxBannerState();
+}
+
+class _VrxBannerState extends State<VrxBanner> with SingleTickerProviderStateMixin {
+  // a quarter of the reference display's width is a banner's height: the
+  // unit only sets the tolerance of a fraction of its own height
+  late final VrxSpringValue _p = VrxSpringValue(vsync: this, value: 0, unit: VrxUnit.fractionOf(40));
+  // what it said last, kept while it leaves
+  String? _text;
+  VrxSignal _signal = VrxSignal.error;
+  VoidCallback? _onTap;
+  bool _started = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _take();
+    _p.addListener(_leave);
+  }
+
+  void _take() {
+    if (widget.text == null) return;
+    _text = widget.text;
+    _signal = widget.signal;
+    _onTap = widget.onTap;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _p.mode = VrxMotion.of(context);
+    if (!_started) {
+      _started = true;
+      if (widget.text != null) _p.springTo(1, VrxSpring.micro(VrxMicro.banner));
+    }
+  }
+
+  @override
+  void didUpdateWidget(VrxBanner old) {
+    super.didUpdateWidget(old);
+    _take();
+    if (widget.text != null && old.text == null) {
+      _p.springTo(1, VrxSpring.micro(VrxMicro.banner));
+    } else if (widget.text == null && old.text != null) {
+      _p.springTo(0, VrxSpring.micro(VrxMicro.banner, follow: true));
+    }
+  }
+
+  // gone: drop what it said once it has left
+  void _leave() {
+    if (widget.text == null && _text != null && _p.value <= 0 && !_p.isAnimating) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.text == null && _p.value <= 0) setState(() => _text = null);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _p.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final colors = VrxTheme.of(context);
+    final text = widget.text ?? _text;
     if (text == null) return const SizedBox.shrink();
+    final signal = widget.text == null ? _signal : widget.signal;
+    final onTap = widget.text == null ? _onTap : widget.onTap;
     final band = Container(
       width: double.infinity,
       constraints: BoxConstraints(
@@ -548,13 +781,25 @@ class VrxBanner extends StatelessWidget {
         SizedBox(width: ScaledSpacing.of(context).sm),
         Expanded(
           child: Text(
-            text!,
+            text,
             style: TypeRole.of(context, VrxTypeRole.subtext).copyWith(color: colors.on(signal.slot)),
           ),
         ),
       ]),
     );
-    return onTap == null ? band : MergeSemantics(child: GestureDetector(onTap: onTap, child: band));
+    final control = onTap == null ? band : MergeSemantics(child: GestureDetector(onTap: onTap, child: band));
+    return ListenableBuilder(
+      listenable: _p,
+      child: control,
+      builder: (context, child) {
+        // the strip below moves with it: the band's height is its share of
+        // the way, revealed from its edge
+        final p = _p.value;
+        return ClipRect(
+          child: Align(alignment: Alignment.bottomCenter, heightFactor: p >= 1 ? null : p.clamp(0.0, 1.0), child: child),
+        );
+      },
+    );
   }
 }
 
@@ -595,7 +840,6 @@ class _VrxPressState extends State<VrxPress> with SingleTickerProviderStateMixin
   // of the 480 px reference display (plan 0017 D3)
   late final VrxSpringValue _scale = VrxSpringValue(vsync: this, value: 1.0, unit: VrxUnit.fractionOf(480));
   bool _held = false;
-  bool _focused = false;
   bool _hovered = false;
 
   @override
@@ -654,15 +898,8 @@ class _VrxPressState extends State<VrxPress> with SingleTickerProviderStateMixin
     } else if (_hovered) {
       child = ColoredBox(color: colors.surfaceHigh, child: child);
     }
-    if (_focused) {
-      // the keyboard's place: a ring in the accent, drawn over the
-      // control so the layout never moves for it
-      child = DecoratedBox(
-        position: DecorationPosition.foreground,
-        decoration: BoxDecoration(border: Border.all(color: colors.focus, width: Strokes.border)),
-        child: child,
-      );
-    }
+    // the keyboard's place is the applet's one focus ring (VrxFocusRing),
+    // which moves between controls; the control only says it has the focus
     // a mouse and keyboard reach it too: focus (Tab, the arrows), Enter
     // or Space to press, hover, and a right click for what a hold does.
     // One semantics node per control: its tap and hold with the words its
@@ -670,7 +907,7 @@ class _VrxPressState extends State<VrxPress> with SingleTickerProviderStateMixin
     final control = FocusableActionDetector(
       enabled: enabled,
       mouseCursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
-      onShowFocusHighlight: (v) => setState(() => _focused = v),
+      onShowFocusHighlight: (v) => VrxFocusRing.report(context, focused: v),
       onShowHoverHighlight: (v) => setState(() => _hovered = v),
       shortcuts: widget.onLongPress == null
           ? null

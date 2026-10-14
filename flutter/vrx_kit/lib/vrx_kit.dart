@@ -16,6 +16,7 @@ export 'src/components.dart';
 export 'src/energy.dart';
 export 'src/entry.dart';
 export 'src/file.dart';
+export 'src/focus_ring.dart';
 export 'src/frames.dart';
 export 'src/host.dart';
 export 'src/input.dart';

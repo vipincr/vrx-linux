@@ -7,7 +7,8 @@
 /// - press feedback at once, never eased: on a lit panel the class's
 ///   state layer over the control, on a grey one the thumb inverts (a
 ///   filled thumb under a filled layer would show nothing);
-/// - the focus ring is a frame inside the control, so layout never moves;
+/// - the focus ring is the applet's one (VrxFocusRing), drawn over the
+///   control, so layout never moves;
 /// - the rest of the track is the outline, which every display class
 ///   draws (a container slot can equal the page on a grey panel).
 library;
@@ -16,9 +17,12 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'focus_ring.dart';
 import 'metrics.dart';
+import 'motion.dart';
 import 'scale.dart';
 import 'theme.dart';
+import 'ui_standard.g.dart';
 
 class VrxSlider extends StatefulWidget {
   const VrxSlider({
@@ -59,9 +63,37 @@ class _StepIntent extends Intent {
   final int by;
 }
 
-class _VrxSliderState extends State<VrxSlider> {
+class _VrxSliderState extends State<VrxSlider> with SingleTickerProviderStateMixin {
   int? _moving;
-  bool _held = false, _focused = false, _hovered = false;
+  // micro.handle: the handle follows a finger directly, and a step by key, a
+  // tap or a wheel click glides it to the new value on effects; the value a
+  // screen reader hears does not ease. The unit is a fraction of a track.
+  late final VrxSpringValue _pos = VrxSpringValue(vsync: this, value: _fraction, unit: VrxUnit.fractionOf(200));
+  double get _fraction => (_shown - widget.min) / (widget.max - widget.min);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _pos.mode = VrxMotion.of(context);
+  }
+
+  @override
+  void dispose() {
+    _pos.dispose();
+    super.dispose();
+  }
+
+  // the handle goes where the value is: at once under a finger, gliding
+  // otherwise
+  void _follow() {
+    if (_held) {
+      _pos.jumpTo(_fraction);
+    } else {
+      _pos.springTo(_fraction, VrxSpring.micro(VrxMicro.handle));
+    }
+  }
+
+  bool _held = false, _hovered = false;
   Offset _down = Offset.zero;
 
   bool get _enabled => widget.onChanged != null || widget.onChangeEnd != null;
@@ -72,6 +104,7 @@ class _VrxSliderState extends State<VrxSlider> {
     super.didUpdateWidget(old);
     // the owner caught up with the drag: show the owner's again
     if (_moving != null && !_held && widget.value != old.value) _moving = null;
+    _follow();
   }
 
   int _at(double dx, double width, double pad) {
@@ -83,6 +116,7 @@ class _VrxSliderState extends State<VrxSlider> {
   void _move(int v) {
     if (v == _shown) return;
     setState(() => _moving = v);
+    _follow();
     widget.onChanged?.call(v);
   }
 
@@ -91,6 +125,7 @@ class _VrxSliderState extends State<VrxSlider> {
       _held = false;
       _moving = v == widget.value ? null : v;
     });
+    _follow();
     widget.onChangeEnd?.call(v);
   }
 
@@ -120,7 +155,7 @@ class _VrxSliderState extends State<VrxSlider> {
       child: FocusableActionDetector(
         enabled: _enabled,
         mouseCursor: _enabled ? SystemMouseCursors.click : MouseCursor.defer,
-        onShowFocusHighlight: (v) => setState(() => _focused = v),
+        onShowFocusHighlight: (v) => VrxFocusRing.report(context, focused: v),
         onShowHoverHighlight: (v) => setState(() => _hovered = v),
         // left and right only: up and down stay the list's, to move focus on
         shortcuts: const {
@@ -169,9 +204,11 @@ class _VrxSliderState extends State<VrxSlider> {
               child: SizedBox(
                 width: width,
                 height: height,
-                child: CustomPaint(
+                child: ListenableBuilder(
+                  listenable: _pos,
+                  builder: (context, _) => CustomPaint(
                   painter: _SliderPainter(
-                    fraction: (_shown - widget.min) / (widget.max - widget.min),
+                    fraction: _pos.value,
                     pad: pad,
                     thumb: thumb,
                     track: s.xs,
@@ -182,8 +219,8 @@ class _VrxSliderState extends State<VrxSlider> {
                     inverted: _held && layer == 0,
                     pressLayer: _held && layer > 0 ? colors.primary.withValues(alpha: layer / 1000) : null,
                     hover: _hovered && !_held ? colors.surfaceHigh : null,
-                    focus: _focused ? colors.focus : null,
                     stroke: Strokes.border,
+                  ),
                   ),
                 ),
               ),
@@ -207,14 +244,13 @@ class _SliderPainter extends CustomPainter {
     required this.inverted,
     required this.pressLayer,
     required this.hover,
-    required this.focus,
     required this.stroke,
   });
 
   final double fraction, pad, thumb, track, stroke;
   final Color fill, rest, onFill;
   final bool inverted;
-  final Color? pressLayer, hover, focus;
+  final Color? pressLayer, hover;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -234,12 +270,6 @@ class _SliderPainter extends CustomPainter {
         ..color = fill);
     }
     if (pressLayer != null) canvas.drawRect(whole, Paint()..color = pressLayer!);
-    if (focus != null) {
-      canvas.drawRect(whole.deflate(stroke / 2), Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = stroke
-        ..color = focus!);
-    }
   }
 
   @override
@@ -248,7 +278,6 @@ class _SliderPainter extends CustomPainter {
       old.inverted != inverted ||
       old.pressLayer != pressLayer ||
       old.hover != hover ||
-      old.focus != focus ||
       old.fill != fill ||
       old.rest != rest ||
       old.pad != pad ||

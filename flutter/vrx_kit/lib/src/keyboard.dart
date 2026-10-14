@@ -17,10 +17,12 @@ import 'package:flutter/material.dart';
 import 'components.dart';
 import 'input.dart';
 import 'metrics.dart';
+import 'motion.dart';
 import 'scale.dart';
 import 'symbols.dart';
 import 'text_input.dart';
 import 'theme.dart';
+import 'ui_standard.g.dart';
 
 enum _Mode { lower, upper, symbols, more }
 
@@ -113,29 +115,46 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
         child: Padding(
           // half the 1mm gutter each side: keys stand 1mm apart
           padding: EdgeInsets.all(Spacing.xs / 2 * VrxScale.of(context)),
-          // the kit's press, as every control: acknowledged the same way
-          child: VrxPress(
-            onTap: onTap,
-            label: label,
-            child: Container(
+          // the kit's press, as every control: acknowledged the same way; a
+          // character key also pops a preview above it (micro.key)
+          child: _KeyPop(
+            height: keyHeight,
+            enabled: glyph == null,
+            preview: Container(
               height: keyHeight,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: strong ? colors.secondaryContainer : colors.surfaceHigh,
+                color: colors.surfaceHigh,
+                border: Border.all(color: colors.outline, width: Strokes.hairline),
                 borderRadius: BorderRadius.circular(Radii.sm * VrxScale.of(context)),
               ),
-              // a key is an instrument: its label is sized to the key, which
-              // is sized from the scale (the touch minimum, or 6mm on the
-              // terminal's row); the face is the value role's
-              child: glyph != null
-                  ? Icon(glyph, size: keyHeight * 0.45)
-                  // one line always: a narrow key shrinks its word, never wraps it
-                  : FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(label,
-                          maxLines: 1,
-                          style: TypeRole.of(context, VrxTypeRole.list).copyWith(fontSize: keyHeight * 0.38, color: colors.text)),
-                    ),
+              child: Text(label,
+                  maxLines: 1,
+                  style: TypeRole.of(context, VrxTypeRole.list).copyWith(fontSize: keyHeight * 0.38, color: colors.text)),
+            ),
+            child: VrxPress(
+              onTap: onTap,
+              label: label,
+              child: Container(
+                height: keyHeight,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: strong ? colors.secondaryContainer : colors.surfaceHigh,
+                  borderRadius: BorderRadius.circular(Radii.sm * VrxScale.of(context)),
+                ),
+                // a key is an instrument: its label is sized to the key, which
+                // is sized from the scale (the touch minimum, or 6mm on the
+                // terminal's row); the face is the value role's
+                child: glyph != null
+                    ? Icon(glyph, size: keyHeight * 0.45)
+                    // one line always: a narrow key shrinks its word, never wraps it
+                    : FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(label,
+                            maxLines: 1,
+                            style: TypeRole.of(context, VrxTypeRole.list).copyWith(fontSize: keyHeight * 0.38, color: colors.text)),
+                      ),
+              ),
             ),
           ),
         ),
@@ -143,7 +162,10 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
     }
 
     void term(VrxTermKey k) => widget.onKey!(k);
-    return Container(
+    return _LayerFade(
+      // letters (either case), symbols and the extra page are three layers
+      layer: letters ? 0 : _mode.index,
+      child: Container(
       color: colors.page,
       padding: EdgeInsets.symmetric(horizontal: ScaledSpacing.of(context).xs / 2, vertical: ScaledSpacing.of(context).xs),
       child: Column(
@@ -182,6 +204,128 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
           ]),
         ],
       ),
+    ),
     );
   }
+}
+
+/// A character key's preview (micro.key): a pressed key pops a magnified copy
+/// of its face above it on the key row's spring, gone on lift. Paint only, so
+/// no key moves; at light and below a scale of that size lands at once, so
+/// there is no preview.
+class _KeyPop extends StatefulWidget {
+  const _KeyPop(
+      {required this.height,
+      required this.enabled,
+      required this.preview,
+      required this.child});
+
+  final double height;
+  final bool enabled;
+  final Widget preview;
+  final Widget child;
+
+  @override
+  State<_KeyPop> createState() => _KeyPopState();
+}
+
+class _KeyPopState extends State<_KeyPop> with SingleTickerProviderStateMixin {
+  late final VrxSpringValue _p =
+      VrxSpringValue(vsync: this, value: 0, unit: VrxUnit.fractionOf(40));
+  bool _shows = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final mode = VrxMotion.of(context);
+    _p.mode = mode;
+    _shows = widget.enabled &&
+        mode.allowsScale(vrxMicro[VrxMicro.key]!.scalePermille!);
+  }
+
+  void _to(double v) {
+    if (_shows) _p.springTo(v, VrxSpring.micro(VrxMicro.key));
+  }
+
+  @override
+  void dispose() {
+    _p.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final big = vrxMicro[VrxMicro.key]!.scalePermille! / 1000;
+    return Listener(
+      onPointerDown: (_) => _to(1),
+      onPointerUp: (_) => _to(0),
+      onPointerCancel: (_) => _to(0),
+      child: Stack(clipBehavior: Clip.none, children: [
+        widget.child,
+        if (_shows)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: widget.height,
+            child: ListenableBuilder(
+              listenable: _p,
+              builder: (context, child) => _p.value <= 0.001
+                  ? const SizedBox.shrink()
+                  : Transform.scale(
+                      scale: 1 + (big - 1) * _p.value,
+                      alignment: Alignment.bottomCenter,
+                      child: child,
+                    ),
+              child: widget.preview,
+            ),
+          ),
+      ]),
+    );
+  }
+}
+
+/// A layer change (letters, symbols, the extra page) fades the new layer in
+/// on effects fast, at the full tier only (micro.key).
+class _LayerFade extends StatefulWidget {
+  const _LayerFade({required this.layer, required this.child});
+
+  final int layer;
+  final Widget child;
+
+  @override
+  State<_LayerFade> createState() => _LayerFadeState();
+}
+
+class _LayerFadeState extends State<_LayerFade>
+    with SingleTickerProviderStateMixin {
+  late final VrxSpringValue _p =
+      VrxSpringValue(vsync: this, value: 1, unit: VrxUnit.alpha);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _p.mode = VrxMotion.of(context);
+  }
+
+  @override
+  void didUpdateWidget(_LayerFade old) {
+    super.didUpdateWidget(old);
+    if (old.layer == widget.layer || !_p.mode.fades || !_p.mode.springs) return;
+    _p.jumpTo(0);
+    _p.springTo(1, VrxSpring.micro(VrxMicro.key, follow: true));
+  }
+
+  @override
+  void dispose() {
+    _p.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: _p,
+        child: widget.child,
+        builder: (context, child) =>
+            Opacity(opacity: _p.value.clamp(0.0, 1.0), child: child),
+      );
 }

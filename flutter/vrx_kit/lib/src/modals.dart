@@ -20,8 +20,10 @@ import 'package:flutter/material.dart';
 import 'components.dart';
 import 'input.dart';
 import 'metrics.dart';
+import 'motion.dart';
 import 'scale.dart';
 import 'theme.dart';
+import 'ui_standard.g.dart';
 
 /// Ask [title] with one act, [act], beside Cancel. True when the act
 /// was chosen; false on Cancel, Back, or a tap outside.
@@ -48,10 +50,11 @@ Future<int?> vrxAsk(
   // the dialog's own route, not the trail: a modal is the kit's to open
   // and close, so an applet never touches a Navigator
   final navigator = Navigator.of(context); // vrx-allow: the modal's own route
-  return navigator.push<int>(DialogRoute<int>(
+  return navigator.push<int>(VrxModalRoute<int>(
     context: context,
     // the page dimmed, as the drawer's scrim; a tap on it is Cancel
     barrierColor: VrxTheme.of(context).page.withValues(alpha: 0.6),
+    mode: VrxMotion.of(context),
     builder: (dialog) {
       void answer(int? index) => Navigator.of(dialog).pop(index); // vrx-allow: the modal's own route
       return VrxBackOffer(
@@ -68,6 +71,67 @@ Future<int?> vrxAsk(
       );
     },
   ));
+}
+
+/// The modal's own route (plan 0017 Part C, micro.modal): a `DialogRoute`
+/// that grows from 800 permille on the expressive spatial spring with the
+/// scrim on the same progress, and leaves the same way. Its transition is a
+/// simulation of the engine, never a duration (`transitionDuration` is
+/// ignored when [createSimulation] answers); a tap outside and Back still
+/// answer Cancel (`barrierDismissible`, the [VrxBackOffer] in [vrxAsk]).
+/// Input lands at any moment of it: nothing sits behind an `IgnorePointer`.
+class VrxModalRoute<T> extends DialogRoute<T> {
+  VrxModalRoute({
+    required super.context,
+    required super.builder,
+    required super.barrierColor,
+    required this.mode,
+  });
+
+  /// What this build and this person allow to move, as the modal was asked.
+  final VrxMotionMode mode;
+
+  // how far a dialog's growth carries its edge, in pixels: the unit of the
+  // arrival's tolerance (the row's ceiling uses the same)
+  static const _travelPx = 40.0;
+
+  @override
+  Simulation? createSimulation({required bool forward}) => vrxRouteSimulation(
+        mode: mode,
+        row: VrxMicro.modal,
+        forward: forward,
+        from: controller!.value,
+        velocity: controller!.velocity,
+        travelPx: _travelPx,
+      );
+
+  // the scrim rides the same progress, clamped at its full strength
+  @override
+  Curve get barrierCurve => const VrxRouteCurve();
+
+  @override
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    final scale = vrxMicro[VrxMicro.modal]!.scalePermille! / 1000;
+    final fade = mode.springs || mode.fadesOnly;
+    return ListenableBuilder(
+      listenable: animation,
+      child: child,
+      builder: (context, child) {
+        final q = vrxRouteProgress(animation.value);
+        Widget out = child!;
+        // light and reduced: a modal is a large element, its scale lands at once
+        if (mode.allowsScale(vrxMicro[VrxMicro.modal]!.scalePermille!)) {
+          out = Transform.scale(scale: scale + (1 - scale) * q, child: out);
+        }
+        return fade ? Opacity(opacity: q.clamp(0.0, 1.0), child: out) : out;
+      },
+    );
+  }
 }
 
 /// One named act in a modal.
