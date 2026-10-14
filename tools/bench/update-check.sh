@@ -88,8 +88,8 @@ check "autoboot.txt: tryboot_a_b=1" sh -c 'mkdir -p /run/vrx/cfg; mount -o ro /d
 echo "        [all] boot_partition=$(autoboot all), [tryboot] boot_partition=$(autoboot tryboot)"
 check "rauc is running"           systemctl is-active rauc
 check "booted slot A, first boot" sh -c 'rauc status --output-format=json | grep -q "\"booted\":\"A\""'
-check "plain bundles refused (G046)" grep -q '^bundle-formats=-plain' /etc/rauc/system.conf
-check "a keyring (G046)"          sh -c 'k=$(sed -n "s/^path=//p" /etc/rauc/system.conf | head -1); test -s "${k:-/etc/rauc/keyring.pem}"'
+check "plain bundles refused (G046)" grep -q '^bundle-formats=-plain' /usr/lib/rauc/system.conf
+check "a keyring (G046)"          sh -c 'k=$(sed -n "s/^path=//p" /usr/lib/rauc/system.conf | head -1); test -s "$k"'
 check "update.conf"               test -s /usr/lib/vrx/update.conf
 check "the health target exists"  systemctl cat vrx-update-healthy.target
 check "only vrx-update-mark marks good (G047)" sh -c '! grep -rl "mark-good" /usr/lib/systemd/system /etc/systemd/system | grep -v vrx-update-mark.service'

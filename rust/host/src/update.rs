@@ -229,16 +229,6 @@ async fn rauc() -> Result<InstallerProxy<'static>, (String, Value)> {
     })
 }
 
-fn machine() -> String {
-    std::fs::read_to_string("/etc/rauc/system.conf")
-        .ok()
-        .and_then(|t| {
-            t.lines()
-                .find_map(|l| l.trim().strip_prefix("compatible=").map(str::to_owned))
-        })
-        .unwrap_or_default()
-}
-
 /// The bundles offered, each inspected by RAUC (which checks the
 /// signature) and judged against the running image.
 pub async fn offers() -> Result<Value, (String, Value)> {
@@ -246,7 +236,8 @@ pub async fn offers() -> Result<Value, (String, Value)> {
     let rauc = rauc().await?;
     let running =
         running_version(&std::fs::read_to_string("/etc/os-release").unwrap_or_default());
-    let machine = machine();
+    // RAUC's own compatible (system.conf's: the machine and its carrier)
+    let machine = rauc.compatible().await.unwrap_or_default();
     let mut files: Vec<PathBuf> = std::fs::read_dir(UPDATES)
         .map(|d| d.flatten().map(|e| e.path()).collect())
         .unwrap_or_default();
