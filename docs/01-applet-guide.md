@@ -144,6 +144,39 @@ tracks which hands are in use (`VrxHandsScope`); no built-in applet varies
 its layout by them yet, so evrx-rt's "ask what the hands are doing" note
 applies to the first applet that does.
 
+The on-screen keyboard is Flutter's text input control (plan 0013 D6). A
+`TextField` that takes focus brings it up under the screen through
+`VrxKeyboardHost`, which `AppletHost` installs; no screen places a keyboard
+itself. It steps aside while a physical keyboard types, and, unless
+Settings > Device > On-screen keyboard says Show, whenever the compositor
+reports a keyboard plugged in (`keyboard=1` in `/run/vrx-ui/screen`). A
+field that brings its own keys (the Scripts editor's terminal keys on a
+short panel) declares `keyboardType: TextInputType.none` and gets none. A
+screen that sizes itself around the keyboard decides on the display, never
+on its layout box: the keyboard takes its share of the box when it comes
+up, and a layout that changes because it did would put it away again.
+Check: `flutter/vrx_kit/test/text_input_test.dart`.
+
+The touch floor is the hardware's (G034). The compositor says `touch=1` or
+`0` from udev's classification of the input devices, and `AppletHost`
+installs `VrxInputModality.touch` only for 1; on a board with no
+touchscreen, controls size to their content and keys reach them. vrx_check
+lays every applet out both ways: with the display's own modality, and on a
+touch panel again without the floor. Check: the G034 test in
+`text_input_test.dart`, and `checkApplet` in vrx_check.
+
+One finger drives the UI (plan 0013 D8). The compositor delivers the
+first contact of a touch and holds the others back until it lifts, so two
+fingers cannot press two controls at once. No applet gets more than one.
+
+The swipe chain is Flutter's gesture arena (plan 0013 D9). A drag goes to
+the innermost recogniser that claims it (a list, a wheel, the slider),
+then outwards; whether a drag is the shell's is decided by the compositor
+where the finger went down (plan 0008 D10). A screen whose body can be
+taller than the client wraps it in `VrxPaged`: a vertical drag nothing
+inside claims then pages the body a client height at a time, and a body
+that fits does not move. Check: `flutter/vrx_kit/test/paged_test.dart`.
+
 ## Testing
 
 ```bash
