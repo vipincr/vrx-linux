@@ -4,7 +4,7 @@
 
 // ignore_for_file: constant_identifier_names, non_constant_identifier_names
 
-/// vrx's glyphs (78): the ones the purpose table lists, each for
+/// vrx's glyphs (79): the ones the purpose table lists, each for
 /// what its row says. The font is the whole Material Symbols set,
 /// installed system-wide (ttf-material-symbols); only these are named.
 /// A manifest's display.icon is one with the applet-icon domain.
@@ -240,6 +240,9 @@ abstract final class VrxSymbols {
   /// USB: the port applet, sharing files with a computer (applet-icon).
   static const IconData usb = IconData(0xe1e0, fontFamily: _family);
 
+  /// The camera service: no screen, the sensor's owner (camerad, Settings > Camera) (applet-icon).
+  static const IconData videocam = IconData(0xe04b, fontFamily: _family);
+
   /// No sound output (signal).
   static const IconData volume_off = IconData(0xe04f, fontFamily: _family);
 
@@ -327,6 +330,7 @@ abstract final class VrxSymbols {
     'terminal': terminal,
     'timer_off': timer_off,
     'usb': usb,
+    'videocam': videocam,
     'volume_off': volume_off,
     'warning': warning,
     'wifi': wifi,

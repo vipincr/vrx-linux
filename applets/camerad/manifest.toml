@@ -18,6 +18,7 @@ runtime = "rust"
 kind = "service"
 
 [applet.display]
+icon = "videocam"
 tile = false
 
 [applet.resources]

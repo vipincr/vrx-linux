@@ -51,11 +51,7 @@ pub fn serve_photos(mut photos: Channel, tx: Sender<Input>) {
     let room = join_rx.recv().unwrap_or(false);
     while let Some(record) = photos.next_record() {
         let sent = match serde_json::from_value::<Request>(record) {
-            Err(_) => write(
-                &mut photos,
-                &Response::refused(None, Refusal::Failed),
-                None,
-            ),
+            Err(_) => write(&mut photos, &Response::refused(None, Refusal::Failed), None),
             Ok(request) if !room => {
                 let id = request_id(&request);
                 write(&mut photos, &Response::refused(id, Refusal::Busy), None)
