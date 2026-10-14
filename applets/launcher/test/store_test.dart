@@ -13,22 +13,24 @@ void main() {
   });
 
   test('a registry change re-renders the grid', () {
-    final model = LauncherModel();
-    final harness = StoreHarness(model);
-    model.replaceRegistry({
-      'clock': const Tile(id: 'clock', name: 'Clock', position: 1),
-      'settings': const Tile(id: 'settings', name: 'Settings', position: 2),
-      'notes': const Tile(id: 'notes', name: 'Notes', position: 3),
-    });
-    harness.dispatch(LauncherAction.registryChanged);
+    final harness = StoreHarness(LauncherModel())
+      ..dispatch(const LauncherRegistry({
+        'clock': Tile(id: 'clock', name: 'Clock', position: 1),
+        'settings': Tile(id: 'settings', name: 'Settings', position: 2),
+        'notes': Tile(id: 'notes', name: 'Notes', position: 3),
+      }));
     harness.assertView((v) => v.tiles.length == 3);
+    harness
+      ..dispatch(const LauncherError(Change('refused')))
+      ..dispatch(const LauncherSearch('no'));
+    harness.verify(
+      fresh: LauncherModel.new,
+      probes: const [LauncherAction.appFinished, LauncherError(Change(null)), LauncherSearch('')],
+    );
   });
 
   test('a query filters the tiles by what a person reads', () {
-    final model = LauncherModel();
-    model.search('set');
-    final harness = StoreHarness(model);
-    harness.dispatch(LauncherAction.searchChanged);
+    final harness = StoreHarness(LauncherModel())..dispatch(const LauncherSearch('set'));
     harness.assertView(
       (v) => v.tiles.length == 1 && v.tiles.single.id == 'settings',
     );
@@ -42,15 +44,14 @@ void main() {
 
   // plan 0011 D16: installs with consent, worded for what happens
   test('offers: installable and refused ones show; older and same do not', () {
-    final model = LauncherModel()
-      ..offers = const [
+    final model = LauncherModel();
+    final h = StoreHarness(model)
+      ..dispatch(const LauncherOffers([
         AppOffer(file: 'a.raw', id: 'a', name: 'A', version: '1', build: 'x', kind: 'install'),
         AppOffer(file: 'b.raw', id: 'b', name: 'B', version: '1', build: 'y', kind: 'same', installed: '1'),
         AppOffer(file: 'c.raw', id: 'c', name: 'C', version: '0.9', build: 'z', kind: 'older', installed: '1'),
         AppOffer(file: 'd.raw', id: 'd', name: 'D', version: '1', build: 'w', kind: 'install', problem: 'release'),
-      ];
-    final h = StoreHarness(model);
-    h.dispatch(LauncherAction.offersChanged);
+      ]));
     h.assertView((v) => v.offers.map((o) => o.id).join() == 'ad');
   });
 

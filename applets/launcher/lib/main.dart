@@ -12,13 +12,11 @@ class LauncherApplet
     extends Applet<LauncherState, LauncherAction, LauncherView> {
   final _model = LauncherModel();
 
-  /// vrxhost's registry replaced the applet list (dispatch
-  /// [LauncherAction.registryChanged] after).
-  void replaceRegistry(Map<String, Tile> tiles) => _model.replaceRegistry(tiles);
+  /// The registry and the offers a test starts from, reduced like any
+  /// other fact (the store dispatches them on a device).
+  void replaceRegistry(Map<String, Tile> tiles) => _model.reduce(_model.snapshot, LauncherRegistry(tiles));
 
-  /// vrxhost's offers replaced the old ones (dispatch
-  /// [LauncherAction.offersChanged] after).
-  void replaceOffers(List<AppOffer> offers) => _model.offers = offers;
+  void replaceOffers(List<AppOffer> offers) => _model.reduce(_model.snapshot, LauncherOffers(offers));
 
   @override
   LauncherState get initial => _model.initial;
@@ -40,16 +38,14 @@ class LauncherApplet
     if (service == null) return;
     try {
       final applets = await service.applets();
-      replaceRegistry({
+      _registryActions.add(LauncherRegistry({
         for (final a in applets) a.id: Tile(id: a.id, name: a.name, position: a.position, icon: a.icon ?? ''),
-      });
-      _registryActions.add(LauncherAction.registryChanged);
+      }));
     } on Object catch (err) {
       debugPrint('launcher: registry: $err');
     }
     try {
-      replaceOffers(await service.offers());
-      _registryActions.add(LauncherAction.offersChanged);
+      _registryActions.add(LauncherOffers(await service.offers()));
     } on Object catch (err) {
       // no apps grant or no installer: nothing is offered
       debugPrint('launcher: offers: $err');
@@ -58,8 +54,7 @@ class LauncherApplet
 
   Future<void> _offer(BuildContext context, AppOffer o) async {
     if (o.problem != null) {
-      _model.error = VrxWords.offerProblem(o.problem!);
-      _registryActions.add(LauncherAction.failed);
+      _registryActions.add(LauncherError(Change(VrxWords.offerProblem(o.problem!))));
       return;
     }
     final c = consentFor(o);
@@ -67,8 +62,7 @@ class LauncherApplet
     try {
       await AppletsService.installed?.installOffer(o);
     } on Object catch (err) {
-      _model.error = VrxWords.of(err, context: 'launcher: install');
-      _registryActions.add(LauncherAction.failed);
+      _registryActions.add(LauncherError(Change(VrxWords.of(err, context: 'launcher: install'))));
     }
     await refresh();
   }
@@ -84,8 +78,7 @@ class LauncherApplet
     try {
       await AppletsService.installed?.uninstall(tile.id);
     } on Object catch (err) {
-      _model.error = VrxWords.of(err, context: 'launcher: uninstall');
-      _registryActions.add(LauncherAction.failed);
+      _registryActions.add(LauncherError(Change(VrxWords.of(err, context: 'launcher: uninstall'))));
     }
     await refresh();
   }
@@ -144,10 +137,8 @@ class LauncherApplet
                       );
                     }),
             ),
-            if (view.error != null) VrxBanner(text: view.error, onTap: () {
-              _model.error = null;
-              _registryActions.add(LauncherAction.failed);
-            }),
+            if (view.error != null)
+              VrxBanner(text: view.error, onTap: () => _registryActions.add(const LauncherError(Change(null)))),
           ],
         ),
       ),

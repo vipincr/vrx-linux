@@ -1,18 +1,43 @@
 import 'package:vrx_kit/vrx_kit.dart';
 
-/// Everything the launcher reacts to.
-enum LauncherAction {
-  init,
-  registryChanged,
-  appLaunched,
-  appFinished,
-  searchChanged,
+/// Everything the launcher reacts to (plan 0013 D1: the reducer is the
+/// only writer): a signal, or vrxhost's facts carried as data.
+sealed class LauncherAction {
+  const LauncherAction();
 
-  /// The offers were read again (plan 0011 D16).
-  offersChanged,
+  static const init = LauncherSignal.init;
+  static const appLaunched = LauncherSignal.appLaunched;
+  static const appFinished = LauncherSignal.appFinished;
+}
 
-  /// Something asked for failed; the banner says why.
-  failed,
+enum LauncherSignal implements LauncherAction { init, appLaunched, appFinished }
+
+/// vrxhost's registry replaced the applet list.
+final class LauncherRegistry implements LauncherAction {
+  const LauncherRegistry(this.tiles);
+
+  final Map<String, Tile> tiles;
+}
+
+/// What a person typed to find a tile.
+final class LauncherSearch implements LauncherAction {
+  const LauncherSearch(this.query);
+
+  final String query;
+}
+
+/// What vrxhost offers for installing (plan 0011 D16), read again.
+final class LauncherOffers implements LauncherAction {
+  const LauncherOffers(this.offers);
+
+  final List<AppOffer> offers;
+}
+
+/// One sentence about what did not happen, or none (Change(null)).
+final class LauncherError implements LauncherAction {
+  const LauncherError(this.error);
+
+  final Change<String?> error;
 }
 
 /// One launcher tile.
@@ -109,29 +134,25 @@ class LauncherModel
   @override
   LauncherAction get bootAction => LauncherAction.init;
 
-  /// The registry (vrxhost) replaced the applet list.
-  void replaceRegistry(Map<String, Tile> tiles) => _registry
-    ..clear()
-    ..addAll(tiles);
-
-  void search(String query) => _query = query;
-
   @override
   LauncherView reduce(LauncherState state, LauncherAction action) {
     switch (action) {
-      case LauncherAction.init:
-      case LauncherAction.registryChanged:
-        break;
-      case LauncherAction.appLaunched:
-        break; // the trail is vrxhost's; the launcher just renders
-      case LauncherAction.appFinished:
+      case LauncherRegistry(:final tiles):
+        _registry
+          ..clear()
+          ..addAll(tiles);
+        error = null;
+      case LauncherSearch(:final query):
+        _query = query;
+      case LauncherOffers(offers: final list):
+        offers = list;
+      case LauncherError(error: final e):
+        error = e.value;
+      case LauncherSignal.appFinished:
         _openApp = null;
-      case LauncherAction.searchChanged:
-      case LauncherAction.offersChanged:
-      case LauncherAction.failed:
-        break;
+      case LauncherSignal.init || LauncherSignal.appLaunched:
+        break; // the trail is vrxhost's; the launcher just renders
     }
-    if (action == LauncherAction.registryChanged) error = null;
     return LauncherView(
       tiles: _visible(),
       query: _query,
@@ -155,6 +176,24 @@ class LauncherModel
         query: _query,
         openApp: _openApp,
       );
+
+  @override
+  void restore(LauncherState snapshot) {
+    _registry
+      ..clear()
+      ..addAll(snapshot.registry);
+    _query = snapshot.query;
+    _openApp = snapshot.openApp;
+  }
+
+  @override
+  Object? get fingerprint => [
+        [for (final t in _registry.values) '${t.id}/${t.name}/${t.position}'],
+        _query,
+        _openApp,
+        [for (final o in offers) o.file],
+        error,
+      ];
 }
 
 /// The launcher state snapshot: the registry and where the user was.
@@ -168,4 +207,11 @@ class LauncherState {
   final Map<String, Tile> registry;
   final String query;
   final String? openApp;
+
+  @override
+  bool operator ==(Object other) =>
+      other is LauncherState && vrxDeepEquals(other.registry, registry) && other.query == query && other.openApp == openApp;
+
+  @override
+  int get hashCode => Object.hash(registry.length, query, openApp);
 }
