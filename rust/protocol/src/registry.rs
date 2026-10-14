@@ -24,6 +24,12 @@ pub struct RegistryEntry {
 pub enum RegistryError {
     #[error("applet id {0:?} is already registered")]
     DuplicateId(String),
+    #[error("applet id {id:?}: its icon {icon:?} is already {other:?}'s (one icon per applet, G033)")]
+    DuplicateIcon {
+        id: String,
+        icon: String,
+        other: String,
+    },
     #[error("applet id {0:?}: roles are held by built-ins only (home/shell/installs/resident declared on an installed applet)")]
     RoleOnInstalled(String),
     #[error("applet id {0:?}: system grants are held by built-ins only (permissions.system declared on an installed applet)")]
@@ -38,6 +44,13 @@ pub enum RegistryError {
     PriorityBand { id: String, below: u16, got: u16 },
     #[error("applet id {0:?}: manifest invalid: {1}")]
     Invalid(String, String),
+}
+
+/// The glyph an entry's tile shows, if its icon names one (no path or
+/// extension: `icon.png` is a file of the applet's own).
+fn glyph_icon(entry: &RegistryEntry) -> Option<&str> {
+    let icon = entry.manifest.applet.display.as_ref()?.icon.as_str();
+    (!icon.is_empty() && !icon.contains(['.', '/'])).then_some(icon)
 }
 
 /// The set of applets vrxhost will consider. Order of admission is
@@ -62,6 +75,18 @@ impl Registry {
 
         if self.entries.iter().any(|e| e.manifest.applet.id == id) {
             return Err(RegistryError::DuplicateId(id));
+        }
+        // a glyph is an applet's face on Home: two applets never share one
+        // (plan 0013 D5). An image file (icon.png) is the applet's own.
+        if let Some(icon) = glyph_icon(&entry) {
+            if let Some(other) = self.entries.iter().find(|e| glyph_icon(e) == Some(icon))
+            {
+                return Err(RegistryError::DuplicateIcon {
+                    id,
+                    icon: icon.to_owned(),
+                    other: other.manifest.applet.id.clone(),
+                });
+            }
         }
         if !entry.builtin {
             if entry.manifest.applet.roles.any() {
@@ -216,6 +241,39 @@ mod tests {
             r.admit(entry("clock", false)),
             Err(RegistryError::DuplicateId("clock".into()))
         );
+    }
+
+    fn with_icon(id: &str, icon: &str, builtin: bool) -> RegistryEntry {
+        RegistryEntry {
+            manifest: format!(
+                "[applet]\nid = \"{id}\"\nname = \"N\"\nversion = \"0.1.0\"\nruntime = \"rust\"\n[applet.display]\nicon = \"{icon}\"\n"
+            )
+            .parse()
+            .expect("manifest with an icon"),
+            path: PathBuf::from(format!("/apps/{id}")),
+            builtin,
+        }
+    }
+
+    #[test]
+    fn two_applets_with_one_glyph_are_refused_and_image_icons_are_their_own_g033() {
+        let mut r = Registry::new();
+        r.admit(with_icon("manage", "language", true))
+            .expect("first admits");
+        assert_eq!(
+            r.admit(with_icon("web", "language", true)),
+            Err(RegistryError::DuplicateIcon {
+                id: "web".into(),
+                icon: "language".into(),
+                other: "manage".into()
+            })
+        );
+        r.admit(with_icon("web", "http", true))
+            .expect("its own glyph admits");
+        r.admit(with_icon("notes", "icon.png", false))
+            .expect("an image icon");
+        r.admit(with_icon("tasks", "icon.png", false))
+            .expect("another applet's image icon is its own file");
     }
 
     #[test]

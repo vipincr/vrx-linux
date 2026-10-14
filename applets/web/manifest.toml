@@ -8,7 +8,7 @@ version = "1.0.0"
 runtime = "flutter"
 
 [applet.display]
-icon = "language"
+icon = "http"
 tile = true
 position = 7
 

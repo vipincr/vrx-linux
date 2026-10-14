@@ -50,12 +50,11 @@ void main() {
     dir.deleteSync(recursive: true);
   });
 
-  test('every Material Symbol is named; unknown names are not', () {
-    expect(VrxSymbols.byName.length, greaterThan(4000));
+  test('the glyph table names its glyphs and nothing else (plan 0013 D5)', () {
     expect(VrxSymbols.named('schedule'), VrxSymbols.schedule);
-    expect(VrxSymbols.named('10k'), VrxSymbols.$10k);
-    expect(VrxSymbols.named('class'), VrxSymbols.class_);
     expect(VrxSymbols.schedule.fontFamily, 'Material Symbols Rounded');
+    // in the font, outside the table: no name reaches it
+    expect(VrxSymbols.named('zoom_in'), isNull);
     expect(VrxSymbols.named('clock.png'), isNull);
   });
 }

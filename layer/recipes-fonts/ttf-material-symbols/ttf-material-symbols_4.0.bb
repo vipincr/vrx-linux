@@ -1,11 +1,14 @@
 # Material Symbols Rounded: vrx's icon set. Google's variable icon font,
 # about 4,300 symbols with FILL, wght, GRAD and opsz axes, installed once
 # system-wide so every applet draws from the same copy through fontconfig
-# (vrx_kit's VrxSymbols names every glyph in it). Apache-2.0.
+# (vrx_kit's VrxSymbols names the glyphs vrx uses, from its purpose
+# table). Apache-2.0.
 #
-# MSYM_COMMIT is the one pin: vrx_kit's tool/gen_symbols.py reads it (and
-# the codepoints checksum) from this file to regenerate the Dart table, so
-# the font in the image and the names applets compile against cannot drift.
+# MSYM_COMMIT and the codepoints checksum are the one pin: `cargo xtask
+# glyphs` reads both from this file, and the gate refuses a vendored
+# catalogue (vrx_kit/standard/material-symbols.codepoints) that does not
+# hash to it, so the font in the image and the names applets compile
+# against cannot drift (plan 0013 D5, G033).
 #
 # SPDX-License-Identifier: MIT
 

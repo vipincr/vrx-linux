@@ -1,0 +1,254 @@
+# vrx's glyphs (plan 0013 D5, G033): every glyph an applet or the kit may
+# show, what it means, and where it may appear. `cargo xtask glyphs`
+# generates flutter/vrx_kit/lib/src/symbols.dart (VrxSymbols) from this
+# table and the Material Symbols catalogue vendored beside it
+# (material-symbols.codepoints, the font recipe's pinned file): a glyph
+# missing here does not exist in Dart. A glyph that means two things on
+# two screens reads as a lie on one of them (evrx-rt docs/13, Glyphs), so
+# each says one thing, and a new use either fits it or adds its own row.
+#
+# Domains:
+#   signal       a state the person reads (connected, charging, a fault)
+#   navigation   a way to somewhere (Back, a category, a direction)
+#   action       a verb on a control (add, delete, send, stop)
+#   applet-icon  one applet's face on Home; two applets never share one
+#                (the gate and the registry refuse it)
+
+# ── applet icons ─────────────────────────────────────────────────────
+[glyph.schedule]
+purpose = "Time: the Clock applet, and Settings' time category"
+domains = ["applet-icon", "navigation"]
+[glyph.smart_toy]
+purpose = "The Assistant applet, the local chat model"
+domains = ["applet-icon"]
+[glyph.list]
+purpose = "The console applet, a list of records"
+domains = ["applet-icon"]
+[glyph.bluetooth]
+purpose = "Bluetooth: Device Link, the radio on"
+domains = ["applet-icon", "signal", "action"]
+[glyph.gavel]
+purpose = "Licences: the Docs applet"
+domains = ["applet-icon"]
+[glyph.language]
+purpose = "The device's page in a browser: the Manage applet"
+domains = ["applet-icon"]
+[glyph.http]
+purpose = "Web requests: the applet that sends them"
+domains = ["applet-icon"]
+[glyph.settings]
+purpose = "Settings"
+domains = ["applet-icon"]
+[glyph.mic]
+purpose = "The microphone: the Recorder applet, record, speak a question"
+domains = ["applet-icon", "action"]
+[glyph.rocket_launch]
+purpose = "Setup: the first boot's walk"
+domains = ["applet-icon"]
+[glyph.code]
+purpose = "Scripts: Python on the device"
+domains = ["applet-icon"]
+[glyph.terminal]
+purpose = "The Terminal applet, a shell"
+domains = ["applet-icon"]
+[glyph.dashboard]
+purpose = "The shell: the strip and its drawer"
+domains = ["applet-icon"]
+[glyph.usb]
+purpose = "USB: the port applet, sharing files with a computer"
+domains = ["applet-icon"]
+[glyph.record_voice_over]
+purpose = "Speech to text: the stt service"
+domains = ["applet-icon"]
+[glyph.wifi]
+purpose = "Wi-Fi: the applet, the network category, the radio connected"
+domains = ["applet-icon", "navigation", "signal", "action"]
+
+# ── navigation ───────────────────────────────────────────────────────
+[glyph.arrow_back]
+purpose = "Back: the screen before this one"
+domains = ["navigation"]
+[glyph.arrow_upward]
+purpose = "Up: the top of a list, or send what was typed upward"
+domains = ["navigation", "action"]
+[glyph.keyboard_arrow_up]
+purpose = "One step up (a key, a wheel)"
+domains = ["navigation"]
+[glyph.keyboard_arrow_down]
+purpose = "One step down, or more below"
+domains = ["navigation"]
+[glyph.keyboard_arrow_left]
+purpose = "One step left, or the previous item"
+domains = ["navigation"]
+[glyph.keyboard_arrow_right]
+purpose = "One step right, or the next item"
+domains = ["navigation"]
+[glyph.brightness_6]
+purpose = "The display: Settings' display category"
+domains = ["navigation"]
+[glyph.power_settings_new]
+purpose = "Power: the power menu, Settings' power category"
+domains = ["navigation", "action"]
+[glyph.developer_board]
+purpose = "The device itself: Settings' device category"
+domains = ["navigation"]
+[glyph.apps]
+purpose = "Applets as a group: Settings' applets category"
+domains = ["navigation"]
+[glyph.description]
+purpose = "A document to read (a licence text)"
+domains = ["navigation"]
+[glyph.public]
+purpose = "A place in the world: a world-clock city, adding one"
+domains = ["navigation", "action"]
+
+# ── actions ──────────────────────────────────────────────────────────
+[glyph.add]
+purpose = "Add one more of what the screen lists"
+domains = ["action"]
+[glyph.delete]
+purpose = "Remove this one (after its confirm)"
+domains = ["action"]
+[glyph.delete_sweep]
+purpose = "Remove everything listed (after its confirm)"
+domains = ["action"]
+[glyph.edit]
+purpose = "Change this one"
+domains = ["action"]
+[glyph.send]
+purpose = "Send what was written"
+domains = ["action"]
+[glyph.stop]
+purpose = "Stop what runs (a recording, a request, an answer)"
+domains = ["action"]
+[glyph.play_arrow]
+purpose = "Play or run"
+domains = ["action"]
+[glyph.pause]
+purpose = "Pause what plays"
+domains = ["action"]
+[glyph.restart_alt]
+purpose = "Start it again (a restart, a run again)"
+domains = ["action"]
+[glyph.check]
+purpose = "Done: accept this"
+domains = ["action"]
+[glyph.alarm]
+purpose = "An alarm: add one, the alarm tab"
+domains = ["action", "navigation"]
+[glyph.alarm_off]
+purpose = "Stop a ringing alarm"
+domains = ["action"]
+[glyph.timer_off]
+purpose = "Stop a finished timer's ring"
+domains = ["action"]
+[glyph.snooze]
+purpose = "Snooze a ringing alarm"
+domains = ["action"]
+[glyph.keyboard]
+purpose = "Show the on-screen keyboard"
+domains = ["action"]
+[glyph.keyboard_hide]
+purpose = "Hide the on-screen keyboard"
+domains = ["action"]
+[glyph.keyboard_return]
+purpose = "The keyboard's Enter"
+domains = ["action"]
+[glyph.backspace]
+purpose = "The keyboard's backspace"
+domains = ["action"]
+[glyph.keyboard_capslock]
+purpose = "The keyboard's capitals"
+domains = ["action"]
+[glyph.light_mode]
+purpose = "The light colour polarity"
+domains = ["action"]
+[glyph.dark_mode]
+purpose = "The dark colour polarity"
+domains = ["action"]
+[glyph.brightness_low]
+purpose = "Dimmer: the brightness slider's low end"
+domains = ["action"]
+[glyph.brightness_high]
+purpose = "Brighter: the brightness slider's high end"
+domains = ["action"]
+
+# ── signals ──────────────────────────────────────────────────────────
+[glyph.warning]
+purpose = "Something needs attention: a fault, over a budget"
+domains = ["signal"]
+[glyph.error]
+purpose = "Something failed"
+domains = ["signal"]
+[glyph.info]
+purpose = "A fact worth knowing, no action needed"
+domains = ["signal"]
+[glyph.check_circle]
+purpose = "Done, or working as it should"
+domains = ["signal"]
+[glyph.hourglass_empty]
+purpose = "Waiting for something slow"
+domains = ["signal"]
+[glyph.lock]
+purpose = "Secured: a network that asks for a passphrase"
+domains = ["signal"]
+[glyph.wifi_off]
+purpose = "Wi-Fi off or not connected"
+domains = ["signal", "action"]
+[glyph.network_wifi_1_bar]
+purpose = "A weak Wi-Fi signal"
+domains = ["signal"]
+[glyph.network_wifi_2_bar]
+purpose = "A fair Wi-Fi signal"
+domains = ["signal"]
+[glyph.network_wifi_3_bar]
+purpose = "A good Wi-Fi signal"
+domains = ["signal"]
+[glyph.signal_wifi_4_bar]
+purpose = "A full Wi-Fi signal"
+domains = ["signal"]
+[glyph.bluetooth_connected]
+purpose = "Bluetooth connected to a phone"
+domains = ["signal"]
+[glyph.bluetooth_searching]
+purpose = "Bluetooth open for pairing"
+domains = ["signal"]
+[glyph.bluetooth_disabled]
+purpose = "Bluetooth off"
+domains = ["signal", "action"]
+[glyph.smartphone]
+purpose = "A paired phone"
+domains = ["signal"]
+[glyph.bolt]
+purpose = "Charging"
+domains = ["signal"]
+[glyph.battery_full]
+purpose = "The battery full"
+domains = ["signal"]
+[glyph.battery_5_bar]
+purpose = "The battery about three quarters"
+domains = ["signal"]
+[glyph.battery_3_bar]
+purpose = "The battery about half"
+domains = ["signal"]
+[glyph.battery_2_bar]
+purpose = "The battery about a quarter"
+domains = ["signal"]
+[glyph.battery_0_bar]
+purpose = "The battery nearly empty"
+domains = ["signal"]
+[glyph.notifications]
+purpose = "Sound on: an alarm that rings aloud"
+domains = ["signal", "action"]
+[glyph.notifications_off]
+purpose = "Sound off: an alarm switched off"
+domains = ["signal", "action"]
+[glyph.volume_off]
+purpose = "No sound output"
+domains = ["signal"]
+[glyph.mic_off]
+purpose = "No microphone, or it is off"
+domains = ["signal"]
+[glyph.graphic_eq]
+purpose = "Sound is being heard (a level, listening)"
+domains = ["signal"]

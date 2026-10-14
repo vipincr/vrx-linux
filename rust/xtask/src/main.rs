@@ -19,6 +19,7 @@
 mod crates_inc;
 mod docs;
 mod fonts;
+mod glyphs;
 mod impact;
 mod ui_standard;
 
@@ -31,6 +32,13 @@ fn main() -> ExitCode {
     match task.as_str() {
         "gate" => gate(args.iter().any(|a| a == "--all")),
         "crates-inc" => crates_inc::run(&args),
+        "glyphs" => match glyphs::run(&repo_root()) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("glyphs: {err}");
+                ExitCode::FAILURE
+            }
+        },
         "ui-standard" => match ui_standard::run(&repo_root()) {
             Ok(()) => ExitCode::SUCCESS,
             Err(err) => {
@@ -464,6 +472,34 @@ fn gate(all: bool) -> ExitCode {
         }
         Err(err) => {
             eprintln!("gate: FAILED (G018): {err}");
+            return ExitCode::FAILURE;
+        }
+    }
+
+    // G033 (plan 0013 D5): VrxSymbols is the glyph table's, over the font
+    // recipe's catalogue, and every applet has its own applet-icon glyph
+    println!("gate: the glyph table, VrxSymbols and every applet's icon");
+    match glyphs::is_current(&repo) {
+        Ok(true) => {}
+        Ok(false) => {
+            eprintln!("gate: FAILED (G033) — flutter/vrx_kit/lib/src/symbols.dart is stale: run `cargo xtask glyphs`");
+            return ExitCode::FAILURE;
+        }
+        Err(err) => {
+            eprintln!("gate: FAILED (G033): {err}");
+            return ExitCode::FAILURE;
+        }
+    }
+    match glyphs::check_manifests(&repo) {
+        Ok(faults) if faults.is_empty() => {}
+        Ok(faults) => {
+            for f in faults {
+                eprintln!("gate: FAILED (G033): {f}");
+            }
+            return ExitCode::FAILURE;
+        }
+        Err(err) => {
+            eprintln!("gate: FAILED (G033): {err}");
             return ExitCode::FAILURE;
         }
     }
