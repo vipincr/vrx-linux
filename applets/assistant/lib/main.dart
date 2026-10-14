@@ -5,14 +5,15 @@ import 'package:vrx_kit/vrx_kit.dart';
 
 import 'state.dart';
 
-final _events = StreamController<AssistantAction>();
-
 /// Assistant: a conversation with the local chat model (plan 0011 D18).
 class AssistantApplet extends Applet<AssistantState, AssistantAction, AssistantView> {
   AssistantApplet(this.model, {LocalChat? chat}) : chat = chat ?? LocalChat();
 
   final AssistantModel model;
   final LocalChat chat;
+
+  /// What happened, for the store (runApplet's actions).
+  final events = StreamController<AssistantAction>();
   StreamSubscription<String>? _answer;
 
   @override
@@ -31,29 +32,29 @@ class AssistantApplet extends Applet<AssistantState, AssistantAction, AssistantV
   /// (stt and its server) and a microphone.
   Future<void> start() async {
     model.canSpeak = await speechInstalled() && await hasMicrophone();
-    _events.add(AssistantAction.ready);
+    events.add(AssistantAction.ready);
   }
 
   void ask(String question) {
     final q = question.trim();
     model.typing = false;
     if (q.isEmpty || model.generating) {
-      _events.add(AssistantAction.back);
+      events.add(AssistantAction.back);
       return;
     }
     model
       ..turns = [...model.turns, ChatTurn(ChatRole.user, q)]
       ..partial = ''
       ..generating = true;
-    _events.add(AssistantAction.asked);
+    events.add(AssistantAction.asked);
     _answer = chat.reply(model.turns).listen(
       (piece) {
         model.partial += piece;
-        _events.add(AssistantAction.piece);
+        events.add(AssistantAction.piece);
       },
       onError: (Object err) {
         model.notice = err is LocalChatError ? err.sentence : VrxWords.of(err, context: 'assistant');
-        _events.add(AssistantAction.failed);
+        events.add(AssistantAction.failed);
       },
       onDone: _finish,
     );
@@ -65,7 +66,7 @@ class AssistantApplet extends Applet<AssistantState, AssistantAction, AssistantV
       ..partial = ''
       ..generating = false;
     _answer = null;
-    _events.add(AssistantAction.answered);
+    events.add(AssistantAction.answered);
   }
 
   Future<void> _stop() async {
@@ -75,14 +76,14 @@ class AssistantApplet extends Applet<AssistantState, AssistantAction, AssistantV
 
   Future<void> _speak() async {
     model.listening = true;
-    _events.add(AssistantAction.listening);
+    events.add(AssistantAction.listening);
     try {
       await Intent.send('sys.stt.listen', null);
     } on Object catch (err) {
       model
         ..listening = false
         ..notice = VrxWords.of(err, context: 'assistant');
-      _events.add(AssistantAction.failed);
+      events.add(AssistantAction.failed);
     }
   }
 
@@ -93,11 +94,11 @@ class AssistantApplet extends Applet<AssistantState, AssistantAction, AssistantV
     final p = payload is Map ? payload : const {};
     final text = p['text'];
     if (text is String && text.trim().isNotEmpty) {
-      _events.add(AssistantAction.heard);
+      events.add(AssistantAction.heard);
       ask(text);
     } else {
       model.notice = heardSentence(p['error'] as String?);
-      _events.add(AssistantAction.heard);
+      events.add(AssistantAction.heard);
     }
   }
 
@@ -108,12 +109,12 @@ class AssistantApplet extends Applet<AssistantState, AssistantAction, AssistantV
     await _answer?.cancel();
     model.generating = false;
     _answer = null;
-    _events.add(AssistantAction.cleared);
+    events.add(AssistantAction.cleared);
   }
 
   void _type() {
     model.typing = true;
-    _events.add(AssistantAction.typing);
+    events.add(AssistantAction.typing);
   }
 
   @override
@@ -124,7 +125,7 @@ class AssistantApplet extends Applet<AssistantState, AssistantAction, AssistantV
         title: 'Your question',
         initial: '',
         hint: 'Ask anything',
-        onBack: () => _events.add(AssistantAction.back),
+        onBack: () => events.add(AssistantAction.back),
         onDone: ask,
       );
     } else {
@@ -141,46 +142,119 @@ class AssistantApplet extends Applet<AssistantState, AssistantAction, AssistantV
 }
 
 /// The questions and answers, and the ways to ask.
-class _Conversation extends StatelessWidget {
+class _Conversation extends StatefulWidget {
   const _Conversation({required this.view, required this.onType, required this.onSpeak, required this.onStop, required this.onClear});
 
   final AssistantView view;
   final VoidCallback onType, onSpeak, onStop, onClear;
 
   @override
+  State<_Conversation> createState() => _ConversationState();
+}
+
+/// The newest message stays in view while an answer is written, as a
+/// chat does, until the person scrolls up to read an older one; back at
+/// the bottom, it follows again (bench, CM4, 2026-10-14: the answer grew
+/// below the fold).
+class _ConversationState extends State<_Conversation> {
+  final _scroll = ScrollController();
+  bool _following = true;
+
+  @override
+  void didUpdateWidget(_Conversation old) {
+    super.didUpdateWidget(old);
+    if (_following) WidgetsBinding.instance.addPostFrameCallback((_) => _toNewest());
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _toNewest() {
+    if (!mounted || !_scroll.hasClients) return;
+    final p = _scroll.position;
+    if (p.pixels < p.maxScrollExtent) _scroll.jumpTo(p.maxScrollExtent);
+  }
+
+  /// Where a scroll came to rest says whether to follow: at the bottom
+  /// (within a hairline), yes; above it, the person is reading.
+  bool _rested(ScrollEndNotification n) {
+    _following = n.metrics.pixels >= n.metrics.maxScrollExtent - 1;
+    return false;
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final view = widget.view;
     final space = ScaledSpacing.of(context);
     final empty = view.turns.isEmpty && view.partial.isEmpty;
+    if (empty) _following = true;
     return Column(children: [
       VrxHeader(
         title: 'Assistant',
         onBack: Nav.pop,
-        action: empty ? null : VrxIconButton(glyph: VrxSymbols.delete_sweep, onTap: onClear),
+        action: empty ? null : VrxIconButton(glyph: VrxSymbols.delete_sweep, onTap: widget.onClear),
       ),
       if (view.notice != null) VrxBanner(text: view.notice),
       Expanded(
         child: empty
-            ? Center(
-                child: Padding(
-                  padding: EdgeInsets.all(space.inset),
-                  child: Text('Ask a question. The answer is written on this device.',
-                      style: TypeRole.body(context), textAlign: TextAlign.center),
+            ? const _Intro()
+            : NotificationListener<ScrollEndNotification>(
+                onNotification: _rested,
+                child: ListView(
+                  controller: _scroll,
+                  padding: EdgeInsets.symmetric(horizontal: space.inset, vertical: space.sm),
+                  children: [
+                    for (final t in view.turns) _Turn(who: t.role == ChatRole.user ? 'You' : 'Assistant', text: t.text),
+                    if (view.generating) _Turn(who: 'Assistant', text: view.partial.isEmpty ? 'Thinking…' : view.partial),
+                  ],
                 ),
-              )
-            : ListView(padding: EdgeInsets.symmetric(horizontal: space.inset, vertical: space.sm), children: [
-                for (final t in view.turns) _Turn(who: t.role == ChatRole.user ? 'You' : 'Assistant', text: t.text),
-                if (view.generating) _Turn(who: 'Assistant', text: view.partial.isEmpty ? 'Thinking…' : view.partial),
-              ]),
+              ),
       ),
       if (view.generating)
-        VrxRow(glyph: VrxSymbols.stop, label: 'Stop the answer', onTap: onStop)
+        VrxRow(glyph: VrxSymbols.stop, label: 'Stop the answer', onTap: widget.onStop)
       else if (view.listening)
         const VrxRow(glyph: VrxSymbols.mic, label: 'Listening…')
       else ...[
-        VrxRow(glyph: VrxSymbols.keyboard, label: 'Type a question', onTap: onType),
-        if (view.canSpeak) VrxRow(glyph: VrxSymbols.mic, label: 'Speak a question', onTap: onSpeak),
+        VrxRow(glyph: VrxSymbols.keyboard, label: 'Type a question', onTap: widget.onType),
+        if (view.canSpeak) VrxRow(glyph: VrxSymbols.mic, label: 'Speak a question', onTap: widget.onSpeak),
       ],
     ]);
+  }
+}
+
+/// The empty conversation's hint, whole or not at all: under a notice on
+/// a small panel there may be no room for it, and half a line reads as a
+/// fault (bench, CM4, 2026-10-14). It is a hint; the ways to ask below it
+/// say the same.
+class _Intro extends StatelessWidget {
+  const _Intro();
+
+  static const text = 'Ask a question. The answer is written on this device.';
+
+  @override
+  Widget build(BuildContext context) {
+    final space = ScaledSpacing.of(context);
+    final style = TypeRole.body(context);
+    return LayoutBuilder(builder: (context, room) {
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: style),
+        textAlign: TextAlign.center,
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+      )..layout(maxWidth: (room.maxWidth - 2 * space.inset).clamp(0, double.infinity));
+      final fits = painter.height + 2 * space.inset <= room.maxHeight;
+      painter.dispose();
+      if (!fits) return const SizedBox.shrink();
+      return Center(
+        child: Padding(
+          padding: EdgeInsets.all(space.inset),
+          child: Text(text, style: style, textAlign: TextAlign.center),
+        ),
+      );
+    });
   }
 }
 
@@ -205,7 +279,7 @@ class _Turn extends StatelessWidget {
 Future<void> main() async {
   final model = AssistantModel();
   final applet = AssistantApplet(model);
-  runApplet(applet, actions: _events.stream);
+  runApplet(applet, actions: applet.events.stream);
   // stt's answers: a told handler, answered at once
   VrxBridge.listen().listen((d) {
     if (d is VrxIntentDelivery && d.name == 'sys.stt.heard') {

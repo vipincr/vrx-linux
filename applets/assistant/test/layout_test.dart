@@ -37,6 +37,16 @@ void main() {
         ..notice = heardSentence('nothing-heard');
       await expectCleanLayout(tester, AssistantApplet(m), display: display);
     });
+    // the bench state (CM4, 2026-10-14): a notice above the empty
+    // conversation with both ways to ask below it
+    testWidgets('assistant with a notice, ready to ask, on ${display.name}', (tester) async {
+      final m = ready()..notice = heardSentence('nothing-heard');
+      await expectCleanLayout(tester, AssistantApplet(m), display: display);
+    });
+    testWidgets('assistant with a long notice, ready to ask, on ${display.name}', (tester) async {
+      final m = ready()..notice = heardSentence('engine');
+      await expectCleanLayout(tester, AssistantApplet(m), display: display);
+    });
     testWidgets('assistant typing on ${display.name}', (tester) async {
       await expectCleanLayout(tester, AssistantApplet(ready()..typing = true), display: display);
     });
