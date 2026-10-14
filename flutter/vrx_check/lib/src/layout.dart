@@ -5,7 +5,9 @@
 /// to its rect on the display, in logical px (1 = 1/6.299 mm). The rules:
 ///
 /// - overflow: a Flex that overflowed (Flutter's own report);
-/// - cut: text truncated or dropped past its line limit;
+/// - cut: text truncated or dropped past its line limit, or taller than
+///   the box it was given (a paragraph with no line limit is clipped at
+///   its box's height: half a line shows, the rest is gone);
 /// - broken: text wrapped inside a word ("Pomodor" / "o");
 /// - text over text: two runs that overlap (a garbled stack);
 /// - target over target: two controls whose hit areas overlap, so a tap
@@ -170,6 +172,21 @@ bool _under<T extends Widget>(Element e) {
   return found;
 }
 
+/// Under an Offstage that is off stage. A ModalRoute wraps every page in
+/// Offstage(offstage: false), so the widget's type alone says nothing.
+bool _offstage(Element e) {
+  var found = false;
+  e.visitAncestorElements((a) {
+    final w = a.widget;
+    if (w is Offstage && w.offstage) {
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
 bool _insideTextField(Element e) {
   var found = false;
   e.visitAncestorElements((a) {
@@ -269,9 +286,17 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
   final texts = <(RenderParagraph, Rect, String, bool)>[];
   for (final e in find.byType(RichText).evaluate()) {
     final box = e.renderObject;
-    if (box is! RenderParagraph || !box.attached || !box.hasSize || box.size.isEmpty) continue;
+    if (box is! RenderParagraph || !box.attached || !box.hasSize) continue;
     final text = box.text.toPlainText();
     if (text.trim().isEmpty) continue;
+    // words squeezed to no room at all are the most cut text there is
+    // (a Flex child given zero height); text Offstage is not on screen
+    if (box.size.isEmpty) {
+      if (!_offstage(e) && !_under<VrxTruncates>(e)) {
+        issues.add(LayoutIssue('cut', '"$text" has no room (${box.size.width.toStringAsFixed(0)}x${box.size.height.toStringAsFixed(0)})', _rectOf(box)));
+      }
+      continue;
+    }
     final whole = _rectOf(box);
     final viewport = _viewportOf(e);
     final scrolls = viewport != null;
@@ -290,6 +315,12 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
       textWidthBasis: box.textWidthBasis,
       textHeightBehavior: box.textHeightBehavior,
     )..layout(maxWidth: box.constraints.maxWidth.isFinite ? box.constraints.maxWidth : box.size.width);
+    // taller than its box: clipped at the box's foot (no line limit
+    // to exceed, so didExceedMaxLines never says so; bench, CM4,
+    // 2026-10-14, the Assistant's empty state under a notice)
+    if (!box.didExceedMaxLines && painter.height > box.size.height + 0.5 && !_under<VrxTruncates>(e)) {
+      issues.add(LayoutIssue('cut', '"$text" is ${painter.height.toStringAsFixed(0)} tall in a ${box.size.height.toStringAsFixed(0)} box', rect));
+    }
     var pos = 0;
     while (pos < text.length) {
       final end = painter.getLineBoundary(TextPosition(offset: pos)).end;
