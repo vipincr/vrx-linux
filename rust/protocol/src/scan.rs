@@ -54,6 +54,7 @@ const NO_SCREEN_POWER: &str = "G019: the screen's power is the compositor's (pla
 const NO_DIALOG: &str = "G020: a modal is a route the kit opens (vrxConfirm, vrxAsk), so Back, Escape and the strip close it first (plan 0011 D1)";
 const NO_TIMER: &str = "G021: a periodic source is VrxTicker, which rests while the applet is hidden (plan 0011 D3)";
 const NO_POLL: &str = "G027: nothing polls (plan 0012 D6): the system's state arrives as events (vrxhost's Facts and Watch, D-Bus signals, inotify); a loop that must wake on a clock says why with `// poll-ok: <reason>`";
+const ONE_WRITER: &str = "G031: the store loop is the only writer (plan 0013 D1): a fact becomes an action the model reduces, so nothing outside state.dart assigns a model field";
 const NO_RAW_PRESS: &str = "a tappable control comes from the kit's press components (VrxPress and the rows, chips and buttons on it), so every press is acknowledged the same way";
 
 /// Forms no `vrx-allow` excuses. G019: an applet that switches the light
@@ -69,6 +70,7 @@ const NEVER_ALLOWED: &[&str] = &[
     "showGeneralDialog",
     "showModalBottomSheet",
     "Timer.periodic",
+    "model.<field> =",
 ];
 
 /// Where Linux's backlight is wrapped: the kit's vrx interface to it
@@ -649,6 +651,127 @@ fn polls(code: &str) -> Vec<(usize, &'static str)> {
     found
 }
 
+/// G031 (plan 0013 D1): writes through `model` in Dart code (comments and
+/// strings already blanked): `model.a.b = x`, `model.a += x`, `model.a++`,
+/// `++model.a`, and cascades, `model..a = x` on one line or across lines.
+/// Returns the 1-based line of each write.
+fn model_writes(code: &str) -> Vec<usize> {
+    let chars: Vec<char> = code.chars().collect();
+    let line_of = |at: usize| chars[..at].iter().filter(|c| **c == '\n').count() + 1;
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    let skip_ws = |mut i: usize| {
+        while i < chars.len() && chars[i].is_whitespace() {
+            i += 1;
+        }
+        i
+    };
+    // the operator at i writes: `=` (not `==`, `=>`), a compound `op=`,
+    // `++` or `--`
+    let writes_at = |i: usize| -> bool {
+        let next = |k: usize| chars.get(i + k).copied().unwrap_or(' ');
+        match next(0) {
+            '=' => next(1) != '=' && next(1) != '>',
+            '+' | '-' => next(1) == next(0) || next(1) == '=',
+            '*' | '%' | '|' | '&' | '^' => next(1) == '=',
+            '/' => next(1) == '=',
+            '~' => next(1) == '/' && next(2) == '=',
+            '?' => next(1) == '?' && next(2) == '=',
+            _ => false,
+        }
+    };
+    let mut found = Vec::new();
+    let mut i = 0;
+    while i + 5 <= chars.len() {
+        let here: String = chars[i..i + 5].iter().collect();
+        let before = if i == 0 { ' ' } else { chars[i - 1] };
+        let after = chars.get(i + 5).copied().unwrap_or(' ');
+        if here != "model" || ident(before) || ident(after) {
+            i += 1;
+            continue;
+        }
+        // prefix ++model.x / --model.x
+        let mut b = i;
+        while b > 0 && chars[b - 1] == ' ' {
+            b -= 1;
+        }
+        if b >= 2
+            && ((chars[b - 1] == '+' && chars[b - 2] == '+')
+                || (chars[b - 1] == '-' && chars[b - 2] == '-'))
+        {
+            found.push(line_of(i));
+        }
+        let mut j = skip_ws(i + 5);
+        if chars.get(j) == Some(&'.') && chars.get(j + 1) == Some(&'.') {
+            // a cascade: every `..field … op` up to the statement's end
+            let end = chars[j..]
+                .iter()
+                .position(|c| *c == ';')
+                .map_or(chars.len(), |p| j + p);
+            let mut k = j;
+            while k + 1 < end {
+                if chars[k] == '.'
+                    && chars[k + 1] == '.'
+                    && (k == 0 || chars[k - 1] != '.')
+                {
+                    let mut m = k + 2;
+                    while m < end && (ident(chars[m]) || chars[m] == '.') {
+                        m += 1;
+                    }
+                    let op = skip_ws(m);
+                    if op < end && writes_at(op) {
+                        found.push(line_of(k));
+                    }
+                    k = m;
+                } else {
+                    k += 1;
+                }
+            }
+            i = end.max(i + 5);
+            continue;
+        }
+        // a chain: model.a.b[k] … op (an index write is a write too); a
+        // declaration (`final model = …`) consumes no segment and is no write
+        let mut segments = 0;
+        loop {
+            if chars.get(j) == Some(&'.') && chars.get(j + 1).is_some_and(|c| ident(*c)) {
+                j += 1;
+                while j < chars.len() && ident(chars[j]) {
+                    j += 1;
+                }
+                segments += 1;
+            } else if segments > 0 && chars.get(j) == Some(&'[') {
+                let mut depth = 0usize;
+                while j < chars.len() {
+                    match chars[j] {
+                        '[' => depth += 1,
+                        ']' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                j += 1;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                    j += 1;
+                }
+                segments += 1;
+            } else {
+                break;
+            }
+        }
+        if segments > 0 {
+            let op = skip_ws(j);
+            if op < chars.len() && writes_at(op) {
+                found.push(line_of(i));
+            }
+        }
+        i += 5;
+    }
+    found.dedup();
+    found
+}
+
 /// An emoji: the image ships no emoji font, so one renders as a
 /// missing-glyph box (bench 2026-10-13: the Wi-Fi lock). Symbols come
 /// from the icon font (VrxSymbols) instead.
@@ -720,6 +843,17 @@ fn violations(
                 continue;
             }
             found.push((i + 1, rule.needle, rule.why));
+        }
+    }
+    // G031, applets only: the model's fields are written in state.dart
+    // (its reducer), nowhere else; no marker excuses it
+    if ext == "dart"
+        && !KIT.iter().any(|k| path.contains(k))
+        && !path.ends_with("state.dart")
+    {
+        let code: String = bare.join("\n");
+        for n in model_writes(&code) {
+            found.push((n, "model.<field> =", ONE_WRITER));
         }
     }
     // G027, applets and the kit alike: a polling form needs its reason
@@ -1234,5 +1368,25 @@ mod tests {
             .len(),
             1
         );
+    }
+
+    /// G031 (plan 0013 D1): a write through `model` outside state.dart is
+    /// found in every spelling; reads, comparisons and arrows are not; the
+    /// reducer's own file and the kit are exempt.
+    #[test]
+    fn the_store_is_the_only_writer_g031() {
+        let code = "model.error = e;\nif (model.error == null) x();\nfinal f = () => model.view;\nmodel.count += 1;\nmodel.count++;\n++model.taps;\nmodel..open = c\n  ..error = null;\nmodel.list.add(x);\nmodel.ips ??= [];\nmodel.a.b = 2; // vrx-allow: no\nh.model.x = 1;\nmyModel.x = 1;\nmodel.world[z] ??= y;\nif (model.values['a'] == b) {}\nmodel.h12 = !f;\nfinal model = M();\nvar model2 = 1;\n";
+        let found: Vec<usize> = violations("applets/x/lib/main.dart", "dart", code)
+            .into_iter()
+            .filter(|f| f.1 == "model.<field> =")
+            .map(|f| f.0)
+            .collect();
+        assert_eq!(found, vec![1, 4, 5, 6, 7, 8, 10, 11, 12, 14, 16]);
+        assert!(violations("applets/x/lib/state.dart", "dart", code)
+            .iter()
+            .all(|f| f.1 != "model.<field> ="));
+        assert!(violations("flutter/vrx_kit/lib/src/x.dart", "dart", code)
+            .iter()
+            .all(|f| f.1 != "model.<field> ="));
     }
 }
