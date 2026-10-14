@@ -8,6 +8,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io' show stderr;
 
 /// A side effect the store asks the system to perform after a reduce.
 /// Effects are the only place an applet touches the world; `reduce`
@@ -75,6 +76,49 @@ abstract class StoreModel<S, A, V> {
   /// or under a dark screen is hidden and builds nothing, yet its ring
   /// must still light the screen.
   String? get keepsScreenOn => null;
+
+  /// Put a snapshot back (plan 0013 D2): the fields [snapshot] captured
+  /// are the model's again. A model that cannot restore throws; the
+  /// harness's restore check then fails, so every applet answers it.
+  void restore(S snapshot) =>
+      throw UnsupportedError('$runtimeType cannot restore a snapshot (plan 0013 D2)');
+
+  /// The action Back is (the strip's Back, Escape), or null for an applet
+  /// with one screen: then it is always at its root (plan 0013 D2).
+  A? get backAction => null;
+
+  /// The applet is at its root screen: Back from here leaves it
+  /// (Nav.pop), so the harness's Back check stops here.
+  bool get atRoot => true;
+
+  /// What replay and restore compare (plan 0013 D2): by default the
+  /// snapshot, deep-compared. A model whose snapshot leaves out what its
+  /// view depends on says what to compare instead.
+  Object? get fingerprint => snapshot;
+}
+
+/// Deep equality for what models fingerprint: lists, sets, maps and
+/// records element by element, everything else by `==`.
+bool vrxDeepEquals(Object? a, Object? b) {
+  if (identical(a, b)) return true;
+  if (a is List && b is List) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!vrxDeepEquals(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  if (a is Set && b is Set) {
+    return a.length == b.length && a.every((x) => b.any((y) => vrxDeepEquals(x, y)));
+  }
+  if (a is Map && b is Map) {
+    if (a.length != b.length) return false;
+    for (final k in a.keys) {
+      if (!b.containsKey(k) || !vrxDeepEquals(a[k], b[k])) return false;
+    }
+    return true;
+  }
+  return a == b;
 }
 
 /// What a store holds the screen with. The kit installs logind's idle
@@ -98,7 +142,28 @@ class Store<S, A, V> {
     _apply(model.bootAction);
   }
 
+  /// A store resumed from [saved] (plan 0013 D2): the model restores it,
+  /// then boots. A snapshot that will not restore (truncated, from an
+  /// older build) is dropped with a line in the journal, and the model
+  /// starts from [StoreModel.initial]; a resume never crashes the applet.
+  Store.restoring(this.model, S? saved) {
+    _state = model.initial;
+    if (saved != null) {
+      try {
+        model.restore(saved);
+        _state = model.snapshot;
+      } catch (err) {
+        stderr.writeln('vrx: ${model.runtimeType}: snapshot not restored ($err); starting fresh');
+      }
+    }
+    _apply(model.bootAction);
+  }
+
   final StoreModel<S, A, V> model;
+
+  /// Every action dispatched, oldest first (not the boot action): what
+  /// the harness replays (plan 0013 D2).
+  final List<A> history = <A>[];
 
   late S _state;
   late V _view;
@@ -129,6 +194,7 @@ class Store<S, A, V> {
   /// from inside a reduce or effect queue behind — they never
   /// interleave; one writer, one order.
   void dispatch(A action) {
+    history.add(action);
     _pending.add(action);
     _drain();
   }
@@ -212,4 +278,98 @@ class StoreHarness<S, A, V> {
 
   /// The effects fired so far, oldest first.
   List<Effect> get fired => store.fired;
+
+  /// How many Backs reach the root from anywhere (plan 0013 D2).
+  static const backBound = 50;
+
+  /// Plan 0013 D2 (G032): what the store promises, checked over every
+  /// state this test reached. [fresh] makes a new model the way the test
+  /// made its own; [probes] are actions to try from every state besides
+  /// the ones the test sent (an enum's `values`); [routes] are the routes
+  /// the applet opens at, through [openAt] (the applet's `onRoute`).
+  ///
+  /// - totality: every probe, from every reached state, reduces without a
+  ///   throw;
+  /// - replay: the same actions from [StoreModel.initial] give the same
+  ///   fingerprint;
+  /// - restore: the snapshot put back into a fresh model round-trips;
+  /// - Back to root: from every reached state, Back reaches the root in
+  ///   [backBound] steps;
+  /// - open-then-back: opened at each route, Back reaches the root in
+  ///   [backBound] steps.
+  void verify({
+    required StoreModel<S, A, V> Function() fresh,
+    Iterable<A> probes = const [],
+    Iterable<String> routes = const [],
+    A? Function(String route)? openAt,
+  }) {
+    final sent = store.history.toList();
+    Store<S, A, V> replayed(int upTo) {
+      final s = Store<S, A, V>(fresh());
+      for (final a in sent.take(upTo)) {
+        s.dispatch(a);
+      }
+      return s;
+    }
+
+    // totality
+    final tries = <A>[...probes];
+    for (final a in sent) {
+      if (!tries.contains(a)) tries.add(a);
+    }
+    for (var i = 0; i <= sent.length; i++) {
+      for (final probe in tries) {
+        final s = replayed(i);
+        try {
+          s.dispatch(probe);
+        } catch (err) {
+          throw StateError('totality: $probe after ${sent.take(i).toList()} threw: $err (plan 0013 D2)');
+        }
+      }
+    }
+    // replay
+    final again = replayed(sent.length);
+    if (!vrxDeepEquals(again.model.fingerprint, model.fingerprint)) {
+      throw StateError('replay: the same actions gave ${again.model.fingerprint}, '
+          'not ${model.fingerprint} (plan 0013 D2)');
+    }
+    // restore
+    final saved = model.snapshot;
+    final back = fresh();
+    try {
+      back.restore(saved);
+    } catch (err) {
+      throw StateError('restore: ${model.runtimeType} did not take its own snapshot back: $err (plan 0013 D2)');
+    }
+    if (!vrxDeepEquals(back.snapshot, saved)) {
+      throw StateError('restore: the snapshot came back as ${back.snapshot}, not $saved (plan 0013 D2)');
+    }
+    // Back to root
+    void toRoot(Store<S, A, V> s, String from, String check) {
+      final b = s.model.backAction;
+      var steps = 0;
+      while (!s.model.atRoot) {
+        if (b == null || steps++ >= backBound) {
+          throw StateError('$check: $from did not reach the root in $backBound steps (plan 0013 D2)');
+        }
+        s.dispatch(b);
+      }
+    }
+
+    for (var i = 0; i <= sent.length; i++) {
+      toRoot(replayed(i), 'after ${sent.take(i).toList()}', 'Back');
+    }
+    // open-then-back
+    for (final route in routes) {
+      final s = Store<S, A, V>(fresh());
+      final open = openAt?.call(route);
+      if (open == null) continue;
+      try {
+        s.dispatch(open);
+      } catch (err) {
+        throw StateError('open-then-back: opening at "$route" threw: $err (plan 0013 D2)');
+      }
+      toRoot(s, 'opened at "$route"', 'open-then-back');
+    }
+  }
 }

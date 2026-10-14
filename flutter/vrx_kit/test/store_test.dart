@@ -100,4 +100,113 @@ void main() {
     store.dispatch(CounterAction.tap);
     expect(views, const [1, 2], reason: 'one view per action, in order');
   });
+
+  group("the store's promises, checked (plan 0013 D2, G032)", () {
+    StoreHarness<int, String, int> driven(PromiseModel Function() make) {
+      final h = StoreHarness<int, String, int>(make());
+      for (final a in ['tap', 'in', 'in', 'out']) {
+        h.dispatch(a);
+      }
+      return h;
+    }
+
+    test('a model that keeps every promise passes', () {
+      driven(PromiseModel.new).verify(fresh: PromiseModel.new, probes: const ['tap'], routes: const ['deep'],
+          openAt: (r) => r == 'deep' ? 'in' : null);
+    });
+
+    test('totality: an action that throws from a reached state fails', () {
+      expect(() => driven(() => PromiseModel(throwsOnTap: true)).verify(fresh: () => PromiseModel(throwsOnTap: true)),
+          throwsA(isA<StateError>().having((e) => e.message, 'message', contains('totality'))));
+    });
+
+    test('replay: a model that reads the clock does not replay', () {
+      var n = 0;
+      expect(() => driven(() => PromiseModel(noise: () => n++)).verify(fresh: () => PromiseModel(noise: () => n++)),
+          throwsA(isA<StateError>().having((e) => e.message, 'message', contains('replay'))));
+    });
+
+    test('restore: a model that drops its snapshot fails', () {
+      expect(() => driven(() => PromiseModel(forgets: true)).verify(fresh: () => PromiseModel(forgets: true)),
+          throwsA(isA<StateError>().having((e) => e.message, 'message', contains('restore'))));
+    });
+
+    test('Back: a model Back cannot leave fails', () {
+      expect(() => driven(() => PromiseModel(stuck: true)).verify(fresh: () => PromiseModel(stuck: true)),
+          throwsA(isA<StateError>().having((e) => e.message, 'message', contains('Back'))));
+    });
+
+    test('open-then-back: a route Back cannot leave fails', () {
+      expect(
+          () => driven(() => PromiseModel(trapRoute: true)).verify(
+              fresh: () => PromiseModel(trapRoute: true), routes: const ['trap'], openAt: (_) => 'trap'),
+          throwsA(isA<StateError>().having((e) => e.message, 'message', contains('open-then-back'))));
+    });
+
+    test('a snapshot that will not restore starts the model fresh, logged, never a crash', () {
+      final store = Store<int, String, int>.restoring(PromiseModel(rejects: true), 7);
+      expect(store.state, 0, reason: 'initial, not the rejected snapshot');
+      final ok = Store<int, String, int>.restoring(PromiseModel(), 2);
+      expect(ok.state, 2, reason: 'a good snapshot is taken back');
+    });
+  });
+}
+
+/// A model with screens (depth) built to keep, or break, each promise.
+class PromiseModel extends StoreModel<int, String, int> {
+  PromiseModel({
+    this.throwsOnTap = false,
+    this.noise,
+    this.forgets = false,
+    this.stuck = false,
+    this.trapRoute = false,
+    this.rejects = false,
+  });
+
+  final bool throwsOnTap, forgets, stuck, trapRoute, rejects;
+  final int Function()? noise;
+  int depth = 0;
+  int taps = 0;
+  bool trapped = false;
+
+  @override
+  int get initial => 0;
+
+  @override
+  String get bootAction => 'init';
+
+  @override
+  int reduce(int state, String action) {
+    switch (action) {
+      case 'in':
+        depth++;
+      case 'out':
+        if (!stuck && depth > 0) depth--;
+        if (!stuck && !trapRoute) trapped = false;
+      case 'trap':
+        trapped = true;
+      case 'tap':
+        if (throwsOnTap && depth > 1) throw StateError('tap at depth $depth');
+        taps += noise?.call() ?? 1;
+    }
+    return depth;
+  }
+
+  @override
+  int get snapshot => depth;
+
+  @override
+  void restore(int snapshot) {
+    if (rejects) throw const FormatException('truncated');
+    if (!forgets) depth = snapshot;
+  }
+
+  @override
+  String get backAction => 'out';
+
+  @override
+  bool get atRoot => depth == 0 && !(trapRoute && trapped);
+
+  @override
+  Object? get fingerprint => (depth, taps);
 }
