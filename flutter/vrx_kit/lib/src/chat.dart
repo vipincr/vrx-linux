@@ -1,12 +1,13 @@
 /// The local models, from an applet (plan 0011 D18): chat with
-/// llama-server, the models list, and the download a person agrees to.
+/// llama-server, and whether speech can be written down here.
 ///
 /// Linux and the engines provide everything underneath. llama-server
 /// speaks OpenAI's chat API over HTTP; systemd starts it on the first
 /// connection to /run/vrx-ml/llm.sock (the ml grant's group) and stops it
-/// when idle; vrx-ml-fetch.path downloads a model when a file named after
-/// it appears in /var/lib/vrx-ml/wanted. This file is the vrx interface
-/// over those: no server, no protocol of its own.
+/// when idle. A model is an opt-in recipe in the image (meta-vrx,
+/// VRX_ML_MODELS), never a download on the device: an applet that needs a
+/// model ships only in an image that has it. This file is the vrx
+/// interface over those: no server, no protocol of its own.
 library;
 
 import 'dart:async';
@@ -14,160 +15,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-
-import 'ticker.dart';
-
-/// One model the image lists in /usr/share/vrx-ml/models.toml.
-class LocalModel {
-  const LocalModel({
-    required this.name,
-    required this.title,
-    required this.file,
-    required this.size,
-    required this.licence,
-  });
-
-  /// Its section in the list ("chat", "speech"): how an applet names it.
-  final String name;
-  final String title;
-  final String file;
-
-  /// Bytes, as downloaded.
-  final int size;
-  final String licence;
-}
-
-/// Where a model's download stands, from vrx-ml-fetch's status file and
-/// the partial file's size.
-enum ModelState { absent, fetching, stopped, failed, present }
-
-class ModelProgress {
-  const ModelProgress(this.state, {this.bytes = 0, this.why});
-
-  final ModelState state;
-
-  /// Bytes downloaded so far (while fetching or stopped).
-  final int bytes;
-
-  /// Why it failed: network, checksum, space.
-  final String? why;
-
-  @override
-  bool operator ==(Object other) =>
-      other is ModelProgress && other.state == state && other.bytes == bytes && other.why == why;
-
-  @override
-  int get hashCode => Object.hash(state, bytes, why);
-
-  @override
-  String toString() => 'ModelProgress($state, $bytes${why == null ? '' : ', $why'})';
-}
-
-/// The models list and the downloads.
-class LocalModels {
-  LocalModels({
-    this.listPath = '/usr/share/vrx-ml/models.toml',
-    this.root = '/var/lib/vrx-ml',
-  });
-
-  final String listPath;
-  final String root;
-
-  /// The models the image lists; empty where it lists none (no ML stack).
-  Future<List<LocalModel>> list() async {
-    try {
-      return parseModels(await File(listPath).readAsString());
-    } on FileSystemException {
-      return const [];
-    }
-  }
-
-  /// Where the model is now.
-  Future<ModelProgress> progress(LocalModel m) async {
-    if (await File('$root/models/${m.file}').exists()) return const ModelProgress(ModelState.present);
-    final part = File('$root/models/${m.file}.part');
-    final bytes = await part.exists() ? await part.length() : 0;
-    final wanted = await File('$root/wanted/${m.name}').exists();
-    final status = await _status(m.name);
-    final state = status['state'];
-    if (wanted) return ModelProgress(ModelState.fetching, bytes: bytes);
-    if (state == 'failed') return ModelProgress(ModelState.failed, bytes: bytes, why: status['why'] ?? 'unknown');
-    if (state == 'stopped' || bytes > 0) return ModelProgress(ModelState.stopped, bytes: bytes);
-    return const ModelProgress(ModelState.absent);
-  }
-
-  Future<Map<String, String>> _status(String name) async {
-    try {
-      final out = <String, String>{};
-      for (final line in await File('$root/status/$name').readAsLines()) {
-        final eq = line.indexOf('=');
-        if (eq > 0) out[line.substring(0, eq)] = line.substring(eq + 1).trim();
-      }
-      return out;
-    } on FileSystemException {
-      return const {};
-    }
-  }
-
-  /// Ask for [m]: the person agreed. vrx-ml-fetch takes it from here.
-  Future<void> fetch(LocalModel m) => File('$root/wanted/${m.name}').writeAsString('');
-
-  /// Stop fetching [m]; what came is kept for the next try.
-  Future<void> stop(LocalModel m) async {
-    final f = File('$root/wanted/${m.name}');
-    if (await f.exists()) await f.delete();
-  }
-
-  /// [m]'s progress once a second while the applet is in front, and once
-  /// at once; a new value only when it changed.
-  Stream<ModelProgress> watch(LocalModel m) {
-    late StreamController<ModelProgress> out;
-    VrxTicker? ticker;
-    ModelProgress? last;
-    Future<void> read() async {
-      final p = await progress(m);
-      if (p != last && !out.isClosed) out.add(last = p);
-    }
-
-    out = StreamController<ModelProgress>(
-      onListen: () {
-        unawaited(read());
-        ticker = VrxTicker(const Duration(seconds: 1), () => unawaited(read()));
-      },
-      onCancel: () async {
-        ticker?.cancel();
-        await out.close();
-      },
-    );
-    return out.stream;
-  }
-}
-
-/// The models list's grammar: `[name]` sections of `key = "text"` or
-/// `key = number`, `#` comments. vrx-ml-fetch reads the same file.
-List<LocalModel> parseModels(String text) {
-  final sections = <String, Map<String, String>>{};
-  String? current;
-  for (final raw in const LineSplitter().convert(text)) {
-    final line = raw.trim();
-    if (line.isEmpty || line.startsWith('#')) continue;
-    if (line.startsWith('[') && line.endsWith(']')) {
-      current = line.substring(1, line.length - 1).trim();
-      sections[current] = {};
-      continue;
-    }
-    final eq = line.indexOf('=');
-    if (current == null || eq < 0) continue;
-    var value = line.substring(eq + 1).trim();
-    if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) value = value.substring(1, value.length - 1);
-    sections[current]![line.substring(0, eq).trim()] = value;
-  }
-  return [
-    for (final MapEntry(key: name, value: s) in sections.entries)
-      if (s['file'] != null && int.tryParse(s['size'] ?? '') != null)
-        LocalModel(name: name, title: s['title'] ?? name, file: s['file']!, size: int.parse(s['size']!), licence: s['licence'] ?? ''),
-  ];
-}
 
 /// Who said it.
 enum ChatRole { user, assistant }
@@ -304,3 +151,8 @@ Future<bool> hasMicrophone({String pcm = '/proc/asound/pcm'}) async {
 }
 
 bool microphoneIn(String pcmList) => pcmList.split('\n').any((l) => l.contains(': capture '));
+
+/// Whether this image writes speech down: the speech model's socket
+/// exists only where a speech model was built in (vrx-ml-speech).
+Future<bool> speechInstalled({String socket = '/run/vrx-ml/stt.sock'}) async =>
+    await FileSystemEntity.type(socket) == FileSystemEntityType.unixDomainSock;

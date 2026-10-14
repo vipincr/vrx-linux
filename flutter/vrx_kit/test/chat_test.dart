@@ -4,34 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vrx_kit/vrx_kit.dart';
 
-const list = '''
-# a comment
-[chat]
-title = "Chat: Qwen2.5 0.5B Instruct"
-file = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
-url = "https://example.org/q.gguf"
-sha256 = "74a4"
-size = 491400032
-licence = "Apache-2.0"
-
-[speech]
-file = "ggml-tiny.en-q5_1.bin"
-size = 32166155
-
-[broken]
-title = "no file, no size"
-''';
-
 void main() {
-  test('the models list: sections with a file and a size; the rest skipped', () {
-    final m = parseModels(list);
-    expect(m.map((e) => e.name), ['chat', 'speech']);
-    expect(m.first.title, 'Chat: Qwen2.5 0.5B Instruct');
-    expect(m.first.size, 491400032);
-    expect(m.first.licence, 'Apache-2.0');
-    expect(m.last.title, 'speech', reason: 'a model without a title is named by its section');
-  });
-
   test('server-sent lines: pieces, the end, and noise ignored', () {
     expect(chatEvent('data: {"choices":[{"delta":{"content":"Hel"},"finish_reason":null}]}'), (text: 'Hel', done: false));
     expect(chatEvent('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}'), (text: '', done: true));
@@ -57,32 +30,17 @@ void main() {
     expect(microphoneIn('00-00: USB Audio : USB Audio : playback 1 : capture 1\n'), isTrue);
   });
 
-  group('downloads', () {
-    late Directory root;
-    late LocalModels models;
-    final chat = parseModels(list).first;
-
-    setUp(() async {
-      root = await Directory.systemTemp.createTemp('vrx-ml');
-      for (final d in ['models', 'status', 'wanted']) {
-        await Directory('${root.path}/$d').create();
-      }
-      models = LocalModels(root: root.path);
-    });
-    tearDown(() => root.delete(recursive: true));
-
-    test('absent, asked for, partly there, failed, present', () async {
-      expect((await models.progress(chat)).state, ModelState.absent);
-      await models.fetch(chat);
-      await File('${root.path}/models/${chat.file}.part').writeAsBytes(List.filled(10, 0));
-      expect(await models.progress(chat), const ModelProgress(ModelState.fetching, bytes: 10));
-      await models.stop(chat);
-      expect((await models.progress(chat)).state, ModelState.stopped, reason: 'what came is kept');
-      await File('${root.path}/status/chat').writeAsString('state=failed\nwhy=checksum\n');
-      expect(await models.progress(chat), const ModelProgress(ModelState.failed, bytes: 10, why: 'checksum'));
-      await File('${root.path}/models/${chat.file}').writeAsString('');
-      expect((await models.progress(chat)).state, ModelState.present);
-    });
+  test('speech is installed where its socket is, and nowhere else', () async {
+    final dir = await Directory.systemTemp.createTemp('vrx-ml');
+    addTearDown(() => dir.delete(recursive: true));
+    final path = '${dir.path}/stt.sock';
+    expect(await speechInstalled(socket: path), isFalse, reason: 'no speech model in this image');
+    await File(path).writeAsString('');
+    expect(await speechInstalled(socket: path), isFalse, reason: 'a plain file is not the socket');
+    await File(path).delete();
+    final server = await ServerSocket.bind(InternetAddress(path, type: InternetAddressType.unix), 0);
+    addTearDown(server.close);
+    expect(await speechInstalled(socket: path), isTrue);
   });
 
   group('a reply through the socket', () {

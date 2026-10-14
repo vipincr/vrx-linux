@@ -8,13 +8,14 @@
 [Unit]
 Description=vrx local speech model (whisper-server)
 StopWhenUnneeded=yes
-ConditionPathExists=/var/lib/vrx-ml/models/ggml-tiny.en-q5_1.bin
-RequiresMountsFor=/var/lib/vrx-ml
+# the speech model's recipe installs this link (meta-vrx, VRX_ML_MODELS); an
+# image without a speech model ships no unit, and a missing file never starts
+ConditionPathExists=/usr/share/vrx-ml/speech.bin
 
 [Service]
 Type=exec
 ExecStart=/usr/bin/whisper-server --host 127.0.0.1 --port 8082 \
-    --model /var/lib/vrx-ml/models/ggml-tiny.en-q5_1.bin --threads 4
+    --model /usr/share/vrx-ml/speech.bin --threads 4
 # whisper-server loads the model before it listens; its form page at /
 # answers once it does
 ExecStartPost=/usr/libexec/vrx/vrx-ml-ready 8082 /

@@ -1,12 +1,14 @@
 #!/bin/sh
 # Plan 0011 D18 on a board: the local model servers, behind the ml grant.
 #
-#   tools/bench/ml-check.sh <board-host> [--fetch]
+#   tools/bench/ml-check.sh <board-host>
 #
-# --fetch asks vrx-ml-fetch for the models first (about 523 MB over the
-# board's network) and waits for them. Without it, a board without the
-# models checks only what needs none (G024, the grant, the fetch refusing
-# an unknown name).
+# The models are opt-in recipes built into the image (meta-vrx,
+# VRX_ML_MODELS): a board whose image lists none has no model units at
+# all, and the rows that need a model are skipped. Each model recipe
+# installs its file's SHA-256 beside it (models/<file>.sha256, from the
+# recipe's SRC_URI checksum), so the board proves it carries exactly the
+# bytes the recipe pinned.
 #
 # The CM4 bench has no microphone, so speech goes through ALSA's loopback
 # (snd-aloop): a sentence the bench Mac speaks (say, afconvert) is played
@@ -14,7 +16,6 @@
 # capture device. The board's own asound.conf is put back at the end.
 set -u
 HOST=$1
-FETCH=${2:-}
 O="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -28,42 +29,41 @@ if command -v say >/dev/null && command -v afconvert >/dev/null; then
 fi
 
 # shellcheck disable=SC2086
-ssh $O "root@$HOST" FETCH="$FETCH" sh -s <<'EOF'
+ssh $O "root@$HOST" sh -s <<'EOF'
 fails=0
 ok()   { echo "  ok    $*"; }
 bad()  { echo "  FAIL  $*"; fails=$((fails + 1)); }
 skip() { echo "  skip  $*"; }
-M=/var/lib/vrx-ml/models
-CHAT=qwen2.5-0.5b-instruct-q4_k_m.gguf
-SPEECH=ggml-tiny.en-q5_1.bin
+M=/usr/share/vrx-ml/models
+CHAT=/usr/share/vrx-ml/chat.gguf
+SPEECH=/usr/share/vrx-ml/speech.bin
 
-echo "== the units"
-for u in vrx-llm.socket vrx-stt.socket vrx-ml-fetch.path; do
-    [ "$(systemctl is-active $u)" = active ] && ok "$u listening" || bad "$u is $(systemctl is-active $u)"
+echo "== the models in the image"
+found=0
+for sum in "$M"/*.sha256; do
+    [ -e "$sum" ] || continue
+    found=1
+    (cd "$M" && sha256sum -c "$(basename "$sum")" >/dev/null 2>&1) \
+        && ok "$(basename "$sum" .sha256): present, SHA-256 matches its recipe" \
+        || bad "$(basename "$sum" .sha256): SHA-256 does not match its recipe"
 done
-ls -l /run/vrx-ml/ | grep -q 'srw-rw---- .* root vrx-ml .* llm.sock' \
-    && ok "/run/vrx-ml/llm.sock is root:vrx-ml 0660" || bad "llm.sock owner or mode: $(ls -l /run/vrx-ml/)"
+[ $found = 1 ] || skip "this image lists no model (VRX_ML_MODELS)"
+[ ! -d /var/lib/vrx-ml ] && ok "no model store on /data: nothing is downloaded on the device" || bad "/var/lib/vrx-ml exists"
 
-echo "== the fetch takes names, never URLs"
-touch /var/lib/vrx-ml/wanted/no_such_model
-for i in 1 2 3 4 5 6 7 8 9 10; do [ -e /var/lib/vrx-ml/wanted/no_such_model ] || break; sleep 1; done
-[ ! -e /var/lib/vrx-ml/wanted/no_such_model ] && journalctl -u vrx-ml-fetch --since -20s | grep -q "no model 'no_such_model'" \
-    && ok "an unknown name is consumed and refused by name" || bad "unknown model name not refused"
-
-if [ "$FETCH" = --fetch ]; then
-    echo "== fetching the models (consent given for the bench)"
-    touch /var/lib/vrx-ml/wanted/chat /var/lib/vrx-ml/wanted/speech
-    for i in $(seq 1 1800); do
-        [ -e /var/lib/vrx-ml/wanted/chat ] || [ -e /var/lib/vrx-ml/wanted/speech ] || break
-        sleep 1
-    done
-    for n in chat speech; do
-        grep -q '^state=done' /var/lib/vrx-ml/status/$n && ok "$n: done, checksum matched" || bad "$n: $(cat /var/lib/vrx-ml/status/$n | tr '\n' ' ')"
-    done
-fi
+echo "== the units, for the roles this image has"
+for role in chat speech; do
+    case $role in chat) u=vrx-llm.socket; f=$CHAT; s=llm.sock ;; speech) u=vrx-stt.socket; f=$SPEECH; s=stt.sock ;; esac
+    if [ -e "$f" ]; then
+        [ "$(systemctl is-active $u)" = active ] && ok "$u listening" || bad "$u is $(systemctl is-active $u)"
+        ls -l /run/vrx-ml/ | grep -q "srw-rw---- .* root vrx-ml .* $s" \
+            && ok "/run/vrx-ml/$s is root:vrx-ml 0660" || bad "$s owner or mode: $(ls -l /run/vrx-ml/)"
+    else
+        systemctl cat $u >/dev/null 2>&1 && bad "$u ships without a $role model" || ok "no $role model, no $u"
+    fi
+done
 
 echo "== G024: the model APIs exist only behind the sockets"
-if [ -e $M/$CHAT ]; then
+if [ -e $CHAT ]; then
     free -m | awk 'NR==2 { print "        memory before: " $3 " MB used, " $7 " MB available" }'
     T0=$(date +%s)
     R=$(curl -s --max-time 180 --unix-socket /run/vrx-ml/llm.sock http://x/v1/chat/completions \
@@ -100,11 +100,11 @@ if [ -e $M/$CHAT ]; then
     [ "$(systemctl is-active vrx-llm-server)" != active ] && ok "llama-server stopped ${i} s after the last request" || bad "still running after 150 s idle"
     free -m | awk 'NR==2 { print "        memory after: " $3 " MB used, " $7 " MB available" }'
 else
-    skip "the chat model is not on this board (run with --fetch)"
+    skip "this image has no chat model"
 fi
 
 echo "== speech"
-if [ -e $M/$SPEECH ] && [ -e /tmp/vrx-ml-q.wav ]; then
+if [ -e $SPEECH ] && [ -e /tmp/vrx-ml-q.wav ]; then
     R=$(curl -s --max-time 120 --unix-socket /run/vrx-ml/stt.sock http://x/inference \
         -F file=@/tmp/vrx-ml-q.wav -F response_format=json)
     echo "        whisper-server heard: $R"
@@ -158,7 +158,7 @@ P
     rmmod snd-aloop 2>/dev/null
     systemctl restart vrx-applet@assistant
 else
-    skip "no speech model on this board, or no spoken question (say/afconvert on the bench Mac)"
+    skip "this image has no speech model, or no spoken question (say/afconvert on the bench Mac)"
 fi
 
 echo

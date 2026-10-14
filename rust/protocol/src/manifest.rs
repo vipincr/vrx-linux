@@ -78,8 +78,7 @@ pub enum SystemGrant {
     Iio,
     /// Write any applet's settings file (plan 0008 D5).
     Settings,
-    /// The local model servers' sockets, and asking for a model to be
-    /// fetched (plan 0011 D18).
+    /// The local model servers' sockets (plan 0011 D18).
     Ml,
     /// The system's locale, which the time format follows (systemd-localed's
     /// SetLocale, plan 0011 D7).

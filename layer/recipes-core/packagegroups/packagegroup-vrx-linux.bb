@@ -25,8 +25,8 @@ RDEPENDS:${PN} = "\
     ${@'vrx-theme' if d.getVar('VRX_UI') == 'flutter' else ''} \
     ${@'vrx-applet-launcher vrx-applet-shell vrx-applet-clock vrx-applet-settings vrx-applet-wifi vrx-applet-setup vrx-applet-docs vrx-applet-usbport vrx-applet-devicelink vrx-applet-manage vrx-applet-scripts vrx-applet-web vrx-applet-recorder' if d.getVar('VRX_UI') == 'flutter' else ''} \
     ${@'vrx-applet-terminal' if d.getVar('VRX_UI') == 'flutter' and d.getVar('VRX_DEBUG') == '1' else ''} \
-    ${@bb.utils.contains('VRX_ML', 'packagegroup-vrx-ml', 'vrx-ml vrx-applet-stt', '', d)} \
-    ${@'vrx-applet-assistant' if d.getVar('VRX_UI') == 'flutter' and bb.utils.contains('VRX_ML', 'packagegroup-vrx-ml', True, False, d) else ''} \
+    ${@'vrx-applet-stt' if vrx_ml_role(d, 'speech') else ''} \
+    ${@'vrx-applet-assistant' if d.getVar('VRX_UI') == 'flutter' and vrx_ml_role(d, 'chat') else ''} \
 "
 
 # The built-in applets render through flutter-vrx, so they ride only on
@@ -34,7 +34,12 @@ RDEPENDS:${PN} = "\
 # packagegroup-vrx-ui); a headless vrx-linux image is vrxhost alone.
 # Terminal rides only on a debug image as well: its unit lifts the
 # sandbox and sudo works in it (vrx-image refuses it in production).
-# The local assistant and speech (plan 0011 D18) ride only where the model
-# servers do: VRX_ML carries packagegroup-vrx-ml (meta-vrx's default; lyra
-# and any VRX_ML = "" machine get none of it). stt has no screen; the
-# assistant needs the Flutter UI as well.
+# The local assistant and speech (plan 0011 D18) ride only where their
+# model does: a model is an opt-in recipe (meta-vrx, VRX_ML_MODELS, named
+# by role: chat-*, speech-*), and its package brings its server units
+# (vrx-ml-chat, vrx-ml-speech). An image with no model listed has neither
+# applet. stt has no screen; the assistant needs the Flutter UI as well.
+def vrx_ml_role(d, role):
+    if not bb.utils.contains('VRX_ML', 'packagegroup-vrx-ml', True, False, d):
+        return False
+    return any(m.startswith(role + '-') for m in (d.getVar('VRX_ML_MODELS') or '').split())

@@ -167,6 +167,26 @@ Device Link holds the screen on while a passkey is up and while phones
 can pair. The phone companion's GATT protocol is a separate approval and
 is not part of this.
 
+## The local models
+
+The Assistant and speech-to-text (plan 0011 D18) run on llama.cpp's
+`llama-server` and whisper.cpp's `whisper-server`, each behind a unix
+socket in `/run/vrx-ml` that only the `ml` grant's group reaches; systemd
+starts a server on its socket's first connection (through
+`systemd-socket-proxyd`, the server itself in a network namespace of its
+own) and stops it two minutes after the last request.
+
+A model is never downloaded on the device. Each is its own recipe in
+meta-vrx (`recipes-ml/models`), fetched by bitbake against a pinned
+SHA-256 with its licence in the image manifest, and built in only where
+the build lists it in `VRX_ML_MODELS` (empty by default). A model is named
+by its role (`chat-…`, `speech-…`) and installs the role's link
+(`/usr/share/vrx-ml/chat.gguf`, `speech.bin`) that its server reads; its
+package brings that role's units (`vrx-ml-chat`, `vrx-ml-speech`) and
+engine. The Assistant ships only with a chat model, stt only with a
+speech model, and the Assistant offers Speak only where stt's socket
+exists and ALSA lists a capture device.
+
 ## The build rungs
 
 Everything above claims only rungs it has actually reached:

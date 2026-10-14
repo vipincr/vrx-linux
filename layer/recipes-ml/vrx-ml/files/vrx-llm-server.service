@@ -8,13 +8,14 @@
 [Unit]
 Description=vrx local chat model (llama-server)
 StopWhenUnneeded=yes
-ConditionPathExists=/var/lib/vrx-ml/models/qwen2.5-0.5b-instruct-q4_k_m.gguf
-RequiresMountsFor=/var/lib/vrx-ml
+# the chat model's recipe installs this link (meta-vrx, VRX_ML_MODELS); an
+# image without a chat model ships no unit, and a missing file never starts
+ConditionPathExists=/usr/share/vrx-ml/chat.gguf
 
 [Service]
 Type=exec
 ExecStart=/usr/bin/llama-server --host 127.0.0.1 --port 8081 \
-    --model /var/lib/vrx-ml/models/qwen2.5-0.5b-instruct-q4_k_m.gguf \
+    --model /usr/share/vrx-ml/chat.gguf \
     --ctx-size 2048 --threads 4 --parallel 1
 ExecStartPost=/usr/libexec/vrx/vrx-ml-ready 8081 /health
 TimeoutStartSec=90
