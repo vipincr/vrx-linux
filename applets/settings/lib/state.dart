@@ -262,6 +262,18 @@ String lightOffLabel(int seconds) => switch (seconds) {
       _ => '${seconds ~/ 3600} h',
     };
 
+/// What the Power off confirmation says happens (plan 0020 D4): the
+/// board's own answer, from its profile after the device checked its
+/// bootloader, so nobody reads "off" for a board that keeps drawing power.
+String powerOffMessage(VrxCascade c) => switch ((c.off, c.offWake)) {
+      (VrxPowerOff.standby, VrxOffWake.replug) =>
+        'The device turns off. It stays off until it is unplugged and plugged in again.',
+      (VrxPowerOff.standby, VrxOffWake.button) => 'The device turns off. Press the power button to turn it on.',
+      (VrxPowerOff.halt, _) =>
+        'The device turns off. It keeps drawing a little power while off. Unplug it to turn it off fully.',
+      _ => 'The device turns off. It starts again when its power button or supply says so.',
+    };
+
 /// The cascade's later steps (plan 0012 D13), in seconds from the last
 /// input (0 = never): sleep and deep sleep come after the screen goes off.
 const cascadeChoices = [0, 300, 600, 1800, 3600, 7200];
@@ -909,7 +921,8 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
   @override
   Object? get fingerprint => [
         time?.zone, time?.automatic, time?.synced, network?.ethernet?.state, network?.ethernet?.address, device?.name, display.lightOff,
-        display.brightness, display.sleepAfter, display.deepAfter, dimming, cascade.sleep, cascade.deep, canPowerOff,
+        display.brightness, display.sleepAfter, display.deepAfter, dimming, cascade.sleep, cascade.deep, cascade.off,
+        cascade.offWake, canPowerOff,
         usbPresent, bluetooth?.on, supplyLow, battery?.percent, energyAvailable, energy == null, awake == null,
         updatesAvailable, updateStatus?.running, updateStatus?.last, updateStatus?.trial,
         [for (final o in updateOffers ?? const <UpdateOffer>[]) o.file], updateOffers == null, updateInstalling,

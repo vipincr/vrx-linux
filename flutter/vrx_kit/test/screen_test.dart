@@ -60,6 +60,28 @@ void main() {
     expect(await settings(dim: 'what').dimming(), VrxDimming.none);
   });
 
+  test('the cascade facts carry what Power off does, halt when an older compositor is silent (plan 0020 D4)', () async {
+    Future<VrxCascade> read(String caps) {
+      File('${dir.path}/caps').writeAsStringSync(caps);
+      return ScreenSettings(dir: dir.path, capsPath: '${dir.path}/caps', backlights: '${dir.path}/backlight').cascade();
+    }
+
+    final old = await read('dim=alpha\nsleep=none\ndeep=halt\nwakealarm=yes\n');
+    expect(old.off, VrxPowerOff.halt);
+    expect(old.offWake, isNull);
+    expect(old.deep, isTrue);
+    final cm4 = await read('sleep=none\ndeep=none\noff=standby\noff_wake=replug\n');
+    expect(cm4.off, VrxPowerOff.standby);
+    expect(cm4.offWake, VrxOffWake.replug);
+    final cm5 = await read('deep=halt\nwakealarm=yes\noff=standby\noff_wake=button\n');
+    expect(cm5.offWake, VrxOffWake.button);
+    final unprovisioned = await read('deep=none\noff=halt\noff_wake=\n');
+    expect(unprovisioned.off, VrxPowerOff.halt);
+    expect(unprovisioned.offWake, isNull);
+    expect((await read('off=none\n')).off, VrxPowerOff.none);
+    expect((await read('off=maybe\n')).off, VrxPowerOff.halt);
+  });
+
   test('on a backlight, brightness is the backlight\'s own level, linear, never 0', () async {
     final level = await backlight(255, 255);
     final s = settings(dim: 'backlight');

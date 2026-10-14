@@ -329,9 +329,7 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
           final yes = await vrxConfirm(
             context,
             title: off ? 'Power off?' : 'Restart?',
-            message: off
-                ? 'The device turns off. It starts again when its power button or supply says so.'
-                : 'Every applet closes and the device starts again.',
+            message: off ? powerOffMessage(model.cascade) : 'Every applet closes and the device starts again.',
             act: off ? 'Power off' : 'Restart',
           );
           if (yes && context.mounted) unawaited(_ask(context, off ? VrxSystem.power.powerOff : VrxSystem.power.reboot));

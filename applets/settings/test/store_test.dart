@@ -62,6 +62,23 @@ void main() {
     expect(lightOffLabel(45), '45 s');
   });
 
+  test('the Power off confirmation says what off means here (plan 0020 D4)', () {
+    expect(powerOffMessage(const VrxCascade(off: VrxPowerOff.standby, offWake: VrxOffWake.replug)),
+        'The device turns off. It stays off until it is unplugged and plugged in again.');
+    expect(powerOffMessage(const VrxCascade(off: VrxPowerOff.standby, offWake: VrxOffWake.button)),
+        'The device turns off. Press the power button to turn it on.');
+    expect(powerOffMessage(const VrxCascade()),
+        'The device turns off. It keeps drawing a little power while off. Unplug it to turn it off fully.',
+        reason: 'an older compositor says nothing, and nothing proves the board is really off');
+    expect(powerOffMessage(const VrxCascade(off: VrxPowerOff.none)),
+        'The device turns off. It starts again when its power button or supply says so.');
+    // a cascade fact that changes only what off means still rebuilds the view
+    final model = SettingsModel();
+    final before = model.fingerprint;
+    model.cascade = const VrxCascade(off: VrxPowerOff.standby, offWake: VrxOffWake.replug);
+    expect(model.fingerprint, isNot(equals(before)));
+  });
+
   test('the cascade rows: only where the board offers them, each later than the step before (plan 0012 D13)', () {
     final model = SettingsModel();
     final h = StoreHarness(model)..dispatch(const SettingsGo(open: Change(SettingsCategory.display)));

@@ -55,7 +55,8 @@ enum VrxDimming { backlight, alpha, none }
 /// deep sleep (a halt) where an RTC can wake the board for an alarm.
 @immutable
 class VrxCascade {
-  const VrxCascade({this.sleep = false, this.deep = false, this.wakeAlarm = false});
+  const VrxCascade(
+      {this.sleep = false, this.deep = false, this.wakeAlarm = false, this.off = VrxPowerOff.halt, this.offWake});
 
   /// "Sleep after" is offered.
   final bool sleep;
@@ -66,7 +67,25 @@ class VrxCascade {
   /// An RTC can wake the board on a timer: an alarm rings through a
   /// power-off.
   final bool wakeAlarm;
+
+  /// What a person's Power off does here (plan 0020 D4), after the device
+  /// has checked its bootloader: the compositor says it as `off=` and
+  /// `off_wake=`. An older compositor says nothing, which reads as [VrxPowerOff.halt].
+  final VrxPowerOff off;
+
+  /// How a board in standby comes back; null when it is not in standby or
+  /// the profile does not say.
+  final VrxOffWake? offWake;
 }
+
+/// What Power off does (plan 0020 D4): [standby] turns the power chip's
+/// outputs off, [halt] stops the system with its rails up (it keeps drawing
+/// power), [none] means the board offers no Power off.
+enum VrxPowerOff { standby, halt, none }
+
+/// How a board in standby comes back: its power button, or its supply
+/// unplugged and plugged in again.
+enum VrxOffWake { button, replug }
 
 /// The input the board has, as the compositor says it in
 /// /run/vrx-ui/screen (plan 0013 D6, D7): a touchscreen, and a physical
@@ -198,6 +217,8 @@ class ScreenSettings {
         sleep: (v['sleep'] ?? 'none') != 'none',
         deep: (v['deep'] ?? 'none') != 'none',
         wakeAlarm: v['wakealarm'] == 'yes',
+        off: switch (v['off']) { 'standby' => VrxPowerOff.standby, 'none' => VrxPowerOff.none, _ => VrxPowerOff.halt },
+        offWake: switch (v['off_wake']) { 'button' => VrxOffWake.button, 'replug' => VrxOffWake.replug, _ => null },
       );
     } on FileSystemException {
       return const VrxCascade();

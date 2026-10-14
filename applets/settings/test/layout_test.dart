@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vrx_check/vrx_check.dart';
 import 'package:vrx_kit/vrx_kit.dart';
@@ -196,6 +197,37 @@ void main() {
         await expectCleanLayout(tester, SettingsApplet(s.value()), display: display);
       });
     }
+    // plan 0020 D4: the Power off confirmation says what off means on this
+    // board, each sentence on every display. vrx_check judges screens and
+    // reads a modal over its screen as text over text, so the modal is
+    // checked here for what can go wrong with a long sentence: it is shown
+    // whole (no line cut off) and inside the display.
+    for (final c in _offs.entries) {
+      testWidgets('settings power off confirmation, ${c.key}, fits on ${display.name}', (tester) async {
+        await loadVrxFonts();
+        tester.view.physicalSize = Size(display.width, display.height);
+        tester.view.devicePixelRatio = display.pixelRatio;
+        addTearDown(tester.view.reset);
+        // only the power rows, so Power off is on screen on the smallest panel
+        final m = model()
+          ..open = SettingsCategory.power
+          ..supplyLow = null
+          ..battery = null
+          ..cascade = c.value;
+        await mountApplet(tester, SettingsApplet(m), touch: display.touch);
+        await settleMotion(tester);
+        await tester.tap(find.text('Power off'));
+        await settleMotion(tester);
+        final message = find.text(powerOffMessage(c.value));
+        expect(message, findsOneWidget);
+        expect(tester.renderObject<RenderParagraph>(message).didExceedMaxLines, isFalse);
+        final r = tester.getRect(message);
+        final screen = Offset.zero & tester.view.physicalSize / tester.view.devicePixelRatio;
+        expect(screen.contains(r.topLeft) && screen.contains(r.bottomRight - const Offset(1, 1)), isTrue,
+            reason: '$r is outside $screen');
+        expect(tester.takeException(), isNull);
+      });
+    }
     // D12 (plan 0013): stepping a choice changes the value under the
     // finger; the row is laid out for its widest choice, so it keeps its
     // size (a short "Never" and the longest step)
@@ -212,6 +244,12 @@ void main() {
     });
   }
 }
+
+const _offs = {
+  'standby, replug': VrxCascade(off: VrxPowerOff.standby, offWake: VrxOffWake.replug),
+  'standby, button': VrxCascade(off: VrxPowerOff.standby, offWake: VrxOffWake.button),
+  'halt': VrxCascade(),
+};
 
 const _usb = UsbHostState(ports: ['USB-A'], vbus: 'unswitched', overcurrent: 'none', policy: UsbPolicy.allowlist, allowNew: false, devices: [
   UsbDevice(port: '1-1', name: 'USB2.0 Hub', cls: UsbClass.hub, id: '05e3:0610', speed: '480'),
