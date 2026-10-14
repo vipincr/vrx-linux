@@ -6,3 +6,6 @@ target/
 .dart_tool/
 build/
 applets/*/test/shots/
+
+# drafts, patches, logs, scratch work (owner rule 2026-10-14: crash-safe, never /tmp)
+/tmp/
