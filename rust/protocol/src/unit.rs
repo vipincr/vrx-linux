@@ -441,4 +441,36 @@ mod tests {
         );
         assert_eq!(settings_defaults(&manifest("")), None);
     }
+
+    /// G064 (plan 0019 D1, D10): no applet reaches the USB bus raw or a
+    /// drive's block device. Every DeviceAllow an applet unit gets comes
+    /// from grants.conf, so the table is the whole check.
+    #[test]
+    fn no_grant_opens_the_usb_bus_or_a_block_device_g064() {
+        let grants = Grants::shipped();
+        let mut seen = 0;
+        for key in grants.keys() {
+            let Some(grant) = grants.get(key) else {
+                continue;
+            };
+            for device in &grant.devices {
+                seen += 1;
+                let raw = device.starts_with("char-usb")
+                    || device.starts_with("block-")
+                    || device.starts_with("/dev/bus/usb")
+                    || device.starts_with("/dev/sd")
+                    || device.starts_with("/dev/mmcblk");
+                assert!(
+                    !raw,
+                    "{key}: {device} reaches the bus or a drive raw (G064)"
+                );
+            }
+        }
+        assert!(seen > 0, "the table was read");
+        let media = grants.get("usb-media").expect("usb-media");
+        assert!(
+            media.devices.is_empty() && media.paths.is_empty(),
+            "a group and nothing else"
+        );
+    }
 }

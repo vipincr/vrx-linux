@@ -235,21 +235,89 @@ async fn main() -> ExitCode {
             let _ = cap_link.send(Control::LightCap(permille));
         },
     ));
-    tokio::spawn(async move {
-        let ended = power::watch(move |supply| {
-            let _ = battery_tx.send(());
+    let (power_tx, power_rx) = mpsc::unbounded_channel();
+    tokio::spawn(power::watch(power_rx, move |supply| {
+        let _ = battery_tx.send(());
+        let host = raiser.clone();
+        tokio::spawn(async move {
+            if let Ok(intent) =
+                Intent::new(power::CHANGED, serde_json::json!({ "supply": supply }))
+            {
+                varlink::raise(&host, intent).await;
+            }
+        });
+    }));
+    // devices plugged into the board (plan 0019 D7): the image's
+    // declaration, the device list from the same uevents, the drives'
+    // mounts; a board that declares no host port publishes none
+    let usb_config = usb::Config::load(std::path::Path::new(usb::CONFIG));
+    let declared = usb_config.clone();
+    vrx_host::facts::update(move |f| {
+        f.usb_ports = declared.ports;
+        f.usb_vbus = declared.vbus;
+        f.usb_overcurrent = declared.overcurrent;
+    });
+    let (usb_tx, usb_rx) = mpsc::unbounded_channel();
+    let usb_host = (!usb_config.ports.is_empty()).then(|| usb_tx.clone());
+    if usb_host.is_some() {
+        let mounts_tx = usb_tx.clone();
+        tokio::spawn(async move {
+            if let Err(err) = vrx_host::mounts::watch(usb::MOUNT_ROOT, mounts_tx).await {
+                tracing::warn!(error = %err, "usb drives' mounts: not watched");
+            }
+        });
+    }
+    let (raiser, scanner) = (host.clone(), host.clone());
+    let probe_applets = host.installer.as_ref().map(|i| i.applets.clone());
+    tokio::spawn(usb::host(
+        std::path::PathBuf::from(usb::DEVICES_ROOT),
+        usb_config,
+        usb_rx,
+        |devices, policy| {
+            vrx_host::facts::update(move |f| {
+                f.usb_devices = devices;
+                f.usb_policy = policy.to_owned();
+            });
+        },
+        move |name, payload| {
             let host = raiser.clone();
             tokio::spawn(async move {
-                if let Ok(intent) =
-                    Intent::new(power::CHANGED, serde_json::json!({ "supply": supply }))
-                {
+                if let Ok(intent) = Intent::new(name, payload) {
                     varlink::raise(&host, intent).await;
                 }
             });
+        },
+        move || {
+            let applets = probe_applets.clone();
+            async move {
+                match applets {
+                    Some(a) => a.is_active("usbguard.service").await,
+                    None => false,
+                }
+            }
+        },
+        move || {
+            let host = scanner.clone();
+            tokio::spawn(async move { varlink::import_drives(&host).await });
+        },
+    ));
+    // the kernel's uevents, heard once (G065): power supplies and the
+    // backlight to power.rs, USB devices to usb.rs
+    tokio::spawn(async move {
+        let ended = vrx_host::uevents::listen(move |message| match message.subsystem() {
+            "power_supply" | "backlight" => {
+                let _ = power_tx.send(message);
+            }
+            "usb" => {
+                if let Some(tx) = usb_host.as_ref() {
+                    let _ = tx.send(usb::HostEvent::Uevent(message));
+                }
+            }
+            _ => {}
         })
         .await;
         if let Err(err) = ended {
-            tracing::warn!(error = %err, "power supplies: not watched");
+            tracing::warn!(error = %err, "kernel uevents: not heard");
         }
     });
     // Matter (plan 0015): only where the image carries vrx-matter; the

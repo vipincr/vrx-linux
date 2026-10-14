@@ -75,11 +75,42 @@ buffers, no payload on the stream).
 
 | Method | What |
 |---|---|
-| `Facts()` | the USB port's state, the supply alarm, backlight changes, streamed (plan 0012 D6): an applet hears these and never polls |
+| `Facts()` | the USB device port's state, the supply alarm, backlight changes, what is plugged into the USB host ports, streamed (plan 0012 D6): an applet hears these and never polls |
 | `Applets()`, `Settings()` | the launcher's tiles; every declared setting |
 | `Offers()`, `Install(file, build)`, `Uninstall(applet)` | applets a person installs, as systemd system extensions, with consent bound to the image's SHA-256 (the `apps` grant) |
 | `Energy(hours)`, `Awake()` | what each applet costs and why the device is awake (the `power-stats` grant, plan 0012 D8, D12) |
 | `PowerAlerts()`, `PowerAlertAnswer(applet, answer)` | applets over their power budget, for the shell's banner |
+| `UsbEject(mount)`, `UsbPolicy(allow_new)` | eject a drive plugged into the board; "Allow new USB devices" under the image's allow-list (the `usb` grant, plan 0019 D10, D11) |
+
+### USB, both directions
+
+The board's USB raises two families of intents, named apart. The device
+side is `sys.usb.connected`: a computer enumerated the board's gadget (the
+console and file sharing, plan 0008 D11), and the `usb` fact is the UDC's
+state. The host side is something plugged into the board (plan 0019):
+`sys.usb.attached` and `sys.usb.detached` carry `{class, name, port}`, and
+`sys.usb.blocked` carries `{name, port, reason}` for a device the image's
+allow-list (USBGuard) left unauthorised for 1.5 s; the reason is `policy`,
+or `policy-failed` when USBGuard is not running. `class` is one of `hid`,
+`storage`, `audio`, `video`, `serial`, `hub`, `other`; `port` is the
+device's place on the bus (`1-1.2`), stable while it stays plugged there.
+
+The host side's facts:
+
+| Fact | What |
+|---|---|
+| `usb_devices` | each device: `port`, `name`, `class`, `id` (vendor:product), `speed` (Mb/s), `authorized`, `blocked`, and a drive's `mounts` |
+| `usb_policy` | `none` (no host ports), `open` (a debug image), `allowlist`, or `failed` (nothing newly plugged in works) |
+| `usb_ports`, `usb_vbus`, `usb_overcurrent` | what the image declared (`/usr/lib/vrx/usb.toml`): the ports' labels, whether their power is `switched`, `unswitched` or `unknown`, whether an overload is `reported`, `none` or `unknown` |
+| `usb_allow_new` | the policy switch as vrxhost last set it |
+
+A drive's partitions mount read-only, never executable, at
+`/run/vrx/usb/<port>-p<partition>`; an applet reads them with the
+`usb-media` grant (a group, no device). No grant opens the bus or a block
+device (G064). Each class has its owner: keyboards and mice reach the
+compositor's libinput, cameras camerad (plan 0018), audio ALSA, serial
+adapters `/dev/ttyUSB*` and `/dev/ttyACM*` under the `serial` grant. In
+the kit: `VrxUsbHost.service`.
 
 ## Errors
 

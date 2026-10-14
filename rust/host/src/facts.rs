@@ -4,7 +4,9 @@
 // backlight's level by its `change` uevent (power.rs), the supply alarm
 // by POLLPRI on rpi_volt's attribute (supply.rs), the screen's state by
 // the compositor's own report (compositor.rs, plan 0015 D12), who
-// advertises on Bluetooth by the arbiter's decision (bt_arbiter.rs). `io.vrx.Host.Facts`
+// advertises on Bluetooth by the arbiter's decision (bt_arbiter.rs), the
+// devices plugged into the board by the kernel's uevents (usb.rs, plan
+// 0019 D7). `io.vrx.Host.Facts`
 // streams them; the kit reads sysfs again when one moves, where it read
 // every second before.
 //
@@ -50,6 +52,22 @@ pub struct Facts {
     /// Who holds the Bluetooth adapter's advertising (plan 0015 D4, the
     /// arbiter): "", "device-link" or "matter".
     pub advertising: String,
+    /// The devices plugged into the board's USB host ports (plan 0019
+    /// D7); empty on a board with none.
+    pub usb_devices: Vec<crate::usb::Device>,
+    /// "none" (no host ports), "open", "allowlist", or "failed" (the
+    /// allow-list's daemon is not running: nothing new is authorised).
+    pub usb_policy: String,
+    /// What the image declared (plan 0019 D12): the host ports' labels,
+    /// whether their power is switched ("unswitched", "switched",
+    /// "unknown") and whether an overload is reported ("none",
+    /// "reported", "unknown").
+    pub usb_ports: Vec<String>,
+    pub usb_vbus: String,
+    pub usb_overcurrent: String,
+    /// "Allow new USB devices" as vrxhost last set it (plan 0019 D11);
+    /// true until someone switches it off.
+    pub usb_allow_new: bool,
 }
 
 impl Default for Facts {
@@ -65,6 +83,12 @@ impl Default for Facts {
             screen_on: false,
             brightness: -1,
             advertising: String::new(),
+            usb_devices: Vec::new(),
+            usb_policy: "none".to_owned(),
+            usb_ports: Vec::new(),
+            usb_vbus: String::new(),
+            usb_overcurrent: String::new(),
+            usb_allow_new: true,
         }
     }
 }

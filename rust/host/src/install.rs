@@ -525,43 +525,158 @@ async fn varlink_call(
     }
 }
 
-/// Bring the USB drive's `apps/` offers into /var/lib/vrx/offers (and,
-/// plan 0016 D11, its `updates/` bundles into /data/vrx/updates): read
-/// from the drive's image with `systemd-dissect --copy-from`, only while
-/// nothing shares it (the caller checks the unit). One scanner for both.
-pub async fn import_drive() {
-    import_drive_folder("/apps", Path::new(OFFERS), |n| id_of_file(n).is_some()).await;
+/// Bring the USB drives' `apps/` offers into /var/lib/vrx/offers (and,
+/// plan 0016 D11, their `updates/` bundles into /data/vrx/updates). One
+/// scanner, two sources (plan 0019 D9): the board's own gadget image,
+/// read with `systemd-dissect --copy-from` only while nothing shares it,
+/// and every drive plugged into the board, mounted read-only under
+/// /run/vrx/usb. A stick adds bytes and no trust: the signature is
+/// checked at install, as for any offer.
+pub async fn import_drive(drive_idle: bool) {
+    import_drive_folder("/apps", Path::new(OFFERS), drive_idle, |n| {
+        id_of_file(n).is_some()
+    })
+    .await;
 }
 
-/// `folder` on the drive into `dest`, keeping the names `accept` takes.
+/// Where a drive's files come from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Source {
+    /// The board's own USB drive image (the gadget's, plan 0008 Part G).
+    Gadget(PathBuf),
+    /// A drive plugged into the board, mounted at this directory.
+    Mounted(PathBuf),
+}
+
+/// The sources to read now: the gadget's image when nothing shares it,
+/// then every mounted drive under `mounts`, in order.
+pub fn sources(drive_idle: bool, image: &Path, mounts: &Path) -> Vec<Source> {
+    let mut out = Vec::new();
+    if drive_idle && image.exists() {
+        out.push(Source::Gadget(image.to_path_buf()));
+    }
+    let mut mounted: Vec<PathBuf> = std::fs::read_dir(mounts)
+        .map(|d| {
+            d.flatten()
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| crate::usb::device_of_mount(n).is_some())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    mounted.sort();
+    out.extend(mounted.into_iter().map(Source::Mounted));
+    out
+}
+
+/// The largest file taken from a drive: a root slot's size (plan 0016,
+/// 3 GiB); an update bundle is smaller than its slot.
+pub const MAX_DRIVE_FILE: u64 = 3 << 30;
+
+/// `folder` on every drive into `dest`, keeping the names `accept` takes.
 pub async fn import_drive_folder(
     folder: &str,
     dest: &Path,
+    drive_idle: bool,
     accept: impl Fn(&str) -> bool,
 ) {
-    if !Path::new(DRIVE).exists() {
-        return;
+    for source in sources(
+        drive_idle,
+        Path::new(DRIVE),
+        Path::new(crate::usb::MOUNT_ROOT),
+    ) {
+        import_from(&source, folder, dest, &accept, MAX_DRIVE_FILE).await;
     }
+}
+
+/// `folder` on one drive into `dest`. Everything lands in `dest/.drive`
+/// first and only a complete copy is renamed into place, so a copy that
+/// fails halfway (a stick pulled) leaves no offer and no landing behind.
+pub async fn import_from(
+    source: &Source,
+    folder: &str,
+    dest: &Path,
+    accept: &impl Fn(&str) -> bool,
+    max_bytes: u64,
+) {
     let landing = dest.join(".drive");
     let _ = std::fs::remove_dir_all(&landing);
-    if output(
-        "systemd-dissect",
-        &["--copy-from", DRIVE, folder, &landing.to_string_lossy()],
-    )
-    .await
-    .is_err()
-    {
-        return; // no such folder on the drive
-    }
-    if let Ok(entries) = std::fs::read_dir(&landing) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if accept(&name) {
-                let _ = std::fs::rename(entry.path(), dest.join(&name));
+    let copied = match source {
+        Source::Gadget(image) => output(
+            "systemd-dissect",
+            &[
+                "--copy-from",
+                &image.to_string_lossy(),
+                folder,
+                &landing.to_string_lossy(),
+            ],
+        )
+        .await
+        .map(drop)
+        .map_err(|e| e.to_string()),
+        Source::Mounted(root) => {
+            copy_folder(
+                &root.join(folder.trim_start_matches('/')),
+                &landing,
+                accept,
+                max_bytes,
+            )
+            .await
+        }
+    };
+    match copied {
+        Ok(()) => {
+            if let Ok(entries) = std::fs::read_dir(&landing) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if accept(&name) {
+                        let _ = std::fs::rename(entry.path(), dest.join(&name));
+                    }
+                }
             }
         }
+        // no such folder on the drive, or the copy failed: nothing lands
+        Err(err) => tracing::debug!(?source, folder, %err, "drive: nothing imported"),
     }
     let _ = std::fs::remove_dir_all(&landing);
+}
+
+/// The regular files in `src` that `accept` takes and are at most
+/// `max_bytes`, copied into `landing`. A folder that is missing (or a
+/// file where the folder belongs) has nothing to copy; links, folders and
+/// devices inside it are skipped; a read that fails ends the copy with
+/// the error.
+pub async fn copy_folder(
+    src: &Path,
+    landing: &Path,
+    accept: &impl Fn(&str) -> bool,
+    max_bytes: u64,
+) -> Result<(), String> {
+    let Ok(entries) = std::fs::read_dir(src) else {
+        return Ok(());
+    };
+    std::fs::create_dir_all(landing).map_err(|e| e.to_string())?;
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if !accept(&name) {
+            continue;
+        }
+        let meta = std::fs::symlink_metadata(entry.path()).map_err(|e| e.to_string())?;
+        if !meta.file_type().is_file() || meta.len() > max_bytes {
+            tracing::info!(%name, bytes = meta.len(), "drive: not a file this takes");
+            continue;
+        }
+        tokio::fs::copy(entry.path(), landing.join(&name))
+            .await
+            .map_err(|e| format!("{name}: {e}"))?;
+    }
+    Ok(())
 }
 
 /// Every offer waiting, read and checked against the registry. An image
@@ -684,9 +799,12 @@ pub enum Request {
     Install { file: String, build: String },
     /// Delete an installed applet's image, drop-in, state and settings.
     Uninstall { applet: String },
-    /// The USB drive's `updates/` bundles into /data/vrx/updates (plan
-    /// 0016 D11), when nothing shares the drive.
+    /// The USB drives' `updates/` bundles into /data/vrx/updates (plan
+    /// 0016 D11); the gadget's image only when nothing shares it.
     ImportUpdates { drive_idle: bool },
+    /// A drive was mounted (plan 0019 D9): both folders from every drive,
+    /// so the offer and the bundle wait before anyone opens a screen.
+    Import { drive_idle: bool },
 }
 
 /// A refusal as the daemon replies it: an io.vrx.Host error and its
@@ -713,18 +831,18 @@ pub async fn helper(
     };
     match request {
         Request::ImportUpdates { drive_idle } => {
-            if drive_idle {
-                let dest = Path::new(crate::update::UPDATES);
-                let _ = std::fs::create_dir_all(dest);
-                import_drive_folder("/updates", dest, crate::update::bundle_name_ok)
-                    .await;
+            import_updates(drive_idle).await;
+            json!({})
+        }
+        Request::Import { drive_idle } => {
+            if policy.installs {
+                import_drive(drive_idle).await;
             }
+            import_updates(drive_idle).await;
             json!({})
         }
         Request::Offers { drive_idle } => {
-            if drive_idle {
-                import_drive().await;
-            }
+            import_drive(drive_idle).await;
             json!({ "offers": offers(&registry, &paths.system_defaults, &policy).await })
         }
         Request::Install { file, build } => {
@@ -777,6 +895,14 @@ pub async fn helper(
             }
         }
     }
+}
+
+/// The drives' `updates/` bundles into /data/vrx/updates.
+async fn import_updates(drive_idle: bool) {
+    let dest = Path::new(crate::update::UPDATES);
+    let _ = std::fs::create_dir_all(dest);
+    import_drive_folder("/updates", dest, drive_idle, crate::update::bundle_name_ok)
+        .await;
 }
 
 /// `vrxhost install-helper`: read the request, write the outcome.
@@ -1020,6 +1146,151 @@ mod tests {
                 .unwrap(),
             Request::Offers { drive_idle: true }
         );
+        assert_eq!(
+            serde_json::from_str::<Request>(r#"{"op":"import","drive_idle":false}"#)
+                .unwrap(),
+            Request::Import { drive_idle: false }
+        );
+    }
+
+    // ── a stick as a source (plan 0019 D9, Part E 6) ──
+
+    fn stick() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let mount = dir.path().join("usb/1-1.2-p1");
+        let dest = dir.path().join("offers");
+        std::fs::create_dir_all(mount.join("apps")).unwrap();
+        std::fs::create_dir_all(&dest).unwrap();
+        (dir, mount, dest)
+    }
+
+    fn names(dir: &Path) -> Vec<String> {
+        let mut n: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        n.sort();
+        n
+    }
+
+    fn takes(n: &str) -> bool {
+        id_of_file(n).is_some()
+    }
+
+    #[tokio::test]
+    async fn a_sticks_offers_land_and_nothing_else_does() {
+        let (_dir, mount, dest) = stick();
+        let apps = mount.join("apps");
+        std::fs::write(apps.join("notes.raw"), b"image").unwrap();
+        std::fs::write(apps.join("README.txt"), b"x").unwrap();
+        std::fs::write(apps.join(format!("{}.raw", "a".repeat(40))), b"x").unwrap(); // name over 32
+        std::fs::create_dir(apps.join("folder.raw")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("/etc/passwd", apps.join("linked.raw")).unwrap();
+        std::fs::write(apps.join("big.raw"), vec![0u8; 2048]).unwrap();
+        import_from(
+            &Source::Mounted(mount.clone()),
+            "/apps",
+            &dest,
+            &takes,
+            1024,
+        )
+        .await;
+        assert_eq!(
+            names(&dest),
+            vec!["notes.raw"],
+            "only a regular file, named right, under the cap"
+        );
+        assert_eq!(std::fs::read(dest.join("notes.raw")).unwrap(), b"image");
+        assert!(!dest.join(".drive").exists(), "the landing is gone");
+        // a name with a path in it never passes the filter
+        assert!(!takes("../x.raw") && !takes("a/b.raw") && !takes(".raw"));
+    }
+
+    #[tokio::test]
+    async fn a_missing_folder_or_a_file_in_its_place_imports_nothing() {
+        let (_dir, mount, dest) = stick();
+        import_from(
+            &Source::Mounted(mount.clone()),
+            "/updates",
+            &dest,
+            &takes,
+            MAX_DRIVE_FILE,
+        )
+        .await;
+        std::fs::remove_dir_all(mount.join("apps")).unwrap();
+        std::fs::write(mount.join("apps"), b"not a folder").unwrap();
+        import_from(
+            &Source::Mounted(mount),
+            "/apps",
+            &dest,
+            &takes,
+            MAX_DRIVE_FILE,
+        )
+        .await;
+        assert!(names(&dest).is_empty());
+    }
+
+    /// A stick pulled mid-copy: one file read, the next fails. Nothing is
+    /// offered and no landing is left (the copy is all or nothing).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_copy_that_fails_halfway_leaves_no_offer_and_no_landing() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, mount, dest) = stick();
+        let apps = mount.join("apps");
+        std::fs::write(apps.join("aaa.raw"), b"first").unwrap();
+        std::fs::write(apps.join("zzz.raw"), b"second").unwrap();
+        std::fs::write(apps.join("mmm.raw"), b"third").unwrap();
+        std::fs::set_permissions(
+            apps.join("mmm.raw"),
+            std::fs::Permissions::from_mode(0o000),
+        )
+        .unwrap();
+        if std::fs::read(apps.join("mmm.raw")).is_ok() {
+            return; // running as root: the failure cannot be staged
+        }
+        import_from(
+            &Source::Mounted(mount),
+            "/apps",
+            &dest,
+            &takes,
+            MAX_DRIVE_FILE,
+        )
+        .await;
+        assert!(names(&dest).is_empty(), "{:?}", names(&dest));
+    }
+
+    #[test]
+    fn the_sources_are_the_idle_gadget_then_each_mounted_drive() {
+        let dir = tempfile::tempdir().unwrap();
+        let image = dir.path().join("files.img");
+        let mounts = dir.path().join("usb");
+        for m in ["1-1.3-p1", "1-1.2-p2", "STICK", "1-1.2-p1"] {
+            std::fs::create_dir_all(mounts.join(m)).unwrap();
+        }
+        let mounted = |n: &str| Source::Mounted(mounts.join(n));
+        assert_eq!(
+            sources(true, &image, &mounts),
+            vec![
+                mounted("1-1.2-p1"),
+                mounted("1-1.2-p2"),
+                mounted("1-1.3-p1")
+            ],
+            "no image, and a label is not a drive's name"
+        );
+        std::fs::write(&image, b"").unwrap();
+        assert_eq!(
+            sources(true, &image, &mounts)[0],
+            Source::Gadget(image.clone())
+        );
+        assert_eq!(
+            sources(false, &image, &mounts).len(),
+            3,
+            "a shared gadget is not read"
+        );
+        assert!(sources(false, &image, &dir.path().join("none")).is_empty());
     }
 
     #[test]

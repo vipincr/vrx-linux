@@ -54,8 +54,13 @@ pub enum SystemGrant {
     Display,
     /// Power off and restart.
     Power,
-    /// The USB gadget mode.
+    /// The USB gadget mode, and on a board with host ports the drive
+    /// eject and the "Allow new USB devices" switch (plan 0019 D10).
     Usb,
+    /// Read the drives plugged into the board, mounted read-only under
+    /// /run/vrx/usb (plan 0019 D10). A group, no device (G064).
+    #[serde(rename = "usb-media")]
+    UsbMedia,
     /// Install and remove applets.
     Apps,
     /// The management web page.
@@ -119,6 +124,7 @@ impl SystemGrant {
             SystemGrant::Display => "display",
             SystemGrant::Power => "power",
             SystemGrant::Usb => "usb",
+            SystemGrant::UsbMedia => "usb-media",
             SystemGrant::Apps => "apps",
             SystemGrant::Serve => "serve",
             SystemGrant::Gpio => "gpio",
@@ -142,7 +148,7 @@ impl SystemGrant {
     }
 
     /// Every grant, for table checks.
-    pub const ALL: [SystemGrant; 26] = [
+    pub const ALL: [SystemGrant; 27] = [
         SystemGrant::Network,
         SystemGrant::Bluetooth,
         SystemGrant::Time,
@@ -150,6 +156,7 @@ impl SystemGrant {
         SystemGrant::Display,
         SystemGrant::Power,
         SystemGrant::Usb,
+        SystemGrant::UsbMedia,
         SystemGrant::Apps,
         SystemGrant::Serve,
         SystemGrant::Gpio,

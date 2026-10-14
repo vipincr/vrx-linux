@@ -202,8 +202,14 @@ impl Applets {
 
     /// Stop an applet's unit (an uninstall).
     pub async fn stop(&self, applet: &str) -> zbus::Result<()> {
+        self.stop_unit(&unit_name(applet)).await
+    }
+
+    /// Stop a unit by name (an applet's, or a drive's mount, plan 0019
+    /// D10).
+    pub async fn stop_unit(&self, unit: &str) -> zbus::Result<()> {
         let manager = ManagerProxy::new(&self.conn).await?;
-        manager.stop_unit(&unit_name(applet), "replace").await?;
+        manager.stop_unit(unit, "replace").await?;
         Ok(())
     }
 

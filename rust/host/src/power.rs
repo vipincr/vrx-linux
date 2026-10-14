@@ -2,7 +2,8 @@
 // charger's presence live in /sys/class/power_supply, where the kit reads
 // them; what sysfs cannot do is say when they change. The kernel does,
 // as a `change` uevent on the power_supply class, which vrxhost hears on
-// the kobject-uevent netlink socket and relays as `sys.power.changed`
+// the kobject-uevent netlink socket (uevents.rs, the one listener) and
+// relays as `sys.power.changed`
 // (payload: the supply's name), so an applet showing the battery reads
 // sysfs again instead of polling it. No supply, no events, nothing sent.
 //
@@ -31,27 +32,15 @@ pub enum Uevent {
     Backlight,
 }
 
-/// A kernel uevent, if it is a power_supply or backlight `change`: the
-/// message is `change@<devpath>` then NUL-separated KEY=value lines.
-pub fn uevent(message: &[u8]) -> Option<Uevent> {
-    let mut fields = message.split(|b| *b == 0).filter(|f| !f.is_empty());
-    let header = std::str::from_utf8(fields.next()?).ok()?;
-    if !header.starts_with("change@") {
+/// A kernel uevent, if it is a power_supply or backlight `change`.
+pub fn uevent(message: &crate::uevents::Message) -> Option<Uevent> {
+    if message.action != "change" {
         return None;
     }
-    let (mut subsystem, mut name) = (None, None);
-    for field in fields {
-        let Ok(field) = std::str::from_utf8(field) else {
-            continue;
-        };
-        if let Some(v) = field.strip_prefix("SUBSYSTEM=") {
-            subsystem = Some(v);
-        } else if let Some(v) = field.strip_prefix("POWER_SUPPLY_NAME=") {
-            name = Some(v.to_owned());
-        }
-    }
-    match subsystem? {
-        "power_supply" => name.map(Uevent::Supply),
+    match message.subsystem() {
+        "power_supply" => message
+            .get("POWER_SUPPLY_NAME")
+            .map(|name| Uevent::Supply(name.to_owned())),
         "backlight" => Some(Uevent::Backlight),
         _ => None,
     }
@@ -106,26 +95,14 @@ impl Limiter {
     }
 }
 
-/// Listen to the kernel's uevents forever, calling `on_change` with each
-/// power supply that changed (limited by [`Limiter`]) and publishing each
-/// backlight change as a fact.
-#[cfg(target_os = "linux")]
-pub async fn watch(mut on_change: impl FnMut(String)) -> std::io::Result<()> {
-    use rustix::net::{
-        bind, netlink, socket_with, AddressFamily, SocketFlags, SocketType,
-    };
-    use tokio::io::unix::AsyncFd;
-
-    let sock = socket_with(
-        AddressFamily::NETLINK,
-        SocketType::DGRAM,
-        SocketFlags::CLOEXEC | SocketFlags::NONBLOCK,
-        Some(netlink::KOBJECT_UEVENT),
-    )?;
-    // multicast group 1: the kernel's own uevents (udev re-sends on 2)
-    bind(&sock, &netlink::SocketAddrNetlink::new(0, 1))?;
-    let fd = AsyncFd::new(sock)?;
-    let mut buf = vec![0u8; 8192];
+/// Hear the kernel's uevents (from uevents.rs's listener) until it
+/// stops, calling `on_change` with each power supply that changed
+/// (limited by [`Limiter`]) and publishing each backlight change as a
+/// fact.
+pub async fn watch(
+    mut events: tokio::sync::mpsc::UnboundedReceiver<crate::uevents::Message>,
+    mut on_change: impl FnMut(String),
+) {
     let mut limiter = Limiter::default();
     loop {
         let due = limiter.next_due();
@@ -136,24 +113,16 @@ pub async fn watch(mut on_change: impl FnMut(String)) -> std::io::Result<()> {
             }
         };
         tokio::select! {
-            ready = fd.readable() => {
-                let mut guard = ready?;
-                match guard.try_io(|s| {
-                    rustix::io::read(s.get_ref(), &mut buf[..]).map_err(std::io::Error::from)
-                }) {
-                    Ok(Ok(n)) => match uevent(&buf[..n]) {
-                        Some(Uevent::Supply(supply)) => {
-                            if limiter.change(&supply, Instant::now()) {
-                                on_change(supply);
-                            }
-                        }
-                        Some(Uevent::Backlight) => crate::facts::update(|f| f.backlight += 1),
-                        None => {}
-                    },
-                    Ok(Err(err)) => return Err(err),
-                    Err(_would_block) => {}
+            event = events.recv() => match event.as_ref().and_then(uevent) {
+                Some(Uevent::Supply(supply)) => {
+                    if limiter.change(&supply, Instant::now()) {
+                        on_change(supply);
+                    }
                 }
-            }
+                Some(Uevent::Backlight) => crate::facts::update(|f| f.backlight += 1),
+                None if event.is_none() => return,
+                None => {}
+            },
             () = deferred => {
                 for supply in limiter.due(Instant::now()) {
                     on_change(supply);
@@ -161,12 +130,6 @@ pub async fn watch(mut on_change: impl FnMut(String)) -> std::io::Result<()> {
             }
         }
     }
-}
-
-/// Uevents are Linux's; a host build (the gate) has none.
-#[cfg(not(target_os = "linux"))]
-pub async fn watch(_on_change: impl FnMut(String)) -> std::io::Result<()> {
-    Err(std::io::ErrorKind::Unsupported.into())
 }
 
 // ── the battery (plan 0012 D10) ──────────────────────────────────────────
@@ -641,22 +604,38 @@ mod tests {
 
     #[test]
     fn a_power_supply_change_names_its_supply_and_a_backlight_change_is_told() {
-        let msg = b"change@/devices/platform/battery/power_supply/BAT0\0ACTION=change\0\
-                    DEVPATH=/devices/platform/battery/power_supply/BAT0\0SUBSYSTEM=power_supply\0\
-                    POWER_SUPPLY_NAME=BAT0\0POWER_SUPPLY_CAPACITY=81\0";
-        assert_eq!(uevent(msg), Some(Uevent::Supply("BAT0".into())));
-        let add = b"add@/devices/x/power_supply/AC\0ACTION=add\0SUBSYSTEM=power_supply\0POWER_SUPPLY_NAME=AC\0";
-        assert_eq!(uevent(add), None, "only changes");
-        let light =
-            b"change@/devices/x/backlight/b\0ACTION=change\0SUBSYSTEM=backlight\0SOURCE=sysfs\0";
-        assert_eq!(uevent(light), Some(Uevent::Backlight));
-        let other = b"change@/devices/x/net/wlan0\0ACTION=change\0SUBSYSTEM=net\0";
-        assert_eq!(uevent(other), None);
-        assert_eq!(
-            uevent(b"libudev\0\xfe"),
-            None,
-            "udev's binary header is not ours"
+        use crate::uevents::{message, parse};
+        let read = |bytes: Vec<u8>| uevent(&parse(&bytes).unwrap());
+        let msg = message(
+            "change@/devices/platform/battery/power_supply/BAT0",
+            &[
+                "ACTION=change",
+                "DEVPATH=/devices/platform/battery/power_supply/BAT0",
+                "SUBSYSTEM=power_supply",
+                "POWER_SUPPLY_NAME=BAT0",
+                "POWER_SUPPLY_CAPACITY=81",
+            ],
         );
+        assert_eq!(read(msg), Some(Uevent::Supply("BAT0".into())));
+        let add = message(
+            "add@/devices/x/power_supply/AC",
+            &[
+                "ACTION=add",
+                "SUBSYSTEM=power_supply",
+                "POWER_SUPPLY_NAME=AC",
+            ],
+        );
+        assert_eq!(read(add), None, "only changes");
+        let light = message(
+            "change@/devices/x/backlight/b",
+            &["ACTION=change", "SUBSYSTEM=backlight", "SOURCE=sysfs"],
+        );
+        assert_eq!(read(light), Some(Uevent::Backlight));
+        let other = message(
+            "change@/devices/x/net/wlan0",
+            &["ACTION=change", "SUBSYSTEM=net"],
+        );
+        assert_eq!(read(other), None);
     }
 
     #[test]

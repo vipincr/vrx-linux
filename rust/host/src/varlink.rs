@@ -150,9 +150,25 @@ method Watch() -> (front: string, depth: int, stopped: ?string)
 # profiling, the profiler's switch; screen_on and brightness, the screen
 # lit and its slider position (-1: it cannot dim), the compositor's word
 # (plan 0015 D12); advertising, who holds Bluetooth by the arbiter's
-# decision (\"\", device-link or matter; plan 0015 D4). With \"more\",
-# again on every change.
-method Facts() -> (usb: string, supply_low: bool, backlight: int, battery: int, battery_zone: string, next_wake: int, profiling: bool, screen_on: bool, brightness: int, advertising: string)
+# decision (\"\", device-link or matter; plan 0015 D4); the USB host side
+# (plan 0019 D7, D12): usb_devices, what is plugged in (a drive's mounts
+# under /run/vrx/usb), usb_policy (none, open, allowlist, or failed when
+# the allow-list's daemon is down), and what the image declared:
+# usb_ports, usb_vbus (unswitched, switched, unknown), usb_overcurrent
+# (none, reported, unknown); usb_allow_new, the policy switch as vrxhost
+# last set it. With \"more\", again on every change.
+type UsbDevice (port: string, name: string, class: string, id: string, speed: string, authorized: bool, blocked: bool, mounts: []string)
+method Facts() -> (usb: string, supply_low: bool, backlight: int, battery: int, battery_zone: string, next_wake: int, profiling: bool, screen_on: bool, brightness: int, advertising: string, usb_devices: []UsbDevice, usb_policy: string, usb_ports: []string, usb_vbus: string, usb_overcurrent: string, usb_allow_new: bool)
+
+# A drive plugged into the board, ejected (plan 0019 D10): its mount under
+# /run/vrx/usb stops. For callers holding the usb grant.
+method UsbEject(mount: string) -> ()
+
+# \"Allow new USB devices\" (plan 0019 D11): off, nothing plugged in from
+# now on is authorised (what is attached keeps working); on, the image's
+# allow-list decides again. Only where usb_policy is allowlist. For
+# callers holding the usb grant.
+method UsbPolicy(allow_new: bool) -> ()
 
 # What each applet and the system's parts cost over the last hours (1-24,
 # default 24; plan 0012 D8, D12), most first. mj is millijoules, absent
@@ -904,6 +920,35 @@ async fn dispatch(
                 json!({ "on": p.status().on, "applets": stats, "hvs_underruns": underruns }),
             )
         }
+        "io.vrx.Host.UsbEject" => {
+            let applets = may_usb(host, caller)?;
+            let mount = str_param("mount").ok_or_else(|| Failure::invalid("mount"))?;
+            if !crate::usb::mount_ok(mount) {
+                return Err(Failure::invalid("mount"));
+            }
+            for unit in crate::usb::mount_units(mount) {
+                if let Err(err) = applets.stop_unit(&unit).await {
+                    tracing::debug!(%unit, error = %err, "usb eject");
+                }
+            }
+            Ok(json!({}))
+        }
+        "io.vrx.Host.UsbPolicy" => {
+            may_usb(host, caller)?;
+            let allow = params
+                .get("allow_new")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| Failure::invalid("allow_new"))?;
+            if crate::facts::subscribe().borrow().usb_policy != "allowlist" {
+                return Err(Failure::host("Unavailable", json!({})));
+            }
+            crate::usb::set_allow_new(allow).await.map_err(|detail| {
+                tracing::warn!(%detail, "usb policy");
+                Failure::host("Unavailable", json!({}))
+            })?;
+            crate::facts::update(|f| f.usb_allow_new = allow);
+            Ok(json!({}))
+        }
         "io.vrx.Host.Facts" => Ok(serde_json::to_value(
             crate::facts::subscribe().borrow().clone(),
         )
@@ -1057,18 +1102,8 @@ fn may_install<'a>(
     host: &'a Host,
     caller: Option<&str>,
 ) -> Result<&'a Installer, Failure> {
-    if let Some(applet) = caller {
-        let holds = host.registry.get().find(applet).is_some_and(|e| {
-            e.builtin
-                && e.manifest
-                    .applet
-                    .permissions
-                    .system
-                    .contains(&vrx_protocol::SystemGrant::Apps)
-        });
-        if !holds {
-            return Err(Failure::host("NotPermitted", json!({})));
-        }
+    if !holds(host, caller, vrx_protocol::SystemGrant::Apps) {
+        return Err(Failure::host("NotPermitted", json!({})));
     }
     host.installer
         .as_ref()
@@ -1078,20 +1113,42 @@ fn may_install<'a>(
 /// The update methods are for built-ins holding the `update` grant (and
 /// the system).
 fn may_update(host: &Host, caller: Option<&str>) -> Result<(), Failure> {
-    if let Some(applet) = caller {
-        let holds = host.registry.get().find(applet).is_some_and(|e| {
-            e.builtin
-                && e.manifest
-                    .applet
-                    .permissions
-                    .system
-                    .contains(&vrx_protocol::SystemGrant::Update)
-        });
-        if !holds {
-            return Err(Failure::host("NotPermitted", json!({})));
-        }
+    if !holds(host, caller, vrx_protocol::SystemGrant::Update) {
+        return Err(Failure::host("NotPermitted", json!({})));
     }
     Ok(())
+}
+
+/// The USB host actions (plan 0019 D10) are for built-ins holding the
+/// `usb` grant (and the system); they need systemd.
+fn may_usb<'a>(
+    host: &'a Host,
+    caller: Option<&str>,
+) -> Result<&'a crate::applets::Applets, Failure> {
+    if !holds(host, caller, vrx_protocol::SystemGrant::Usb) {
+        return Err(Failure::host("NotPermitted", json!({})));
+    }
+    host.installer
+        .as_ref()
+        .map(|i| &i.applets)
+        .ok_or_else(|| Failure::host("Unavailable", json!({})))
+}
+
+/// A drive was mounted (plan 0019 D9): its offers and bundles are brought
+/// in now, so they wait before anyone opens Manage or Settings.
+pub async fn import_drives(host: &Host) {
+    let Some(installer) = host.installer.as_ref() else {
+        return;
+    };
+    let drive_idle = !installer
+        .applets
+        .is_active(crate::install::DRIVE_UNIT)
+        .await;
+    if let Err(err) =
+        helper(installer, crate::install::Request::Import { drive_idle }).await
+    {
+        tracing::warn!(error = %err.error, "drive import");
+    }
 }
 
 /// Run one request in vrx-install.service (install.rs, the privileged
@@ -1527,6 +1584,61 @@ mod tests {
             channel_gate(&r, None, "camerad", "frames").is_ok(),
             "root at the shell is the system"
         );
+    }
+
+    /// Plan 0019 D10: eject and the policy switch are the usb grant's; an
+    /// applet without it is NotPermitted, one with it (or the system)
+    /// reaches systemd, which this host has none of.
+    #[tokio::test]
+    async fn the_usb_actions_need_the_usb_grant() {
+        let mut r = Registry::new();
+        for (id, builtin, extra) in [
+            (
+                "settings",
+                true,
+                "[applet.permissions]\nsystem = [\"usb\"]\n",
+            ),
+            ("nosy", true, ""),
+            ("sideloaded", false, ""),
+        ] {
+            let text = format!(
+                "[applet]\nid = \"{id}\"\nname = \"N\"\nversion = \"1.0.0\"\nruntime = \"rust\"\n{extra}"
+            );
+            r.admit(RegistryEntry {
+                manifest: text.parse().unwrap(),
+                path: PathBuf::from("/x").join(id),
+                builtin,
+            })
+            .unwrap();
+        }
+        let (nav, _) = mpsc::unbounded_channel();
+        let (_front_tx, front) = watch::channel(Front::default());
+        let host = Host {
+            registry: crate::registry::Shared::new(r),
+            installer: None,
+            nav,
+            front,
+            bridge: Bridge::default(),
+            energy: None,
+            profiler: None,
+        };
+        let eject = json!({ "mount": "/run/vrx/usb/1-1.2-p1" });
+        let policy = json!({ "allow_new": false });
+        for (method, params) in [
+            ("io.vrx.Host.UsbEject", &eject),
+            ("io.vrx.Host.UsbPolicy", &policy),
+        ] {
+            for caller in ["nosy", "sideloaded"] {
+                let e = dispatch(&host, Some(caller), method, params)
+                    .await
+                    .unwrap_err();
+                assert_eq!(e.error, "io.vrx.Host.NotPermitted", "{caller} {method}");
+            }
+            for caller in [Some("settings"), None] {
+                let e = dispatch(&host, caller, method, params).await.unwrap_err();
+                assert_eq!(e.error, "io.vrx.Host.Unavailable", "{caller:?} {method}");
+            }
+        }
     }
 
     fn builtin_and_installed() -> Registry {

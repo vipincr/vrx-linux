@@ -1047,6 +1047,19 @@ const ENGINE_FORMS: &[&str] = &[
 /// slows, stops or reads either.
 const DECIDED_TWICE: &str = "G053: motion is decided in two places only (plan 0017 D5): the build's tier, read from /usr/lib/vrx/motion-tier at boot (applet.dart), and the Reduce motion row, read as MediaQuery's disableAnimations by the engine (motion.dart)";
 
+/// G065 (plan 0019 D7): the kernel's uevents have one listener, vrxhost's
+/// uevents.rs, which hands each message to the module that wants it.
+const ONE_LISTENER: &str = "G065: the kernel's uevents have one listener, rust/host/src/uevents.rs (plan 0019 D7): take its messages from the dispatcher in main.rs instead of binding another socket";
+
+/// G063 (plan 0019 D8): a drive is mounted by udev and systemd-mount
+/// through vrx-usb-host's rule and wrapper, read-only and never
+/// executable; nothing in vrx's sources mounts anything itself.
+const NO_MOUNT: &str = "G063: drives mount only through vrx-usb-host's udev rule and vrx-usb-mount (plan 0019 D8, read-only, noexec); a mount from vrx code is a second way in";
+
+/// G056 (plan 0018 D1, D2): the camera has one owner, camerad. V4L2, the
+/// media graph and libcamera are touched only in its libcamera source.
+const ONE_CAMERA: &str = "G056: the camera has one owner, camerad (plan 0018 D1, D2): V4L2, the media graph and libcamera are touched only under applets/camerad";
+
 const HOMED: &[Homed] = &[
     Homed {
         ext: "dart",
@@ -1088,6 +1101,43 @@ const HOMED: &[Homed] = &[
         home: MOTION_HOME,
         why: ONE_ENGINE,
         unless: &["vrxPagedPhysics", "vrxWheelPhysics"],
+    },
+    Homed {
+        ext: "rs",
+        needles: &["libcamera::", "VIDIOC_", "/dev/video", "/dev/media"],
+        home: &["applets/camerad/src/libcamera_source.rs"],
+        why: ONE_CAMERA,
+        unless: &[],
+    },
+    Homed {
+        ext: "dart",
+        needles: &["/dev/video", "/dev/media"],
+        home: &[],
+        why: ONE_CAMERA,
+        unless: &[],
+    },
+    Homed {
+        ext: "rs",
+        needles: &["KOBJECT_UEVENT", "NETLINK_KOBJECT_UEVENT"],
+        home: &["rust/host/src/uevents.rs"],
+        why: ONE_LISTENER,
+        unless: &[],
+    },
+    Homed {
+        ext: "rs",
+        // a parameter or field named "mount" is not a mount: the forms are
+        // a mount call, mount(8) run, and systemd-mount
+        needles: &[
+            "systemd-mount",
+            "new(\"mount\")",
+            "bin/mount",
+            "mount(",
+            "fsmount(",
+            "move_mount(",
+        ],
+        home: &[],
+        why: NO_MOUNT,
+        unless: &[],
     },
     Homed {
         ext: "rs",
@@ -1503,6 +1553,76 @@ mod tests {
                 "{line} passes: {found:?}"
             );
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// G056 fires (plan 0018 D1): a V4L2 node opened outside camerad's
+    /// libcamera source is refused; the source itself passes. A needle
+    /// stands on word boundaries, so a literal `/dev/video0` (a digit
+    /// after the name) is not caught; a computed one is.
+    #[test]
+    fn the_camera_has_one_owner_g056() {
+        let dir = std::env::temp_dir().join(format!("vrx-g056-{}", std::process::id()));
+        let cam = dir.join("applets/camerad/src");
+        let kit = dir.join("flutter/vrx_kit/lib/src");
+        std::fs::create_dir_all(&cam).unwrap();
+        std::fs::create_dir_all(&kit).unwrap();
+        std::fs::write(
+            cam.join("libcamera_source.rs"),
+            "fn a() { libcamera::open(\"/dev/video0\"); }\n",
+        )
+        .unwrap();
+        assert!(one_home(std::slice::from_ref(&dir)).is_empty());
+        std::fs::write(kit.join("camera.dart"), "final f = File('/dev/video$n');\n")
+            .unwrap();
+        let found = one_home(std::slice::from_ref(&dir));
+        assert_eq!(
+            found.iter().map(|v| v.needle).collect::<Vec<_>>(),
+            vec!["/dev/video"],
+            "{found:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// G065 and G063 fire (plan 0019 D7, D8): a uevent socket outside
+    /// uevents.rs and a mount from vrx code are refused; the listener, a
+    /// mount unit's name and a comment pass.
+    #[test]
+    fn one_uevent_listener_and_no_mounts_g063_g065() {
+        let dir = std::env::temp_dir().join(format!("vrx-g065-{}", std::process::id()));
+        let host = dir.join("rust/host/src");
+        std::fs::create_dir_all(&host).unwrap();
+        std::fs::write(
+            host.join("uevents.rs"),
+            "fn l() { socket_with(a, b, c, Some(netlink::KOBJECT_UEVENT)) }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            host.join("usb.rs"),
+            "// systemd-mount mounts it\nfn u() { unit_for_path(m, \"mount\".len()); let s = format!(\"{x}.mount\"); umount_all(); }\n",
+        )
+        .unwrap();
+        assert!(
+            one_home(std::slice::from_ref(&dir)).is_empty(),
+            "the listener, a parameter named mount, a unit's name, umount and a comment pass"
+        );
+        std::fs::write(
+            host.join("power.rs"),
+            "fn w() {\n    socket_with(a, b, c, Some(netlink::KOBJECT_UEVENT));\n    Command::new(\"systemd-mount\");\n    rustix::mount::mount(a, b, c, d, e);\n    Command::new(\"mount\");\n}\n",
+        )
+        .unwrap();
+        let found = one_home(std::slice::from_ref(&dir));
+        let needles: Vec<_> = found.iter().map(|v| (v.line, v.needle)).collect();
+        assert_eq!(
+            needles,
+            vec![
+                (2, "KOBJECT_UEVENT"),
+                (3, "systemd-mount"),
+                (4, "mount("),
+                (5, "new(\"mount\")")
+            ],
+            "{found:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
