@@ -1,6 +1,58 @@
 import 'package:vrx_kit/vrx_kit.dart';
 
-enum ShellAction { init, factsChanged, drawerToggled, powerAsked, powerDismissed }
+/// Everything the shell reacts to (plan 0013 D1: the reducer is the only
+/// writer): a signal, or the system's facts carried as data.
+sealed class ShellAction {
+  const ShellAction();
+
+  static const init = ShellSignal.init;
+  static const drawerToggled = ShellSignal.drawerToggled;
+  static const powerAsked = ShellSignal.powerAsked;
+  static const powerDismissed = ShellSignal.powerDismissed;
+  static const back = ShellSignal.back;
+  static const minute = ShellSignal.minute;
+}
+
+/// [minute]: the clock's minute turned; the strip is drawn again.
+enum ShellSignal implements ShellAction { init, drawerToggled, powerAsked, powerDismissed, back, minute }
+
+/// What the strip and the drawer show (null fields: unchanged; Change
+/// for what may become null).
+final class ShellFacts implements ShellAction {
+  const ShellFacts({
+    this.clockValid,
+    this.wifiUp,
+    this.bleUp,
+    this.brightness,
+    this.dimming,
+    this.version,
+    this.depth,
+    this.notice,
+    this.battery,
+    this.batteryZone,
+    this.batteryShown,
+    this.nextWake,
+    this.wakeAlarm,
+    this.alerts,
+    this.h24,
+  });
+
+  final bool? clockValid;
+  final bool? wifiUp;
+  final bool? bleUp;
+  final int? brightness;
+  final VrxDimming? dimming;
+  final String? version;
+  final int? depth;
+  final Change<String?>? notice;
+  final Change<Battery?>? battery;
+  final String? batteryZone;
+  final int? batteryShown;
+  final int? nextWake;
+  final bool? wakeAlarm;
+  final List<PowerAlert>? alerts;
+  final bool? h24;
+}
 
 class ShellView {
   const ShellView({
@@ -138,7 +190,29 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
         askingPower = true;
       case ShellAction.powerDismissed:
         askingPower = false;
-      case ShellAction.init || ShellAction.factsChanged:
+      case ShellSignal.back:
+        if (askingPower) {
+          askingPower = false;
+        } else {
+          drawer = false;
+        }
+      case ShellFacts f:
+        clockValid = f.clockValid ?? clockValid;
+        wifiUp = f.wifiUp ?? wifiUp;
+        bleUp = f.bleUp ?? bleUp;
+        brightness = f.brightness ?? brightness;
+        dimming = f.dimming ?? dimming;
+        version = f.version ?? version;
+        depth = f.depth ?? depth;
+        if (f.notice != null) notice = f.notice!.value;
+        if (f.battery != null) battery = f.battery!.value;
+        batteryZone = f.batteryZone ?? batteryZone;
+        batteryShown = f.batteryShown ?? batteryShown;
+        nextWake = f.nextWake ?? nextWake;
+        wakeAlarm = f.wakeAlarm ?? wakeAlarm;
+        alerts = f.alerts ?? alerts;
+        h24 = f.h24 ?? h24;
+      case ShellAction.init || ShellAction.minute:
         break;
     }
     return ShellView(
@@ -168,6 +242,21 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
 
   @override
   ShellState get snapshot => const ShellState();
+
+  /// The facts are the system's, read again at every start.
+  @override
+  void restore(ShellState snapshot) {}
+
+  @override
+  ShellAction get backAction => ShellAction.back;
+
+  @override
+  bool get atRoot => !drawer && !askingPower;
+
+  @override
+  Object? get fingerprint => [drawer, askingPower, wifiUp, bleUp, dimming, brightness, clockValid, version, depth,
+      battery?.percent, notice, h24, [for (final a in alerts) '${a.applet}/${a.answer}'], batteryZone, batteryShown,
+      nextWake, wakeAlarm];
 }
 
 class ShellState {

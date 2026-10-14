@@ -185,24 +185,21 @@ class PowerAlertBand extends StatelessWidget {
 Future<void> main() async {
   final model = ShellModel();
   runApplet(ShellApplet(model), actions: _events.stream);
-  void fact(void Function() change) {
-    change();
-    _events.add(ShellAction.factsChanged);
-  }
+  void fact(ShellFacts f) => _events.add(f);
 
   VrxSystem.time
       .watch()
-      .listen((t) => fact(() => model.clockValid = t.synced || DateTime.now().year >= 2025), onError: (Object _) {});
-  VrxSystem.network.watch().listen((n) => fact(() => model.wifiUp = n.connected != null), onError: (Object _) {});
+      .listen((t) => fact(ShellFacts(clockValid: t.synced || DateTime.now().year >= 2025)), onError: (Object _) {});
+  VrxSystem.network.watch().listen((n) => fact(ShellFacts(wifiUp: n.connected != null)), onError: (Object _) {});
   // the radio's switch is connman's (the network grant); the shell does not
   // reach BlueZ, so on or off is all it says
-  VrxSystem.bluetooth.watch().listen((b) => fact(() => model.bleUp = b.on), onError: (Object _) {});
-  _screen.watch().listen((s) => fact(() => model.brightness = s.brightness), onError: (Object _) {});
-  unawaited(_screen.dimming().then((d) => fact(() => model.dimming = d)));
+  VrxSystem.bluetooth.watch().listen((b) => fact(ShellFacts(bleUp: b.on)), onError: (Object _) {});
+  _screen.watch().listen((s) => fact(ShellFacts(brightness: s.brightness)), onError: (Object _) {});
+  unawaited(_screen.dimming().then((d) => fact(ShellFacts(dimming: d))));
   // the release only ("0.1.0077"): the platform after it is Settings >
   // Device's, and wrapped three lines deep in the drawer
   VrxSystem.device.watch().listen(
-      (d) => fact(() => model.version = d.version.isEmpty ? '' : 'vrx ${d.version.split(' ').first}'),
+      (d) => fact(ShellFacts(version: d.version.isEmpty ? '' : 'vrx ${d.version.split(' ').first}')),
       onError: (Object _) {});
   // the trail's depth, and an applet that stopped: said once, by its
   // name, until the next navigation (plan 0011 D2)
@@ -219,33 +216,25 @@ Future<void> main() async {
         // the id is said instead
       }
     }
-    fact(() {
-      model.depth = f.depth;
-      if (stopped != null) {
-        model.notice = '${names[stopped] ?? stopped} stopped.';
-      } else if (f.front != front) {
-        model.notice = null;
-      }
-      front = f.front;
-    });
+    final notice = stopped != null
+        ? Change<String?>('${names[stopped] ?? stopped} stopped.')
+        : (f.front != front ? const Change<String?>(null) : null);
+    front = f.front;
+    fact(ShellFacts(depth: f.depth, notice: notice));
   }, onError: (Object _) {});
-  VrxSystem.powerSupply.watch().listen((b) => fact(() => model.battery = b), onError: (Object _) {});
+  VrxSystem.powerSupply.watch().listen((b) => fact(ShellFacts(battery: Change(b))), onError: (Object _) {});
   // the battery's zone and the next wake, vrxhost's (plan 0012 D10, D15)
   AppletsService.installed?.facts().listen(
-      (f) => fact(() {
-            model.batteryZone = f.batteryZone;
-            model.batteryShown = f.battery;
-            model.nextWake = f.nextWake;
-          }),
+      (f) => fact(ShellFacts(batteryZone: f.batteryZone, batteryShown: f.battery, nextWake: f.nextWake)),
       onError: (Object _) {});
-  unawaited(_screen.cascade().then((c) => fact(() => model.wakeAlarm = c.wakeAlarm)));
+  unawaited(_screen.cascade().then((c) => fact(ShellFacts(wakeAlarm: c.wakeAlarm))));
   // applets over their power budget (plan 0012 D11), from vrxhost
   if (AppletsService.installed != null) {
-    VrxEnergy.service.alerts().listen((a) => fact(() => model.alerts = a), onError: (Object _) {});
+    VrxEnergy.service.alerts().listen((a) => fact(ShellFacts(alerts: a)), onError: (Object _) {});
   }
   // 12 or 24 hours: the system's locale, followed as it changes
   final format = VrxTimeFormat.changes;
-  void follow() => fact(() => model.h24 = format.value);
+  void follow() => fact(ShellFacts(h24: format.value));
   follow();
   format.addListener(follow);
   // the strip's clock changes once a minute: a check every 10 s, a
@@ -255,7 +244,7 @@ Future<void> main() async {
   VrxTicker(const Duration(seconds: 10), () {
     if (model.clockText != shown) {
       shown = model.clockText;
-      _events.add(ShellAction.factsChanged);
+      _events.add(ShellAction.minute);
     }
   });
 }
