@@ -65,7 +65,9 @@ method Listen() -> (kind: string, id: ?int, name: ?string, payload: ?object, rou
 method Answer(id: int, verdict: string) -> ()
 
 # Open a channel another applet offers (its manifest's channels.offers;
-# yours must list <to>.<channel> in channels.opens): a stream socket, one
+# yours must list <to>.<channel> in channels.opens; an offer that names a
+# grant (requires) opens only for a built-in holding it, else NotPermitted;
+# a caller that is no applet is the system and needs neither): a stream socket, one
 # end in the reply as a file descriptor, the other handed to that applet's
 # Listen. A descriptor sent with the call is handed instead, and the reply
 # carries none: a dmabuf, or a memfd sealed against shrinking (anything else
@@ -466,15 +468,47 @@ async fn listen(conn: zlink::tokio::unix::Connection, bridge: &Bridge, applet: &
     tracing::info!(%applet, "stopped listening");
 }
 
+/// Whether `caller` may open `to`'s `channel`: the target must offer it
+/// (NotOffered), and when the offer names a grant (`requires`, plan 0018
+/// D10) the caller must be a built-in whose manifest holds it
+/// (NotPermitted, G057). An installed applet holds no system grant, so it
+/// can never open a gated channel.
+fn channel_gate(
+    registry: &Registry,
+    caller: Option<&str>,
+    to: &str,
+    channel: &str,
+) -> Result<(), Failure> {
+    let offer = registry
+        .find(to)
+        .and_then(|e| e.manifest.applet.channels.offer(channel))
+        .ok_or_else(|| {
+            Failure::host("NotOffered", json!({ "applet": to, "channel": channel }))
+        })?;
+    if let Some(grant) = offer.requires() {
+        let holds = caller.is_none_or(|applet| {
+            registry.find(applet).is_some_and(|e| {
+                e.builtin && e.manifest.applet.permissions.system.contains(&grant)
+            })
+        });
+        if !holds {
+            return Err(Failure::host("NotPermitted", json!({})));
+        }
+    }
+    Ok(())
+}
+
 /// Open a channel: the caller's manifest must open it and the target's
-/// offer it. The descriptor that goes back to the caller, if any.
+/// offer it. The descriptor that goes back to the caller, if any. A caller
+/// that is no applet (root at the shell: `vrx camera`, a diagnostic, as
+/// with intents and `holds`) is the system: it needs no `opens` and passes
+/// a `requires`, and the channel's `from` is "system".
 fn open(
     host: &Host,
     caller: Option<&str>,
     params: &Value,
     mut fds: Vec<std::os::fd::OwnedFd>,
 ) -> Result<Vec<std::os::fd::OwnedFd>, Failure> {
-    let caller = caller.ok_or_else(|| Failure::host("NotAnApplet", json!({})))?;
     let to = params
         .get("to")
         .and_then(Value::as_str)
@@ -484,31 +518,21 @@ fn open(
         .and_then(Value::as_str)
         .ok_or_else(|| Failure::invalid("channel"))?;
     let wanted = format!("{to}.{channel}");
-    let declared = host
-        .registry
-        .get()
-        .find(caller)
-        .is_some_and(|e| e.manifest.applet.channels.opens.contains(&wanted));
-    if !declared {
-        return Err(Failure::host(
-            "NotDeclared",
-            json!({ "channel": wanted, "intent": null }),
-        ));
+    if let Some(caller) = caller {
+        let declared = host
+            .registry
+            .get()
+            .find(caller)
+            .is_some_and(|e| e.manifest.applet.channels.opens.contains(&wanted));
+        if !declared {
+            return Err(Failure::host(
+                "NotDeclared",
+                json!({ "channel": wanted, "intent": null }),
+            ));
+        }
     }
-    let offered = host.registry.get().find(to).is_some_and(|e| {
-        e.manifest
-            .applet
-            .channels
-            .offers
-            .iter()
-            .any(|c| c == channel)
-    });
-    if !offered {
-        return Err(Failure::host(
-            "NotOffered",
-            json!({ "applet": to, "channel": channel }),
-        ));
-    }
+    channel_gate(&host.registry.get(), caller, to, channel)?;
+    let caller = caller.unwrap_or("system");
     let not_listening = || Failure::host("NotListening", json!({ "applet": to }));
     if !fds.is_empty() {
         // the caller's own descriptor (device data): handed as it came, if
@@ -1457,6 +1481,52 @@ mod tests {
         assert_eq!(second["parameters"]["front"], "clock", "{second}");
         assert_eq!(second["parameters"]["depth"], 2, "{second}");
         assert_eq!(second["parameters"]["stopped"], "Clock", "{second}");
+    }
+
+    /// G057: a channel that names a grant opens only for a built-in that
+    /// holds it; one that names none is unchanged.
+    #[test]
+    fn a_gated_channel_needs_the_grant_g057() {
+        let mut r = Registry::new();
+        for (id, builtin, extra) in [
+            (
+                "camerad",
+                true,
+                "kind = \"service\"\n[applet.permissions]\nsystem = [\"camera\"]\n\
+                 [applet.channels]\noffers = [{ name = \"frames\", requires = \"camera-use\" }, \"plain\"]\n",
+            ),
+            ("viewer", true, "[applet.permissions]\nsystem = [\"camera-use\"]\n"),
+            ("nosy", true, ""),
+            ("sideloaded", false, ""),
+        ] {
+            let text = format!(
+                "[applet]\nid = \"{id}\"\nname = \"N\"\nversion = \"1.0.0\"\nruntime = \"rust\"\n{extra}"
+            );
+            r.admit(RegistryEntry {
+                manifest: text.parse().unwrap(),
+                path: PathBuf::from("/x").join(id),
+                builtin,
+            })
+            .unwrap();
+        }
+        let verdict = |caller: &str, channel: &str| {
+            channel_gate(&r, Some(caller), "camerad", channel)
+                .map(|()| "ok".to_owned())
+                .unwrap_or_else(|f| f.error)
+        };
+        assert_eq!(verdict("viewer", "frames"), "ok");
+        assert_eq!(verdict("nosy", "frames"), "io.vrx.Host.NotPermitted");
+        assert_eq!(verdict("sideloaded", "frames"), "io.vrx.Host.NotPermitted");
+        assert_eq!(
+            verdict("nosy", "plain"),
+            "ok",
+            "an ungated offer is unchanged"
+        );
+        assert_eq!(verdict("viewer", "ghost"), "io.vrx.Host.NotOffered");
+        assert!(
+            channel_gate(&r, None, "camerad", "frames").is_ok(),
+            "root at the shell is the system"
+        );
     }
 
     fn builtin_and_installed() -> Registry {

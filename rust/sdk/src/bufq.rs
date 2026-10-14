@@ -20,6 +20,7 @@ use rustix::net::{
     SendAncillaryBuffer, SendAncillaryMessage, SendFlags,
 };
 use vrx_protocol::bufq::{BufferFilled, BufferOffer, BufferReturned, MAX_BUFFERS};
+pub use vrx_protocol::bufq::{BufferFormat, FOURCC_XRGB8888};
 
 use crate::ipc::{Channel, IpcError};
 
@@ -37,6 +38,7 @@ pub struct BufferQueue {
     reader: BufReader<UnixStream>,
     buffers: Vec<OwnedFd>,
     size: u64,
+    format: Option<BufferFormat>,
     /// producer: the buffers not with the consumer
     free: VecDeque<u32>,
     sequence: u64,
@@ -66,10 +68,53 @@ impl BufferQueue {
                 .map_err(|e| io(&name)(e.into()))?;
             buffers.push(fd);
         }
+        Self::send_offer(channel, buffers, size, None)
+    }
+
+    /// Producer: hand a driver's own buffers over `channel` instead of
+    /// memfds (libcamera's frame buffers, a DRM buffer): `buffers` are
+    /// dmabufs of `size` bytes each, `format` says what a picture in one
+    /// looks like. The producer vouches that each is a dmabuf (or a memfd
+    /// sealed against shrinking, plan 0009 D10): the offer rides the
+    /// channel's own socket, so vrxhost never sees these descriptors.
+    pub fn offer_dmabufs(
+        channel: Channel,
+        buffers: Vec<OwnedFd>,
+        size: u64,
+        format: Option<BufferFormat>,
+    ) -> Result<Self, IpcError> {
+        let count = u32::try_from(buffers.len()).unwrap_or(u32::MAX);
+        if count == 0 || count > MAX_BUFFERS {
+            return Err(IpcError::BadAnswer(format!(
+                "a queue holds 1 to {MAX_BUFFERS} buffers, not {}",
+                buffers.len()
+            )));
+        }
+        if let Some(f) = format {
+            let needed = u64::from(f.stride) * u64::from(f.height);
+            if f.width == 0 || f.height == 0 || needed > size {
+                return Err(IpcError::BadAnswer(format!(
+                    "a {}x{} picture with stride {} does not fit {size} bytes",
+                    f.width, f.height, f.stride
+                )));
+            }
+        }
+        Self::send_offer(channel, buffers, size, format)
+    }
+
+    fn send_offer(
+        channel: Channel,
+        buffers: Vec<OwnedFd>,
+        size: u64,
+        format: Option<BufferFormat>,
+    ) -> Result<Self, IpcError> {
+        let name = channel.name().to_owned();
+        let count = buffers.len() as u32;
         let stream = channel.into_stream();
         let mut line = serde_json::to_vec(&BufferOffer {
             buffers: count,
             size,
+            format,
         })
         .map_err(|e| IpcError::BadAnswer(e.to_string()))?;
         line.push(b'\n');
@@ -93,6 +138,7 @@ impl BufferQueue {
             free: (0..count).collect(),
             buffers,
             size,
+            format,
             sequence: 0,
             dropped: 0,
         })
@@ -149,6 +195,7 @@ impl BufferQueue {
             reader,
             buffers,
             size: offer.size,
+            format: offer.format,
             free: VecDeque::new(),
             sequence: 0,
             dropped: 0,
@@ -162,6 +209,11 @@ impl BufferQueue {
 
     pub fn size(&self) -> u64 {
         self.size
+    }
+
+    /// What a picture in a buffer looks like, for a queue of pictures.
+    pub fn format(&self) -> Option<BufferFormat> {
+        self.format
     }
 
     /// Buffer `index`'s descriptor: hand it to a kernel interface, or map it.
@@ -273,6 +325,46 @@ mod tests {
         consumer.give_back(first.index).unwrap();
         assert_eq!(producer.reclaim().unwrap(), a);
         assert_eq!(producer.take_free(), Some(a));
+    }
+
+    #[test]
+    fn driver_buffers_go_over_with_their_format_and_a_lying_format_is_refused() {
+        let sealed = || {
+            let fd = memfd_create("t", MemfdFlags::ALLOW_SEALING).unwrap();
+            ftruncate(&fd, 4096).unwrap();
+            fcntl_add_seals(&fd, SealFlags::SHRINK | SealFlags::GROW).unwrap();
+            fd
+        };
+        let format = BufferFormat {
+            fourcc: FOURCC_XRGB8888,
+            width: 32,
+            height: 32,
+            stride: 128,
+            modifier: 0,
+        };
+        let (p, c) = pair();
+        let mut producer =
+            BufferQueue::offer_dmabufs(p, vec![sealed(), sealed()], 4096, Some(format))
+                .unwrap();
+        let consumer = BufferQueue::accept(c).unwrap();
+        assert_eq!(consumer.format(), Some(format));
+        assert_eq!((consumer.count(), consumer.size()), (2, 4096));
+        assert_eq!(producer.take_free(), Some(0));
+        // a picture that needs more than the buffer holds
+        let (p, _c) = pair();
+        let too_big = BufferFormat {
+            height: 64,
+            ..format
+        };
+        assert!(
+            BufferQueue::offer_dmabufs(p, vec![sealed()], 4096, Some(too_big)).is_err()
+        );
+        let (p, _c) = pair();
+        assert!(BufferQueue::offer_dmabufs(p, Vec::new(), 4096, None).is_err());
+        // memfds made by `offer` carry no format
+        let (p, c) = pair();
+        let _producer = BufferQueue::offer(p, 1, 64).unwrap();
+        assert_eq!(BufferQueue::accept(c).unwrap().format(), None);
     }
 
     #[test]

@@ -206,6 +206,88 @@ impl Channel {
             })
     }
 
+    /// Write one JSON record with a descriptor riding on it (SCM_RIGHTS): a
+    /// photo's sealed memfd, as `camerad.photos` answers (plan 0018 D7).
+    #[cfg(target_os = "linux")]
+    pub fn write_with_fd(
+        &mut self,
+        record: vrx_protocol::IntentPayload,
+        fd: std::os::fd::BorrowedFd<'_>,
+    ) -> Result<(), IpcError> {
+        use rustix::net::{
+            sendmsg, SendAncillaryBuffer, SendAncillaryMessage, SendFlags,
+        };
+        use std::io::IoSlice;
+        use std::mem::MaybeUninit;
+        let message = PipeMessage::new(self.name.clone(), record)
+            .map_err(|e| IpcError::BadAnswer(e.to_string()))?;
+        let mut line = serde_json::to_vec(&message)
+            .map_err(|e| IpcError::BadAnswer(e.to_string()))?;
+        line.push(b'\n');
+        let fds = [fd];
+        let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
+        let mut control = SendAncillaryBuffer::new(&mut space);
+        control.push(SendAncillaryMessage::ScmRights(&fds));
+        sendmsg(
+            &self.writer,
+            &[IoSlice::new(&line)],
+            &mut control,
+            SendFlags::empty(),
+        )
+        .map(|_| ())
+        .map_err(|e| IpcError::Channel {
+            channel: self.name.clone(),
+            source: e.into(),
+        })
+    }
+
+    /// Block for the next record and the descriptor that came with it, if
+    /// any; None when the other end closed. Reads a byte at a time so a
+    /// descriptor stays with its own record: use it on a channel that only
+    /// ever strictly alternates request and response (`camerad.photos`),
+    /// never after [Self::next_record] has buffered more than one line.
+    #[cfg(target_os = "linux")]
+    pub fn next_record_with_fd(
+        &mut self,
+    ) -> Option<(vrx_protocol::IntentPayload, Option<std::os::fd::OwnedFd>)> {
+        use rustix::net::{
+            recvmsg, RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags,
+        };
+        use std::io::IoSliceMut;
+        use std::mem::MaybeUninit;
+        if !self.reader.buffer().is_empty() {
+            return None;
+        }
+        let mut line = Vec::new();
+        let mut fd = None;
+        loop {
+            let mut byte = [0u8; 1];
+            let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
+            let mut control = RecvAncillaryBuffer::new(&mut space);
+            let got = recvmsg(
+                self.reader.get_ref(),
+                &mut [IoSliceMut::new(&mut byte)],
+                &mut control,
+                RecvFlags::CMSG_CLOEXEC,
+            )
+            .ok()?;
+            for message in control.drain() {
+                if let RecvAncillaryMessage::ScmRights(fds) = message {
+                    fd = fd.or(fds.into_iter().next());
+                }
+            }
+            if got.bytes == 0 {
+                return None;
+            }
+            if byte[0] == b'\n' {
+                break;
+            }
+            line.push(byte[0]);
+        }
+        let message: PipeMessage = serde_json::from_slice(&line).ok()?;
+        Some((message.record, fd))
+    }
+
     /// Block for the next record; None when the other end closed.
     pub fn next_record(&mut self) -> Option<vrx_protocol::IntentPayload> {
         let mut line = String::new();
@@ -526,6 +608,25 @@ mod tests {
             matches!(err, IpcError::NoHost { .. } | IpcError::Unsupported),
             "{err}"
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_record_carries_its_descriptor_and_a_plain_one_carries_none() {
+        use std::os::fd::AsFd;
+        let (a, b) = UnixStream::pair().expect("pair");
+        let mut left = Channel::from_stream("camerad.photos".into(), a).expect("a");
+        let mut right = Channel::from_stream("camerad.photos".into(), b).expect("b");
+        let file = std::fs::File::open("/proc/self/status").expect("open");
+        left.write_with_fd(serde_json::json!({"id": 1}), file.as_fd())
+            .expect("send");
+        left.write(serde_json::json!({"id": 2})).expect("plain");
+        let (first, fd) = right.next_record_with_fd().expect("first");
+        assert_eq!(first["id"], 1);
+        assert!(fd.is_some(), "the descriptor came with its record");
+        let (second, fd) = right.next_record_with_fd().expect("second");
+        assert_eq!(second["id"], 2);
+        assert!(fd.is_none(), "and not with the next one");
     }
 
     #[test]

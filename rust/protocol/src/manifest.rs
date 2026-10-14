@@ -70,8 +70,17 @@ pub enum SystemGrant {
     Serial,
     /// Audio devices.
     Audio,
-    /// Cameras (V4L2).
+    /// The camera devices themselves (V4L2 nodes, the media graph, the
+    /// DMA heaps libcamera allocates from). Only camerad holds it (plan
+    /// 0018 D1, G056).
     Camera,
+    /// Use the camera through camerad: open its `frames` and `photos`
+    /// channels and ask for a capture. No device access (plan 0018 D10,
+    /// G057).
+    #[serde(rename = "camera-use")]
+    CameraUse,
+    /// Read the folder camerad keeps its photos in (plan 0018 D10).
+    Photos,
     /// Input devices read directly (keys, encoders, sensors as input).
     Input,
     /// Industrial I/O sensors (IIO).
@@ -118,6 +127,8 @@ impl SystemGrant {
             SystemGrant::Serial => "serial",
             SystemGrant::Audio => "audio",
             SystemGrant::Camera => "camera",
+            SystemGrant::CameraUse => "camera-use",
+            SystemGrant::Photos => "photos",
             SystemGrant::Input => "input",
             SystemGrant::Iio => "iio",
             SystemGrant::Settings => "settings",
@@ -131,7 +142,7 @@ impl SystemGrant {
     }
 
     /// Every grant, for table checks.
-    pub const ALL: [SystemGrant; 24] = [
+    pub const ALL: [SystemGrant; 26] = [
         SystemGrant::Network,
         SystemGrant::Bluetooth,
         SystemGrant::Time,
@@ -147,6 +158,8 @@ impl SystemGrant {
         SystemGrant::Serial,
         SystemGrant::Audio,
         SystemGrant::Camera,
+        SystemGrant::CameraUse,
+        SystemGrant::Photos,
         SystemGrant::Input,
         SystemGrant::Iio,
         SystemGrant::Settings,
@@ -363,9 +376,54 @@ pub struct IntentsSection {
 #[serde(deny_unknown_fields)]
 pub struct ChannelsSection {
     #[serde(default)]
-    pub offers: Vec<String>,
+    pub offers: Vec<ChannelOffer>,
     #[serde(default)]
     pub opens: Vec<String>,
+}
+
+/// One channel an applet offers: a bare name, or a table that also names
+/// the system grant a caller must hold to open it (plan 0018 D10:
+/// `{ name = "frames", requires = "camera-use" }`). vrxhost refuses an
+/// Open by an applet whose manifest lacks the grant (G057).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ChannelOffer {
+    Named(String),
+    Gated(GatedOffer),
+}
+
+/// The table form of a [ChannelOffer].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GatedOffer {
+    pub name: String,
+    #[serde(default)]
+    pub requires: Option<SystemGrant>,
+}
+
+impl ChannelOffer {
+    /// The channel's name.
+    pub fn name(&self) -> &str {
+        match self {
+            ChannelOffer::Named(name) => name,
+            ChannelOffer::Gated(g) => &g.name,
+        }
+    }
+
+    /// The grant a caller must hold, if the offer names one.
+    pub fn requires(&self) -> Option<SystemGrant> {
+        match self {
+            ChannelOffer::Named(_) => None,
+            ChannelOffer::Gated(g) => g.requires,
+        }
+    }
+}
+
+impl ChannelsSection {
+    /// The offer called `channel`, if this applet makes it.
+    pub fn offer(&self, channel: &str) -> Option<&ChannelOffer> {
+        self.offers.iter().find(|o| o.name() == channel)
+    }
 }
 
 /// A channel or applet name: [a-z][a-z0-9_]*, at most 32.
@@ -618,7 +676,8 @@ impl Manifest {
             intent::validate_name(name)
                 .map_err(|e| ManifestError::Invalid(format!("emits entry: {e}")))?;
         }
-        for name in &a.channels.offers {
+        for offer in &a.channels.offers {
+            let name = offer.name();
             if !is_name(name) {
                 return invalid(format!(
                     "channels.offers {name:?}: must match [a-z][a-z0-9_]* (max 32)"
@@ -946,7 +1005,9 @@ network = true
         let m: Manifest = with("offers = [\"frames\"]\nopens = [\"mic.samples\"]")
             .parse()
             .unwrap();
-        assert_eq!(m.applet.channels.offers, vec!["frames"]);
+        assert_eq!(m.applet.channels.offers.len(), 1);
+        assert_eq!(m.applet.channels.offers[0].name(), "frames");
+        assert_eq!(m.applet.channels.offers[0].requires(), None);
         assert_eq!(m.applet.channels.opens, vec!["mic.samples"]);
         for bad in [
             "offers = [\"Frames\"]",
@@ -956,6 +1017,30 @@ network = true
         ] {
             let err = with(bad).parse::<Manifest>().unwrap_err();
             assert!(err.to_string().contains("channels."), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn an_offer_may_require_a_grant_and_only_a_known_one() {
+        let with =
+            |body: &str| format!("{}\n[applet.channels]\n{body}\n", minimal("camerad"));
+        let m: Manifest =
+            with("offers = [{ name = \"frames\", requires = \"camera-use\" }, \"open\"]")
+                .parse()
+                .unwrap();
+        let offers = &m.applet.channels;
+        assert_eq!(
+            offers.offer("frames").and_then(ChannelOffer::requires),
+            Some(SystemGrant::CameraUse)
+        );
+        assert_eq!(offers.offer("open").and_then(ChannelOffer::requires), None);
+        assert!(offers.offer("ghost").is_none());
+        for bad in [
+            "offers = [{ name = \"frames\", requires = \"nonsense\" }]",
+            "offers = [{ name = \"Frames\", requires = \"camera-use\" }]",
+            "offers = [{ name = \"frames\", wants = \"camera-use\" }]",
+        ] {
+            assert!(with(bad).parse::<Manifest>().is_err(), "{bad}");
         }
     }
 
