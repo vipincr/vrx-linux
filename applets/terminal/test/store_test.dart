@@ -13,6 +13,7 @@ void main() {
     harness.assertView((v) => !v.keyboard && v.running);
     harness.dispatch(TerminalAction.ended);
     harness.assertView((v) => !v.running);
+    harness.verify(fresh: TerminalModel.new, probes: TerminalAction.values);
   });
 
   test('keys reach the program as the terminal encodes them', () {

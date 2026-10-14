@@ -40,6 +40,13 @@ class TerminalModel extends StoreModel<TerminalState, TerminalAction, TermView> 
 
   @override
   TerminalState get snapshot => const TerminalState();
+
+  /// A shell is a process; nothing survives its applet.
+  @override
+  void restore(TerminalState snapshot) {}
+
+  @override
+  Object? get fingerprint => [keyboard, running];
 }
 
 class TerminalState {
