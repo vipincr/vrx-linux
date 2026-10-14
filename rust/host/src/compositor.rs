@@ -24,6 +24,9 @@ pub const MSG_CONTROL: u32 = 9;
 pub const MSG_SET_FOCUS: u32 = 10;
 pub const MSG_APP_STATE: u32 = 11;
 pub const MSG_SET_SHELL: u32 = 12;
+/// The battery's brightness cap (plan 0012 D10): permille of the range
+/// above the floor, 1000 = none.
+pub const MSG_LIGHT_CAP: u32 = 18;
 
 const ID_LEN: usize = 64;
 const HEADER_LEN: usize = 8;
@@ -32,6 +35,10 @@ const APP_STATE_LEN: usize = 4 + 4 + ID_LEN;
 /// How long to wait between connection attempts: the compositor may
 /// start after vrxhost, or restart under it.
 const RETRY: Duration = Duration::from_millis(500);
+
+/// The last brightness cap ordered, re-sent when the link reconnects.
+pub static LIGHT_CAP: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(1000);
 
 /// An app's state at the compositor (vrx_ipc.h `enum vrx_app_state`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,6 +83,9 @@ pub enum Control {
     Focus(u32),
     /// The app with this pid is the shell (0 = none).
     Shell(u32),
+    /// Cap the brightness at this share of the range above the floor
+    /// (permille; 1000 lifts it). The battery's WARN zone.
+    LightCap(u32),
 }
 
 impl Control {
@@ -84,6 +94,9 @@ impl Control {
         let (kind, pid) = match self {
             Control::Focus(pid) => (MSG_SET_FOCUS, pid),
             Control::Shell(pid) => (MSG_SET_SHELL, pid),
+            Control::LightCap(permille) => {
+                return encode(MSG_LIGHT_CAP, &permille.min(1000).to_ne_bytes())
+            }
         };
         encode(kind, &i32::try_from(pid).unwrap_or(0).to_ne_bytes())
     }
@@ -144,6 +157,12 @@ pub async fn run(
             continue;
         }
         tracing::info!(socket = %socket.display(), "controlling the compositor");
+        // a cap set before a compositor restart still holds
+        let cap = LIGHT_CAP.load(std::sync::atomic::Ordering::Relaxed);
+        if cap < 1000 && send(&fd, &Control::LightCap(cap).encode()).await.is_err() {
+            tokio::time::sleep(RETRY).await;
+            continue;
+        }
         if events.send(LinkEvent::Connected).is_err() {
             return;
         }

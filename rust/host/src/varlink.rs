@@ -98,6 +98,12 @@ method Install(file: string, build: string) -> (id: string)
 # saved state, cache and settings are deleted.
 method Uninstall(applet: string) -> ()
 
+# Wake the system at a time (unix seconds) for the caller's next alarm or
+# timer, through a systemd timer with WakeSystem=yes; null cancels. One
+# per applet, replacing the last (plan 0012 D15). For callers holding the
+# time grant.
+method WakeAt(at: ?int) -> ()
+
 # The front applet and the trail depth; with \"more\", again on every
 # change. stopped names an applet that crashed (systemd restarted it, or
 # gave up), until the next navigation (plan 0011 D2).
@@ -106,9 +112,12 @@ method Watch() -> (front: string, depth: int, stopped: ?string)
 # System facts that change, for an applet to hear rather than poll (plan
 # 0012 D6): usb, the USB device port's UDC state (\"\" with no UDC);
 # supply_low, the supply's under-voltage alarm; backlight, a count of
-# changes to the backlight's level (read the level again when it moves).
+# changes to the backlight's level (read the level again when it moves);
+# battery, the charge in percent as shown (-1 with no battery) and
+# battery_zone, \"\", warn or critical while discharging (plan 0012 D10);
+# next_wake, the earliest time an applet asked to wake for (0: none).
 # With \"more\", again on every change.
-method Facts() -> (usb: string, supply_low: bool, backlight: int)
+method Facts() -> (usb: string, supply_low: bool, backlight: int, battery: int, battery_zone: string, next_wake: int)
 
 # What each applet and the system's parts cost over the last hours (1-24,
 # default 24; plan 0012 D8, D12), most first. mj is millijoules, absent
@@ -629,6 +638,29 @@ async fn dispatch(
             let installer = may_install(host, caller)?;
             let applet = str_param("applet").ok_or_else(|| Failure::invalid("applet"))?;
             uninstall(host, installer, applet).await
+        }
+        "io.vrx.Host.WakeAt" => {
+            // the time grant's meaning includes alarms and timers
+            // (an applet only: the timer is named for it)
+            let Some(applet) = caller else {
+                return Err(Failure::host("NotPermitted", json!({})));
+            };
+            if !holds(host, Some(applet), vrx_protocol::SystemGrant::Time) {
+                return Err(Failure::host("NotPermitted", json!({})));
+            }
+            let at = match params.get("at") {
+                None | Some(Value::Null) => None,
+                Some(v) => Some(v.as_u64().ok_or_else(|| Failure::invalid("at"))?),
+            };
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            crate::wake::set(applet, at, now)
+                .await
+                .map(|()| json!({}))
+                .map_err(|detail| {
+                    Failure::host("Unavailable", json!({ "detail": detail }))
+                })
         }
         "io.vrx.Host.Settings" => {
             Ok(json!({ "applets": declared_settings(&host.registry.get()) }))

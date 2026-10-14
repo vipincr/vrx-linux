@@ -17,7 +17,7 @@ use serde::Serialize;
 use tokio::sync::watch;
 
 /// What `Facts` reports.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Facts {
     /// The USB device port's UDC state ("configured" once a computer has
     /// enumerated the gadget); empty on a board with no UDC.
@@ -28,6 +28,27 @@ pub struct Facts {
     /// Counts changes to the backlight's level: the kit reads sysfs again
     /// when it moves. 0 until the first change.
     pub backlight: u64,
+    /// The battery's charge in percent, as shown (plan 0012 D10's
+    /// hysteresis); -1 where there is no battery.
+    pub battery: i32,
+    /// "", "warn" or "critical": the battery's zone while discharging.
+    pub battery_zone: String,
+    /// The earliest time (unix seconds) an applet asked the system to wake
+    /// for (plan 0012 D15, Clock's next alarm); 0 = none.
+    pub next_wake: u64,
+}
+
+impl Default for Facts {
+    fn default() -> Self {
+        Self {
+            usb: String::new(),
+            supply_low: false,
+            backlight: 0,
+            battery: -1,
+            battery_zone: String::new(),
+            next_wake: 0,
+        }
+    }
 }
 
 fn channel() -> &'static watch::Sender<Facts> {

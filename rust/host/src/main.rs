@@ -59,6 +59,7 @@ async fn main() -> ExitCode {
     };
 
     let (focus_tx, focus_rx) = mpsc::unbounded_channel();
+    let focus_for_battery = focus_tx.clone();
     let (link_tx, link_rx) = mpsc::unbounded_channel();
     let (nav_tx, nav_rx) = mpsc::unbounded_channel();
     let (front_tx, front_rx) = watch::channel(Front::default());
@@ -182,8 +183,22 @@ async fn main() -> ExitCode {
     // the kernel's power supplies (plan 0011 D12): a change is relayed
     // as sys.power.changed; a board with none never sends one
     let raiser = host.clone();
+    // the battery's rules (plan 0012 D10): fed by the same changes, and a
+    // WARN cap goes to the compositor on the focus link
+    let (battery_tx, battery_rx) = mpsc::unbounded_channel();
+    let cap_link = focus_for_battery;
+    tokio::spawn(power::battery(
+        std::path::PathBuf::from("/sys/class/power_supply"),
+        std::path::PathBuf::from("/usr/share/vrx"),
+        battery_rx,
+        move |permille| {
+            compositor::LIGHT_CAP.store(permille, std::sync::atomic::Ordering::Relaxed);
+            let _ = cap_link.send(Control::LightCap(permille));
+        },
+    ));
     tokio::spawn(async move {
         let ended = power::watch(move |supply| {
+            let _ = battery_tx.send(());
             let host = raiser.clone();
             tokio::spawn(async move {
                 if let Ok(intent) =

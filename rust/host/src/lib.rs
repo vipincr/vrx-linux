@@ -26,3 +26,4 @@ pub mod supply;
 pub mod trail;
 pub mod usb;
 pub mod varlink;
+pub mod wake;
