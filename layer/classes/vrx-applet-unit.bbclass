@@ -22,8 +22,9 @@ VRX_APPLET ?= ""
 VRX_APPLET_DIR ?= "/system/defaults/${VRX_APPLET}"
 VRX_FLUTTER_BUNDLE ?= ""
 # Plan 0008 D18's hard budgets: start to usable, and event-loop liveness
+# (60 s since plan 0012 D4: a ping is a wake; vrx_protocol::unit's default)
 VRX_APPLET_START_BUDGET ?= "5s"
-VRX_APPLET_WATCHDOG ?= "5s"
+VRX_APPLET_WATCHDOG ?= "60s"
 VRX_GRANTS_CONF = "${VRX_LINUX_LAYERDIR}/recipes-applets/vrx-applets/files/grants.conf"
 
 python vrx_applet_unit() {

@@ -5,7 +5,7 @@
 //
 //   vrx unit --manifest <manifest.toml> --dir <installed dir>
 //            [--bundle <dir>] [--grants <grants.conf>]
-//            [--start-budget 5s] [--watchdog 5s]
+//            [--start-budget 5s] [--watchdog 60s]
 //            --dropin <out> [--settings <out>]
 
 use std::path::PathBuf;

@@ -54,14 +54,16 @@ the gate is green.
    settings live in /etc (plan 0008). vrx code fills only the gaps.
 10. **Responsiveness is a contract, with hard gates** (plan 0008 D18,
     D19). The budgets: start to usable 5 s (systemd `TimeoutStartSec`),
-    event loop alive 5 s (systemd `WatchdogSec`), input to screen p95
-    50 ms (the bench gate), a told intent 100 ms, one reduce 2 ms (the
-    store harnesses). In applet and SDK code:
+    event loop alive 60 s (systemd `WatchdogSec`; each ping is a wake,
+    plan 0012 D4), input to screen p95 50 ms (the bench gate), a told
+    intent 100 ms, one reduce 2 ms (the store harnesses). In applet and
+    SDK code:
     - nothing blocks the UI isolate or the event loop: no synchronous
       `dart:io` (`*Sync(`), no `sleep`, no `std::thread::sleep`; work
       goes into effects, I/O is async;
-    - timers tick no faster than the manifest's `repaints_per_min`
-      allows, and stop when the applet is not focused;
+    - timers stop when the applet is not focused (the kit's `VrxTicker`;
+      G021), and nothing polls: the system's state arrives as events
+      (plan 0012 D6, G027);
     - touch targets are 9mm; the exceptions are VrxKeyboard's key
       width (ten keys across a 43mm panel), which keeps the 9mm height,
       and the debug-only Terminal, whose keyboard is 6mm tall and whose

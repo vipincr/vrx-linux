@@ -9,7 +9,7 @@
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
-use crate::manifest::{Manifest, Runtime, SystemGrant};
+use crate::manifest::{Kind, Manifest, Runtime, SystemGrant};
 
 /// What a grant becomes (grants.conf, plan 0008 D2): a group, the device
 /// classes the unit may open, the paths it may write.
@@ -104,20 +104,23 @@ pub struct Place {
     pub bundle: Option<String>,
     /// Start to usable (plan 0008 D18).
     pub start_budget: String,
-    /// Event-loop liveness (plan 0008 D18).
+    /// Event-loop liveness (plan 0008 D18; 60 s since plan 0012 D4).
     pub watchdog: String,
     /// Installed (plan 0011 D16): a dynamic user, no grants.
     pub installed: bool,
 }
 
 impl Place {
-    /// A built-in at `dir` with the image's budgets (5 s each).
+    /// A built-in at `dir` with the image's budgets: 5 s to start, and a
+    /// watchdog of 60 s (plan 0012 D4: each ping wakes the process, and a
+    /// hung applet is caught in a minute, about when a person notices the
+    /// screen stopped answering).
     pub fn builtin(dir: impl Into<String>, bundle: Option<String>) -> Self {
         Self {
             dir: dir.into(),
             bundle,
             start_budget: "5s".to_owned(),
-            watchdog: "5s".to_owned(),
+            watchdog: "60s".to_owned(),
             installed: false,
         }
     }
@@ -173,7 +176,7 @@ pub fn dropin(
     let mut out = String::new();
     let _ = writeln!(
         out,
-        "# Generated from the {id} manifest by vrx-applet-unit.bbclass. Do not edit."
+        "# Generated from the {id} manifest by vrx_protocol::unit. Do not edit."
     );
     out.push_str("[Service]\n");
     let _ = writeln!(out, "ExecStart={exec_start}");
@@ -188,6 +191,13 @@ pub fn dropin(
         out.push_str("Type=notify\nNotifyAccess=main\n");
         let _ = writeln!(out, "TimeoutStartSec={}", place.start_budget);
         let _ = writeln!(out, "WatchdogSec={}", place.watchdog);
+    }
+    // plan 0012 D5: an applet that runs behind the screen for good (a
+    // resident, a service) gets coarse timers, so the kernel folds its
+    // wakeups into others within 50 ms; every other applet is frozen when
+    // hidden (D2) and keeps the default slack while it is in front
+    if a.roles.resident || a.kind == Kind::Service {
+        out.push_str("TimerSlackNSec=50ms\n");
     }
     if !groups.is_empty() {
         let list: Vec<&str> = groups.iter().map(String::as_str).collect();

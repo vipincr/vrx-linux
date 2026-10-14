@@ -245,16 +245,10 @@ pub struct DisplaySection {
     pub position: u32,
     #[serde(default = "default_orientation")]
     pub orientation: Orientation,
-    #[serde(default = "default_repaints_per_min")]
-    pub repaints_per_min: u32,
 }
 
 fn default_orientation() -> Orientation {
     Orientation::Any
-}
-
-fn default_repaints_per_min() -> u32 {
-    60
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -686,7 +680,6 @@ icon = "icon.png"              # or a glyph from the icon font
 tile = true                    # show in the launcher?
 position = 3                   # launcher order
 orientation = "landscape"      # "any" | "landscape" | "portrait" | "locked"
-repaints_per_min = 30          # refresh budget (display policy)
 
 [applet.resources]
 heap_mb = 128                  # memory limit (enforced by vrxhost via cgroups)
