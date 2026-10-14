@@ -118,13 +118,9 @@ fn read_u64(path: &Path) -> Option<u64> {
     read(path)?.trim().parse().ok()
 }
 
-/// One applet's counters at a moment.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Counters {
-    pub cpu_us: u64,
-    pub gpu_ns: u64,
-    pub wakeups: u64,
-}
+/// One applet's counters at a moment: read by `counters` (G037), shared
+/// with the profiler.
+pub use crate::counters::Applet as Counters;
 
 /// Everything read at one moment.
 #[derive(Debug, Clone, Default)]
@@ -145,103 +141,17 @@ pub struct Snapshot {
     pub frozen: Vec<String>,
 }
 
-fn usage_us(cpu_stat: &Path) -> Option<u64> {
-    read(cpu_stat)?.lines().find_map(|l| {
-        l.strip_prefix("usage_usec ")
-            .and_then(|v| v.trim().parse().ok())
-    })
-}
-
-fn wakeups_of(proc_: &Path, pid: u32) -> u64 {
-    read(&proc_.join(pid.to_string()).join("status")).map_or(0, |s| {
-        s.lines()
-            .find_map(|l| {
-                l.strip_prefix("voluntary_ctxt_switches:")
-                    .and_then(|v| v.trim().parse().ok())
-            })
-            .unwrap_or(0)
-    })
-}
-
-/// The process's GPU busy time: every render-node client it holds, each
-/// counted once (`drm-client-id`), its `drm-engine-*` nanoseconds summed.
-fn gpu_ns_of(proc_: &Path, pid: u32, seen: &mut Vec<String>) -> u64 {
-    let dir = proc_.join(pid.to_string());
-    let Ok(fds) = std::fs::read_dir(dir.join("fd")) else {
-        return 0;
-    };
-    let mut total = 0;
-    for fd in fds.flatten() {
-        let render = std::fs::read_link(fd.path())
-            .is_ok_and(|t| t.to_string_lossy().starts_with("/dev/dri/renderD"));
-        if !render {
-            continue;
-        }
-        let Some(info) = read(&dir.join("fdinfo").join(fd.file_name())) else {
-            continue;
-        };
-        let client = info.lines().find_map(|l| {
-            l.strip_prefix("drm-client-id:")
-                .map(|v| v.trim().to_owned())
-        });
-        if let Some(c) = &client {
-            if seen.contains(c) {
-                continue;
-            }
-            seen.push(c.clone());
-        }
-        total += info
-            .lines()
-            .filter_map(|l| l.strip_prefix("drm-engine-"))
-            .filter_map(|rest| {
-                let (_, v) = rest.split_once(':')?;
-                v.trim().trim_end_matches("ns").trim().parse::<u64>().ok()
-            })
-            .sum::<u64>();
-    }
-    total
-}
-
-const APPLET_SLICE: &str = "system.slice/system-vrx\\x2dapplet.slice";
+#[cfg(test)]
+use crate::counters::APPLET_SLICE;
 
 /// Read every counter once.
 pub fn snapshot(r: &Roots) -> Snapshot {
     let mut s = Snapshot::default();
-    if let Ok(units) = std::fs::read_dir(r.cgroup.join(APPLET_SLICE)) {
-        for unit in units.flatten() {
-            let name = unit.file_name().to_string_lossy().into_owned();
-            let Some(id) = name
-                .strip_prefix("vrx-applet@")
-                .and_then(|n| n.strip_suffix(".service"))
-            else {
-                continue;
-            };
-            let dir = unit.path();
-            let mut c = Counters {
-                cpu_us: usage_us(&dir.join("cpu.stat")).unwrap_or(0),
-                ..Counters::default()
-            };
-            let mut seen = Vec::new();
-            for pid in read(&dir.join("cgroup.procs"))
-                .unwrap_or_default()
-                .lines()
-                .filter_map(|l| l.trim().parse::<u32>().ok())
-            {
-                c.wakeups += wakeups_of(&r.proc_, pid);
-                c.gpu_ns += gpu_ns_of(&r.proc_, pid, &mut seen);
-            }
-            if read(&dir.join("cgroup.freeze")).is_some_and(|v| v.trim() == "1") {
-                s.frozen.push(id.to_owned());
-            }
-            s.applets.insert(id.to_owned(), c);
-        }
-    }
+    (s.applets, s.frozen) = crate::counters::applets(&r.cgroup, &r.proc_);
     for unit in ["vrx-llm-server.service", "vrx-stt-server.service"] {
-        s.models_us +=
-            usage_us(&r.cgroup.join("system.slice").join(unit).join("cpu.stat"))
-                .unwrap_or(0);
+        s.models_us += crate::counters::unit_cpu_us(&r.cgroup, unit).unwrap_or(0);
     }
-    s.total_us = usage_us(&r.cgroup.join("cpu.stat")).unwrap_or(0);
+    s.total_us = crate::counters::total_cpu_us(&r.cgroup).unwrap_or(0);
     if let Ok(policies) = std::fs::read_dir(r.sys.join("devices/system/cpu/cpufreq")) {
         for p in policies.flatten() {
             for line in read(&p.path().join("stats/time_in_state"))
@@ -1154,7 +1064,9 @@ budget background 5 10
                         Counters {
                             cpu_us: *cpu_us,
                             gpu_ns: *gpu_ns,
+                            gpu_clients: u32::from(*gpu_ns > 0),
                             wakeups: *wakeups,
+                            ..Counters::default()
                         },
                     )
                 })
@@ -1393,13 +1305,10 @@ budget background 5 10
             days: d.join("x"),
         };
         let s = snapshot(&roots);
+        let web = s.applets["web"];
         assert_eq!(
-            s.applets["web"],
-            Counters {
-                cpu_us: 1234,
-                gpu_ns: 500,
-                wakeups: 17
-            },
+            (web.cpu_us, web.gpu_ns, web.wakeups),
+            (1234, 500, 17),
             "one client counted once"
         );
         assert_eq!(s.total_us, 99999);

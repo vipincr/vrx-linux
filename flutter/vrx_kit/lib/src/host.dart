@@ -105,6 +105,7 @@ class SystemFacts {
     this.battery = -1,
     this.batteryZone = '',
     this.nextWake = 0,
+    this.profiling = false,
   });
 
   factory SystemFacts.fromJson(Map<String, dynamic> j) => SystemFacts(
@@ -114,6 +115,7 @@ class SystemFacts {
         battery: (j['battery'] as num?)?.toInt() ?? -1,
         batteryZone: '${j['battery_zone'] ?? ''}',
         nextWake: (j['next_wake'] as num?)?.toInt() ?? 0,
+        profiling: j['profiling'] == true,
       );
 
   /// The UDC's state ("configured" with a computer on the cable); '' on a
@@ -137,6 +139,10 @@ class SystemFacts {
   /// The earliest time (unix seconds) an applet asked the system to wake
   /// for, Clock's next alarm; 0 = none.
   final int nextWake;
+
+  /// The profiler's runtime switch is on (plan 0014 D1): applets
+  /// aggregate their frame timings and send them to vrxhost.
+  final bool profiling;
 }
 
 /// The applet OS's own service: navigation, the registry, intents.
@@ -190,6 +196,10 @@ abstract class AppletsService implements IntentTransport, NavDelegate {
   /// the root; one it does not declare arrives as ''), and the payload of
   /// the intent that opened it there.
   Future<({String route, Object? payload})> route();
+
+  /// This applet's frame summary over its last window (plan 0014 D5),
+  /// sent while profiling is on.
+  Future<void> frameStats(Map<String, Object> summary);
 }
 
 /// A `more` call that outlives vrxhost: when its connection ends (vrxhost
@@ -345,6 +355,9 @@ class VarlinkAppletsService extends AppletsService {
 
   @override
   Future<void> uninstall(String applet) => _client.call('io.vrx.Host.Uninstall', {'applet': applet});
+
+  @override
+  Future<void> frameStats(Map<String, Object> summary) => _client.call('io.vrx.Host.FrameStats', summary);
 
   @override
   Future<void> wakeAt(DateTime? at) =>

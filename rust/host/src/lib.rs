@@ -13,6 +13,7 @@
 pub mod applets;
 pub mod bridge;
 pub mod compositor;
+pub mod counters;
 pub mod energy;
 pub mod facts;
 pub mod freeze;
@@ -20,6 +21,7 @@ pub mod install;
 pub mod intent;
 pub mod paths;
 pub mod power;
+pub mod profile;
 pub mod registry;
 pub mod session;
 pub mod supply;

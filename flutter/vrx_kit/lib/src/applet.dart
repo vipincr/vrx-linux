@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 
 import 'channel.dart';
 import 'components.dart';
+import 'frames.dart';
 import 'host.dart';
 import 'input.dart';
 import 'nav.dart';
@@ -58,8 +59,10 @@ void runApplet<S, A, V>(
   Stream<A>? actions,
 }) {
   WidgetsFlutterBinding.ensureInitialized();
-  AppletsService.install();
+  final host = AppletsService.install();
   Store.keeper ??= LogindScreenKeeper();
+  // frame timings while vrxhost's profiling switch is on (plan 0014 D5)
+  if (host != null) VrxFrameTimings(host).start();
   runApp(AppletHost<S, A, V>(applet: applet, actions: actions));
 }
 

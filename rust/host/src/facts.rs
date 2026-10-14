@@ -36,6 +36,9 @@ pub struct Facts {
     /// The earliest time (unix seconds) an applet asked the system to wake
     /// for (plan 0012 D15, Clock's next alarm); 0 = none.
     pub next_wake: u64,
+    /// The profiler's runtime switch is on (plan 0014 D1): the kit
+    /// aggregates frame timings and sends them.
+    pub profiling: bool,
 }
 
 impl Default for Facts {
@@ -47,6 +50,7 @@ impl Default for Facts {
             battery: -1,
             battery_zone: String::new(),
             next_wake: 0,
+            profiling: false,
         }
     }
 }

@@ -1,4 +1,4 @@
-// The vrx command-line tool: new / build / pack / unit / test. A CLI's
+// The vrx command-line tool: new / build / pack / unit / test / profile. A CLI's
 // job is stdout; the applet print lints do not apply here (they bind
 // the SDK, not the tools).
 
@@ -9,6 +9,7 @@ mod build;
 mod new;
 mod pack;
 mod power_profile;
+mod profile;
 mod test_cmd;
 mod unit;
 
@@ -30,6 +31,11 @@ usage:
   vrx power-profile [--measured] <file>...
                                       check a board's power profile (G028)
   vrx test                            run the store tests on the host
+  vrx profile on|off|status|stats --host <board>
+  vrx profile capture <frames|cpu|memory|io|full> [--for <s>] --host <board>
+  vrx profile pull --host <board> [--out <dir>]
+                                      the profiler (plan 0014): the switch, a
+                                      Perfetto capture, traces off the device
 ";
 
 fn main() -> ExitCode {
@@ -41,6 +47,7 @@ fn main() -> ExitCode {
         Some("power-profile") => power_profile::run(&args[1..]),
         Some("unit") => unit::run(&args[1..]),
         Some("test") => test_cmd::run(&args[1..]),
+        Some("profile") => profile::run(&args[1..]),
         _ => {
             print!("{USAGE}");
             ExitCode::SUCCESS

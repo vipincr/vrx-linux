@@ -117,7 +117,7 @@ method Watch() -> (front: string, depth: int, stopped: ?string)
 # battery_zone, \"\", warn or critical while discharging (plan 0012 D10);
 # next_wake, the earliest time an applet asked to wake for (0: none).
 # With \"more\", again on every change.
-method Facts() -> (usb: string, supply_low: bool, backlight: int, battery: int, battery_zone: string, next_wake: int)
+method Facts() -> (usb: string, supply_low: bool, backlight: int, battery: int, battery_zone: string, next_wake: int, profiling: bool)
 
 # What each applet and the system's parts cost over the last hours (1-24,
 # default 24; plan 0012 D8, D12), most first. mj is millijoules, absent
@@ -145,6 +145,19 @@ method PowerAlerts() -> (alerts: []PowerAlert)
 # The person's answer to a power alert: later (nothing is done to the
 # applet) or stop (its unit stops). For the shell.
 method PowerAlertAnswer(applet: string, answer: string) -> ()
+
+# The profiler's runtime switch (plan 0014 D1): on, off, or read with no
+# argument. Only a caller that is no applet (root at the shell, the walk
+# driver) may set it; an image without meta-vrx-profiling refuses to switch on.
+method Profiling(on: ?bool) -> (on: bool, available: bool, reason: ?string, trace_marker: bool, psi: bool)
+
+# An applet's frame summary over its last window (the kit sends one every
+# 5 s while profiling is on; plan 0014 D5).
+method FrameStats(route: string, frames: int, build_p50_us: int, build_p95_us: int, build_p99_us: int, raster_p50_us: int, raster_p95_us: int, raster_p99_us: int, over_build: int, over_raster: int, budget_us: int) -> ()
+
+# The latest per-applet rates and frame summaries while profiling is on,
+# for walks (plan 0014 D9). Not for applets.
+method ProfileStats() -> (on: bool, applets: object, hvs_underruns: ?int)
 
 error NoSuchApplet (applet: string)
 error NotOpenable (applet: string)
@@ -254,6 +267,8 @@ pub struct Host {
     pub bridge: Bridge,
     /// What applets cost (plan 0012 D8); None where it is not sampled.
     pub energy: Option<crate::energy::Energy>,
+    /// The profiler's switch and latest stats (plan 0014 D1, D4).
+    pub profiler: Option<crate::profile::Profiler>,
 }
 
 /// What installing needs: where the applets live, systemd, and the way
@@ -703,6 +718,49 @@ async fn dispatch(
                 .map(|()| json!({}))
                 .map_err(|_| Failure::invalid("answer"))
         }
+        "io.vrx.Host.Profiling" => {
+            let p = host
+                .profiler
+                .as_ref()
+                .ok_or_else(|| Failure::host("Unavailable", json!({})))?;
+            match params.get("on").and_then(Value::as_bool) {
+                None => Ok(serde_json::to_value(p.status()).unwrap_or(Value::Null)),
+                Some(_) if caller.is_some() => {
+                    Err(Failure::host("NotPermitted", json!({})))
+                }
+                Some(on) => p
+                    .set(on)
+                    .map(|st| serde_json::to_value(st).unwrap_or(Value::Null))
+                    .map_err(|detail| {
+                        Failure::host("Unavailable", json!({ "detail": detail }))
+                    }),
+            }
+        }
+        "io.vrx.Host.FrameStats" => {
+            let applet = caller.ok_or_else(|| Failure::host("NotAnApplet", json!({})))?;
+            let p = host
+                .profiler
+                .as_ref()
+                .ok_or_else(|| Failure::host("Unavailable", json!({})))?;
+            let frames: crate::profile::Frames =
+                serde_json::from_value(params.clone())
+                    .map_err(|_| Failure::invalid("frames"))?;
+            p.frames(applet, frames);
+            Ok(json!({}))
+        }
+        "io.vrx.Host.ProfileStats" => {
+            if caller.is_some() {
+                return Err(Failure::host("NotPermitted", json!({})));
+            }
+            let p = host
+                .profiler
+                .as_ref()
+                .ok_or_else(|| Failure::host("Unavailable", json!({})))?;
+            let (stats, underruns) = p.stats();
+            Ok(
+                json!({ "on": p.status().on, "applets": stats, "hvs_underruns": underruns }),
+            )
+        }
         "io.vrx.Host.Facts" => Ok(serde_json::to_value(
             crate::facts::subscribe().borrow().clone(),
         )
@@ -1126,6 +1184,7 @@ mod tests {
             front: front_rx,
             bridge: Bridge::default(),
             energy: None,
+            profiler: None,
         };
         let bound = socket.clone();
         tokio::spawn(async move { serve(&bound, host).await });

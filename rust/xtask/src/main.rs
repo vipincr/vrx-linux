@@ -529,6 +529,21 @@ fn gate(all: bool) -> ExitCode {
         eprintln!("gate: FAILED at the responsiveness scan");
         return ExitCode::FAILURE;
     }
+    // G037 (plan 0014 D4): one reader for the per-applet counters
+    println!("gate: one reader for per-applet counters (G037)");
+    let found = vrx_protocol::scan::counter_readers(&[
+        repo.join("rust/host/src"),
+        repo.join("rust/sdk/src"),
+        repo.join("applets"),
+    ]);
+    for v in &found {
+        let shown = v.path.strip_prefix(&repo).unwrap_or(&v.path).display();
+        eprintln!("{shown}:{}: `{}`: {}", v.line, v.needle, v.why);
+    }
+    if !found.is_empty() {
+        eprintln!("gate: FAILED at the one-reader check (G037)");
+        return ExitCode::FAILURE;
+    }
     // G022 (plan 0011 D9): what applets send by name is what they declare,
     // and what they push by name exists
     println!("gate: intents sent are declared; pushes name real applets and routes");

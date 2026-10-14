@@ -152,6 +152,21 @@ async fn main() -> ExitCode {
     );
     tokio::spawn(energy.clone().run(front_for_energy));
 
+    // the profiler's switch and counter output (plan 0014 D1, D4): the
+    // compositor and the applets follow it
+    let profiler = vrx_host::profile::Profiler::system();
+    tokio::spawn(profiler.clone().run());
+    let mut profiling = profiler.watch();
+    let profiling_link = focus_for_battery.clone();
+    tokio::spawn(async move {
+        while profiling.changed().await.is_ok() {
+            let on = *profiling.borrow_and_update();
+            compositor::PROFILING.store(on, std::sync::atomic::Ordering::Relaxed);
+            let _ = profiling_link.send(Control::Profiling(on));
+            vrx_host::facts::update(|f| f.profiling = on);
+        }
+    });
+
     let socket = paths.host_socket();
     let host = varlink::Host {
         registry,
@@ -163,6 +178,7 @@ async fn main() -> ExitCode {
             vrx_host::bridge::Bridge::with_freezer,
         ),
         energy: Some(energy),
+        profiler: Some(profiler),
     };
     // a computer on the USB device port (plan 0008 D11), on boards with one
     if let Some(state) = usb::state_file(std::path::Path::new(usb::UDC_ROOT)) {

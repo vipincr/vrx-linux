@@ -941,6 +941,75 @@ pub fn scan(roots: &[PathBuf]) -> Vec<Violation> {
     out
 }
 
+/// G037 (plan 0014 D4): the per-applet counters have one reader,
+/// vrxhost's `counters` module, shared by the energy estimate and the
+/// profiler. A path naming one of these files anywhere else in the Rust
+/// trees is a second reader. `/proc/self/fdinfo` is a descriptor's own
+/// seals (bridge.rs's buffer check), not a counter.
+const COUNTER_FILES: &[&str] = &[
+    "cpu.stat",
+    "memory.stat",
+    "memory.current",
+    "memory.peak",
+    "memory.events",
+    "io.stat",
+    "cpu.pressure",
+    "memory.pressure",
+    "io.pressure",
+    "fdinfo",
+    "hvs_underrun",
+];
+const ONE_READER: &str = "G037: per-applet counters have one reader, vrxhost's counters module (plan 0014 D4); call it instead of reading the file";
+const COUNTER_HOME: &str = "rust/host/src/counters.rs";
+
+/// Every Rust source under [roots] (tests excluded) that names a counter
+/// file outside the counters module (G037).
+pub fn counter_readers(roots: &[PathBuf]) -> Vec<Violation> {
+    let mut all = Vec::new();
+    for root in roots {
+        files(root, &mut all);
+    }
+    all.sort();
+    let mut out = Vec::new();
+    for path in all {
+        if path.extension().and_then(|e| e.to_str()) != Some("rs")
+            || path.to_string_lossy().ends_with(COUNTER_HOME)
+        {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let body = text.split("#[cfg(test)]").next().unwrap_or("");
+        let (kept, _) = views("rs", body);
+        // a file's name ends at a word boundary: `hvs_underruns`, a
+        // counter's name in a reply, is not the debugfs file
+        let names = |line: &str, needle: &str| {
+            line.match_indices(needle).any(|(at, _)| {
+                !line[at + needle.len()..]
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_alphanumeric() || c == '_')
+            })
+        };
+        for (n, line) in kept.lines().enumerate() {
+            for needle in COUNTER_FILES {
+                if names(line, needle)
+                    && !(*needle == "fdinfo" && line.contains("/proc/self/fdinfo"))
+                {
+                    out.push(Violation {
+                        path: path.clone(),
+                        line: n + 1,
+                        needle,
+                        why: ONE_READER,
+                    });
+                }
+            }
+        }
+    }
+    out
+}
+
 /// A literal an applet's Dart source sends: an intent by name, or a push
 /// to an applet (and route). What is computed at run time is not here;
 /// vrxhost refuses it at the socket instead (plan 0011 D9).
@@ -1105,6 +1174,42 @@ pub fn applet_roots(dir: &Path) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_second_counter_reader_is_refused_g037() {
+        let dir = std::env::temp_dir().join(format!("vrx-g037-{}", std::process::id()));
+        let src = dir.join("rust/host/src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("counters.rs"), "fn a() { read(\"cpu.stat\"); }\n")
+            .unwrap();
+        std::fs::write(
+            src.join("bridge.rs"),
+            "fn b() { open(\"/proc/self/fdinfo/3\"); } // reads memory.stat in a comment\n",
+        )
+        .unwrap();
+        assert!(
+            counter_readers(std::slice::from_ref(&dir)).is_empty(),
+            "the home and a descriptor's own seals pass"
+        );
+        std::fs::write(
+            src.join("other.rs"),
+            "fn c() { let p = dir.join(\"io.pressure\"); }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            src.join("reply.rs"),
+            "fn d() { json!({ \"hvs_underruns\": n }); }\n",
+        )
+        .unwrap();
+        let found = counter_readers(std::slice::from_ref(&dir));
+        assert_eq!(
+            found.len(),
+            1,
+            "a counter's name in a reply is not the file"
+        );
+        assert_eq!((found[0].needle, found[0].line), ("io.pressure", 1));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn banned_forms_are_found_and_reasoned_allows_pass() {
