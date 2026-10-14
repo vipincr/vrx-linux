@@ -52,11 +52,16 @@ the gate is green.
    undeclared intent or channel at the socket (G022), and the gate refuses
    an undeclared intent literal; `docs/03-ipc.md` describes the four.*
 8. **An applet is a store** (model + reducer + view + effects). The
-   same model compiles into a host test. An applet reaches hardware
+   reducer is the only writer: a fact from the world arrives as an action
+   carrying its data, never as a field written from outside. The same
+   model compiles into a host test. An applet reaches hardware
    only through what its manifest grants (plan 0008 D16): a group and
    a DeviceAllow class per device grant, enforced by its unit. *Check:
-   the store harness (a reduce over 2 ms fails); G017 (grants.conf matches
-   SystemGrant); `tools/bench/device-check.sh` on a board.*
+   the store harness (a reduce over 2 ms fails; `verify` replays a test's
+   actions for totality, replay, restore, Back and open-then-back, G032);
+   the scan refuses `model.<field> =` outside state.dart (G031); G017
+   (grants.conf matches SystemGrant); `tools/bench/device-check.sh` on a
+   board.*
 9. **Map onto Linux before writing code.** Supervision is systemd,
    authority is groups, bus policy and polkit, live system state is the
    services' own interfaces behind vrx_kit's domain services, persistent

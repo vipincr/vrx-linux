@@ -26,6 +26,23 @@ An applet is a model, its effects and a view, joined by one loop
 insets under the strip, Back, the input root and the store. The same model
 runs on the Mac in a test (`StoreHarness`), which fails a reduce over 2 ms.
 
+The reducer is the only writer (plan 0013 D1). A watch, a timer or a
+finished call never writes a model field: it sends an action that carries
+what happened (`UsbFacts(usb: u)`, `SettingsGo(open: Change(c))`), and
+`state.dart` decides. An action type is sealed: an enum for the bare
+signals (`init`, `back`) and a class per kind of fact; `Change(value)`
+lets a fact set a field to null. The scan refuses `model.<field> =`
+outside `state.dart` (G031).
+
+A store test ends with `harness.verify(fresh: …)` (G032). It replays the
+test's own actions from a fresh model and checks that every action from
+every state reached reduces without a throw, that the replay gives the
+same `fingerprint`, that `restore(snapshot)` round-trips, that Back
+(`backAction`, until `atRoot`) reaches the root in 50 steps, and that an
+applet opened at each route Backs out the same way. A fingerprint that
+holds lists or maps is a list, so it compares deeply; a record compares
+its fields with `==` only.
+
 ## The manifest
 
 `manifest.toml` beside the code says who the applet is and what it may
