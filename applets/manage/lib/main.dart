@@ -33,27 +33,21 @@ class ManageApplet extends Applet<bool, ManageAction, ManageView> {
   String? get keepsScreenOn => model.keepsScreenOn;
 
   void serve(bool on) {
-    if (!on) model.askedStop = true;
+    if (!on) _events.add(ManageAction.askStop);
     unawaited(VrxSystem.manage.serve(on).catchError((Object err) {
-      model.error = VrxWords.of(err, context: 'manage: serve');
-      _events.add(ManageAction.failed);
+      _events.add(ManageFacts(error: Change(VrxWords.of(err, context: 'manage: serve'))));
     }));
   }
 
   Future<void> host(bool on) async {
+    final ssid = on ? hostedName(model.hostname) : model.ssid;
+    final passphrase = on ? hostedPassphrase() : model.passphrase;
     try {
-      if (on) {
-        model
-          ..ssid = hostedName(model.hostname)
-          ..passphrase = hostedPassphrase();
-      }
-      await VrxSystem.network.host(on: on, ssid: model.ssid, passphrase: model.passphrase);
-      model.hosting = on;
-      model.hostedAddress = on ? await tetherAddress() : '';
+      await VrxSystem.network.host(on: on, ssid: ssid, passphrase: passphrase);
+      _events.add(ManageHosted(on: on, ssid: ssid, passphrase: passphrase, address: on ? await tetherAddress() : ''));
     } on Object catch (err) {
-      model.error = VrxWords.of(err, context: 'manage: host');
+      _events.add(ManageFacts(error: Change(VrxWords.of(err, context: 'manage: host'))));
     }
-    _events.add(ManageAction.hosting);
   }
 
   @override
@@ -131,20 +125,12 @@ void main() {
   final model = ManageModel();
   final applet = ManageApplet(model);
   runApplet(applet, actions: _events.stream);
-  void fact(void Function() change) {
-    change();
-    _events.add(ManageAction.factsChanged);
-  }
+  void failed(Object err) => _events.add(ManageFacts(error: Change(VrxWords.of(err, context: 'manage'))));
 
-  void failed(Object err) {
-    model.error = VrxWords.of(err, context: 'manage');
-    _events.add(ManageAction.failed);
-  }
-
-  VrxSystem.manage.watch().listen((on) => fact(() => model.servingNow(on)), onError: failed);
-  VrxSystem.device.watch().listen((d) => fact(() => model.hostname = d.hostname), onError: failed);
+  VrxSystem.manage.watch().listen((on) => _events.add(ManageFacts(serving: on)), onError: failed);
+  VrxSystem.device.watch().listen((d) => _events.add(ManageFacts(hostname: d.hostname)), onError: failed);
   VrxSystem.network.watch().listen(
-      (n) => fact(() => model.ips = [if (n.wired) n.ethernetAddress, if (n.connected != null) n.connected!.address]),
+      (n) => _events.add(ManageFacts(ips: [if (n.wired) n.ethernetAddress, if (n.connected != null) n.connected!.address])),
       onError: failed);
   // opening serves the page; leaving (Back, Home, another applet in
   // front) stops it, and the hosted network with it

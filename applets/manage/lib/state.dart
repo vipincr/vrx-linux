@@ -2,7 +2,39 @@ import 'dart:math';
 
 import 'package:vrx_kit/vrx_kit.dart';
 
-enum ManageAction { init, factsChanged, failed, hosting }
+/// Everything Manage reacts to (plan 0013 D1: the reducer is the only
+/// writer): a signal, or a fact carried as data.
+sealed class ManageAction {
+  const ManageAction();
+
+  static const init = ManageSignal.init;
+  static const askStop = ManageSignal.askStop;
+}
+
+/// [askStop]: this applet asked the page to stop (leaving, or Stop).
+enum ManageSignal implements ManageAction { init, askStop }
+
+/// vrx-manage serving or not, the host's name, its addresses, a refusal
+/// (null fields: unchanged).
+final class ManageFacts implements ManageAction {
+  const ManageFacts({this.serving, this.hostname, this.ips, this.error});
+
+  final bool? serving;
+  final String? hostname;
+  final List<String>? ips;
+  final Change<String?>? error;
+}
+
+/// The hosted network started or stopped: its name, passphrase and the
+/// tether bridge's address.
+final class ManageHosted implements ManageAction {
+  const ManageHosted({required this.on, required this.ssid, required this.passphrase, required this.address});
+
+  final bool on;
+  final String ssid;
+  final String passphrase;
+  final String address;
+}
 
 class ManageView {
   const ManageView({
@@ -99,7 +131,23 @@ class ManageModel extends StoreModel<bool, ManageAction, ManageView> {
 
   @override
   ManageView reduce(bool state, ManageAction action) {
-    if (action == ManageAction.factsChanged) error = null;
+    switch (action) {
+      case ManageFacts(serving: final on, hostname: final name, ips: final addresses, error: final err):
+        if (on != null || name != null || addresses != null) error = null;
+        if (on != null) servingNow(on);
+        if (name != null) hostname = name;
+        if (addresses != null) ips = addresses;
+        if (err != null) error = err.value;
+      case ManageHosted(:final on, ssid: final name, passphrase: final pass, :final address):
+        hosting = on;
+        ssid = name;
+        passphrase = pass;
+        hostedAddress = address;
+      case ManageSignal.askStop:
+        askedStop = true;
+      case ManageSignal.init:
+        break;
+    }
     final linked = [for (final ip in ips) if (ip.isNotEmpty) ip];
     return ManageView(
       serving: serving,
@@ -119,4 +167,11 @@ class ManageModel extends StoreModel<bool, ManageAction, ManageView> {
 
   @override
   bool get snapshot => serving ?? false;
+
+  @override
+  void restore(bool snapshot) => serving = snapshot;
+
+  @override
+  Object? get fingerprint =>
+      [serving, hostname, ips, error, askedStop, stoppedIdle, hosting, ssid, passphrase, hostedAddress];
 }
