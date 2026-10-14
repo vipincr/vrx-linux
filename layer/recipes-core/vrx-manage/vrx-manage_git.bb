@@ -17,7 +17,7 @@ inherit cargo systemd
 SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master \
            file://vrx-manage.service \
            "
-SRCREV = "b0a248d166d9e9e9f903cd28ebdf804e191ce942"
+SRCREV = "${VRX_LINUX_SRCREV}"
 
 CARGO_SRC_DIR = "rust/manage"
 CARGO_LOCK_PATH = "${S}/Cargo.lock"

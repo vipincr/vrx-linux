@@ -26,7 +26,7 @@ SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master \
            file://50-vrx-signed.conf \
            file://vrx-kernel-verity.conf \
            "
-SRCREV = "b0a248d166d9e9e9f903cd28ebdf804e191ce942"
+SRCREV = "${VRX_LINUX_SRCREV}"
 
 # the workspace member this recipe builds (the root manifest is the
 # workspace, not a package); the lock is the workspace's, not the

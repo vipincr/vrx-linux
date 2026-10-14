@@ -9,13 +9,10 @@ tree.
 ## Integration (the two steps, in order)
 
 1. **Publish the remote.** `github.com/vipincr/vrx-linux` (the
-   flutter-vrx precedent). Then pin `SRCREV` in
-   `recipes-core/vrxhost/vrxhost_git.bb` to the release commit and
-   generate the crates manifest:
-   ```bash
-   cargo install cargo-bitbake
-   cargo bitbake -p vrx-host   # writes vrxhost-crates.inc; require it
-   ```
+   flutter-vrx precedent). Every recipe here builds from one commit,
+   `VRX_LINUX_SRCREV` in `conf/layer.conf`; the crates the workspace
+   lockfile names are `recipes-core/vrx-workspace-crates.inc`, written
+   by `cargo xtask crates-inc` and checked by the gate.
 2. **Register the layer in the vrx repo.** Add the repo as a submodule
    at `yocto/layers/vrx/vrx-linux` (ours-by-ownership, its own repo),
    register an opt-in layer set in `yocto/machines.conf`:
@@ -26,8 +23,8 @@ tree.
    The image payload turns on with `VRX_APPS = "packagegroup-vrx-linux"`
    in that build's local.conf. Nothing installs until a build says so.
 
-Step 1 is done (the remote is public; SRCREV pins the recipe to the
-commit it builds). Step 2 happens in the vrx repo: the submodule, the
+Step 1 is done (the remote is public; `VRX_LINUX_SRCREV` pins every
+recipe to the commit it builds). Step 2 happens in the vrx repo: the submodule, the
 layerset, and the container build that proves the recipe.
 
 ## What ships
