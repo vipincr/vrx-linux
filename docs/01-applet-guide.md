@@ -55,7 +55,7 @@ do. The parser refuses an unknown key by name (`rust/protocol/src/manifest.rs`).
 | `[applet.roles]` | `home`, `shell`, `installs`, `resident` (alive from boot) |
 | `[applet.permissions]` | `system` grants, `fs` paths |
 | `[applet.intents]` | `handles` (name, priority, optional `at` route), `emits` |
-| `[applet.channels]` | `offers`, `opens` (`<applet>.<channel>`) |
+| `[applet.channels]` | `offers` (a name, or `{ name, requires = "<grant>" }` to open only for an applet holding that grant, plan 0018 D10), `opens` (`<applet>.<channel>`) |
 | `[applet.routes]` | named screens; route 0 is the root and is never declared |
 | `[[applet.settings]]` | key, label, category, type, default, options |
 | `[applet.matter]` | what a home app sees once a person exposes the applet (plan 0015 D7): `device_type` (`on_off_plug`), `clusters` (`["on_off"]`), `on_off.command.on` and `.off`, two intents the applet handles told (no `at`) |
@@ -63,7 +63,8 @@ do. The parser refuses an unknown key by name (`rust/protocol/src/manifest.rs`).
 
 A grant is a group membership and nothing else (G017): `network`
 (connman), `bluetooth` (BlueZ), `time`, `hostname`, `display`, `power`,
-`usb`, `apps`, `serve`, `gpio`, `i2c`, `spi`, `serial`, `audio`, `camera`,
+`usb`, `apps`, `serve`, `gpio`, `i2c`, `spi`, `serial`, `audio`, `camera` (the devices, held by camerad alone), `camera-use` (open camerad's
+channels and ask for a photo, plan 0018), `photos` (read /data/photos),
 `input`, `iio`, `settings`, `ml`, `locale`, `power-stats`, `scripts`,
 `matter` (vrx-matter's socket: pairing and what a home app sees). The service
 behind each checks the group itself. An installed applet gets none, runs as
