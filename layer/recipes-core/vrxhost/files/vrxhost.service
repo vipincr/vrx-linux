@@ -32,7 +32,7 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 # /data/vrx/energy: the hourly energy summaries (plan 0012 D9); absent
 # on a board with no /data
-ReadWritePaths=/run/vrx -/data/vrx/energy
+ReadWritePaths=/run/vrx -/data/vrx/energy -/data/vrx/update -/data/vrx/updates
 ProtectHome=yes
 PrivateTmp=yes
 ProtectKernelTunables=yes

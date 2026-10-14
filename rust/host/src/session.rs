@@ -280,6 +280,14 @@ impl Session {
         }
     }
 
+    /// Whether `pid` is the running shell (its first frame is the update
+    /// health gate's fact, plan 0016 D6).
+    pub fn is_shell_pid(&self, pid: u32) -> bool {
+        self.shell.as_ref().is_some_and(
+            |s| matches!(self.procs.get(s), Some(Proc::Running(p)) if *p == pid),
+        )
+    }
+
     /// Name the running shell to the compositor, once per pid and link.
     fn reshell(&mut self) -> Vec<Order> {
         let Some(shell) = &self.shell else {

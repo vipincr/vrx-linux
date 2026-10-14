@@ -1,16 +1,21 @@
 // The request side of the management server: what it accepts, by the
-// contract evrx-rt's docs/47-management-api.md sets for the page. Pure:
-// bytes in, a request or the status that refuses it out.
+// contract evrx-rt's docs/47-management-api.md sets for the page, and the
+// one POST it allows: a software update bundle sent to /api/update (plan
+// 0016 D11). Pure: bytes in, a request or the status that refuses it out.
 
 /// Limits (the contract's).
 pub const HEAD_MAX: usize = 1536;
 pub const HEADER_LINES_MAX: usize = 32;
 pub const TARGET_MAX: usize = 128;
+/// The one path a POST may name.
+pub const UPLOAD_PATH: &str = "/api/update";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Method {
     Get,
     Head,
+    /// Only to UPLOAD_PATH, with `X-Vrx-Upload: 1` and a Content-Length.
+    Post,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +25,8 @@ pub struct Request {
     pub path: String,
     pub query: String,
     pub accepts_gzip: bool,
+    /// The body's length; zero for GET and HEAD, which carry none.
+    pub length: u64,
 }
 
 /// A refusal: the status, and for 405 the Allow header.
@@ -113,6 +120,7 @@ pub fn parse(head: &[u8], hostname: &str) -> Result<Request, Refusal> {
     let mut host: Option<&str> = None;
     let mut accepts_gzip = false;
     let mut lengths: Vec<&str> = Vec::new();
+    let mut upload_header = false;
     for line in &lines[1..] {
         let Some((name, value)) = line.split_once(':') else {
             return Err(Refusal(400));
@@ -139,6 +147,9 @@ pub fn parse(head: &[u8], hostname: &str) -> Result<Request, Refusal> {
             }
             "transfer-encoding" => return Err(Refusal(501)),
             "content-length" => lengths.push(value),
+            // a header no form can send: a cross-site page's POST needs a
+            // CORS preflight first, and OPTIONS is refused
+            "x-vrx-upload" => upload_header = value == "1",
             _ => {}
         }
     }
@@ -158,7 +169,8 @@ pub fn parse(head: &[u8], hostname: &str) -> Result<Request, Refusal> {
     let method = match method {
         "GET" => Method::Get,
         "HEAD" => Method::Head,
-        "POST" | "PUT" | "DELETE" | "OPTIONS" | "PATCH" | "TRACE" | "CONNECT" => {
+        "POST" => Method::Post,
+        "PUT" | "DELETE" | "OPTIONS" | "PATCH" | "TRACE" | "CONNECT" => {
             return Err(Refusal(405))
         }
         _ => return Err(Refusal(501)),
@@ -175,15 +187,31 @@ pub fn parse(head: &[u8], hostname: &str) -> Result<Request, Refusal> {
     if !path_allowed(&path) {
         return Err(Refusal(404));
     }
-    if lengths.first().is_some_and(|l| *l != "0") {
-        // GET and HEAD carry no body here
-        return Err(Refusal(413));
-    }
+    let length = if method == Method::Post {
+        if path != UPLOAD_PATH {
+            return Err(Refusal(405));
+        }
+        if !upload_header {
+            return Err(Refusal(403));
+        }
+        lengths
+            .first()
+            .ok_or(Refusal(411))?
+            .parse()
+            .map_err(|_| Refusal(413))?
+    } else {
+        if lengths.first().is_some_and(|l| *l != "0") {
+            // GET and HEAD carry no body here
+            return Err(Refusal(413));
+        }
+        0
+    };
     Ok(Request {
         method,
         path,
         query: query.to_owned(),
         accepts_gzip,
+        length,
     })
 }
 
@@ -191,10 +219,12 @@ pub fn reason(status: u16) -> &'static str {
     match status {
         200 => "OK",
         400 => "Bad Request",
+        403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
         406 => "Not Acceptable",
         408 => "Request Timeout",
+        411 => "Length Required",
         413 => "Content Too Large",
         414 => "URI Too Long",
         421 => "Misdirected Request",
@@ -202,6 +232,7 @@ pub fn reason(status: u16) -> &'static str {
         500 => "Internal Server Error",
         501 => "Not Implemented",
         505 => "HTTP Version Not Supported",
+        507 => "Insufficient Storage",
         _ => "Error",
     }
 }
@@ -285,6 +316,10 @@ mod tests {
         assert_eq!(req(&format!("GET / HTTP/2.0\r\n{host}")), Err(Refusal(505)));
         assert_eq!(req(&format!("PUT / HTTP/1.1\r\n{host}")), Err(Refusal(405)));
         assert_eq!(
+            req(&format!("POST / HTTP/1.1\r\n{host}")),
+            Err(Refusal(405))
+        );
+        assert_eq!(
             req(&format!("BREW / HTTP/1.1\r\n{host}")),
             Err(Refusal(501))
         );
@@ -325,6 +360,51 @@ mod tests {
         assert_eq!(
             req(&format!("GET / HTTP/1.1\r\n{host}{many}")),
             Err(Refusal(431))
+        );
+    }
+
+    #[test]
+    fn the_one_post_is_an_update_bundle_with_the_header_and_a_length() {
+        let host = "Host: 10.10.10.8\r\n";
+        let r = req(&format!(
+            "POST /api/update HTTP/1.1\r\n{host}X-Vrx-Upload: 1\r\nContent-Length: 1048576\r\n"
+        ))
+        .unwrap();
+        assert_eq!((r.method, r.length), (Method::Post, 1_048_576));
+        assert_eq!(
+            req(&format!(
+                "POST /api/update HTTP/1.1\r\n{host}Content-Length: 5\r\n"
+            )),
+            Err(Refusal(403)),
+            "a form post cannot set the header"
+        );
+        assert_eq!(
+            req(&format!(
+                "POST /api/update HTTP/1.1\r\n{host}X-Vrx-Upload: 1\r\n"
+            )),
+            Err(Refusal(411))
+        );
+        assert_eq!(
+            req(&format!(
+                "POST /api/log HTTP/1.1\r\n{host}X-Vrx-Upload: 1\r\nContent-Length: 5\r\n"
+            )),
+            Err(Refusal(405))
+        );
+        assert_eq!(
+            req("POST /api/update HTTP/1.1\r\nHost: evil.example\r\nX-Vrx-Upload: 1\r\nContent-Length: 5\r\n"),
+            Err(Refusal(421)),
+            "the Host check still comes first"
+        );
+        assert_eq!(
+            req(&format!(
+                "POST /api/update HTTP/1.1\r\n{host}X-Vrx-Upload: 1\r\nContent-Length: 99999999999999999999999\r\n"
+            )),
+            Err(Refusal(413))
+        );
+        assert_eq!(
+            req(&format!("OPTIONS /api/update HTTP/1.1\r\n{host}")),
+            Err(Refusal(405)),
+            "no preflight is ever answered"
         );
     }
 }

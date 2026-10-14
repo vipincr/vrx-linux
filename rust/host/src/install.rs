@@ -447,7 +447,7 @@ pub fn write_unit(inspected: &Inspected) -> Result<(), String> {
     Ok(())
 }
 
-fn atomic_write(path: &Path, text: &str) -> Result<(), String> {
+pub(crate) fn atomic_write(path: &Path, text: &str) -> Result<(), String> {
     let tmp = path.with_extension("tmp");
     std::fs::write(&tmp, text).map_err(|e| format!("{}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display()))
@@ -525,29 +525,39 @@ async fn varlink_call(
     }
 }
 
-/// Bring the USB drive's `apps/` offers into /var/lib/vrx/offers: read
+/// Bring the USB drive's `apps/` offers into /var/lib/vrx/offers (and,
+/// plan 0016 D11, its `updates/` bundles into /data/vrx/updates): read
 /// from the drive's image with `systemd-dissect --copy-from`, only while
-/// nothing shares it (the caller checks the unit).
+/// nothing shares it (the caller checks the unit). One scanner for both.
 pub async fn import_drive() {
+    import_drive_folder("/apps", Path::new(OFFERS), |n| id_of_file(n).is_some()).await;
+}
+
+/// `folder` on the drive into `dest`, keeping the names `accept` takes.
+pub async fn import_drive_folder(
+    folder: &str,
+    dest: &Path,
+    accept: impl Fn(&str) -> bool,
+) {
     if !Path::new(DRIVE).exists() {
         return;
     }
-    let landing = Path::new(OFFERS).join(".drive");
+    let landing = dest.join(".drive");
     let _ = std::fs::remove_dir_all(&landing);
     if output(
         "systemd-dissect",
-        &["--copy-from", DRIVE, "/apps", &landing.to_string_lossy()],
+        &["--copy-from", DRIVE, folder, &landing.to_string_lossy()],
     )
     .await
     .is_err()
     {
-        return; // no apps/ folder on the drive
+        return; // no such folder on the drive
     }
     if let Ok(entries) = std::fs::read_dir(&landing) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if id_of_file(&name).is_some() {
-                let _ = std::fs::rename(entry.path(), Path::new(OFFERS).join(&name));
+            if accept(&name) {
+                let _ = std::fs::rename(entry.path(), dest.join(&name));
             }
         }
     }
@@ -674,6 +684,9 @@ pub enum Request {
     Install { file: String, build: String },
     /// Delete an installed applet's image, drop-in, state and settings.
     Uninstall { applet: String },
+    /// The USB drive's `updates/` bundles into /data/vrx/updates (plan
+    /// 0016 D11), when nothing shares the drive.
+    ImportUpdates { drive_idle: bool },
 }
 
 /// A refusal as the daemon replies it: an io.vrx.Host error and its
@@ -699,6 +712,15 @@ pub async fn helper(
         }
     };
     match request {
+        Request::ImportUpdates { drive_idle } => {
+            if drive_idle {
+                let dest = Path::new(crate::update::UPDATES);
+                let _ = std::fs::create_dir_all(dest);
+                import_drive_folder("/updates", dest, crate::update::bundle_name_ok)
+                    .await;
+            }
+            json!({})
+        }
         Request::Offers { drive_idle } => {
             if drive_idle {
                 import_drive().await;

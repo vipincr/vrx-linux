@@ -3,7 +3,8 @@
 # 50-vrx.rules), never at boot; it stops itself after ten minutes in
 # which nobody asked for anything. Port 80 by capability, not by root:
 # a dynamic user with CAP_NET_BIND_SERVICE and nothing else, reading the
-# journal for /api/log.
+# journal for /api/log and writing an uploaded update bundle into
+# /data/vrx/updates (group vrx-update, plan 0016 D11), nowhere else.
 [Unit]
 Description=vrx management page
 After=network.target
@@ -15,11 +16,12 @@ DynamicUser=yes
 # existing static user of that name (the Manage applet's vrx-manage)
 # would be used instead
 User=vrx-httpd
-SupplementaryGroups=systemd-journal
+SupplementaryGroups=systemd-journal vrx-update
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 NoNewPrivileges=yes
 ProtectSystem=strict
+ReadWritePaths=/data/vrx/updates
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

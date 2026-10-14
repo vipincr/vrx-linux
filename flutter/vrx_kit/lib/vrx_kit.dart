@@ -43,6 +43,7 @@ export 'src/system.dart';
 export 'src/theme.dart';
 export 'src/ticker.dart';
 export 'src/time_format.dart';
+export 'src/update.dart';
 export 'src/words.dart';
 // the slot names applets may say; the display class and the tables stay
 // the kit's (an applet never knows what panel it is on: plan 0009 D4,

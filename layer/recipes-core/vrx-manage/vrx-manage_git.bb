@@ -37,5 +37,7 @@ FILES:${PN} = "${bindir}/vrx-manage ${systemd_system_unitdir}/vrx-manage.service
 # started by the Manage applet, never at boot
 SYSTEMD_SERVICE:${PN} = "vrx-manage.service"
 SYSTEMD_AUTO_ENABLE = "disable"
-# ip and journalctl (df is busybox, in every image) answer /api/status and /api/log
-RDEPENDS:${PN} = "iproute2 systemd"
+# ip and journalctl (df is busybox, in every image) answer /api/status and
+# /api/log; vrx-policy creates vrx-update, the group of the uploads'
+# directory (vrxhost's tmpfiles)
+RDEPENDS:${PN} = "iproute2 systemd vrx-policy"

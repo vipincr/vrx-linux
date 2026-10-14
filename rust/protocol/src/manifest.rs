@@ -91,6 +91,9 @@ pub enum SystemGrant {
     /// layer's vrx-script@.service template, and no other unit (plan 0013
     /// D13).
     Scripts,
+    /// Offer, install and restart into a software update (plan 0016 D11:
+    /// io.vrx.Host.Update*); RAUC does the privileged work.
+    Update,
     /// Pair the device with a home app and choose what it shows there:
     /// io.vrx.Matter, served by vrx-matter (plan 0015 D9).
     Matter,
@@ -122,12 +125,13 @@ impl SystemGrant {
             SystemGrant::Locale => "locale",
             SystemGrant::PowerStats => "power-stats",
             SystemGrant::Scripts => "scripts",
+            SystemGrant::Update => "update",
             SystemGrant::Matter => "matter",
         }
     }
 
     /// Every grant, for table checks.
-    pub const ALL: [SystemGrant; 23] = [
+    pub const ALL: [SystemGrant; 24] = [
         SystemGrant::Network,
         SystemGrant::Bluetooth,
         SystemGrant::Time,
@@ -150,6 +154,7 @@ impl SystemGrant {
         SystemGrant::Locale,
         SystemGrant::PowerStats,
         SystemGrant::Scripts,
+        SystemGrant::Update,
         SystemGrant::Matter,
     ];
 }

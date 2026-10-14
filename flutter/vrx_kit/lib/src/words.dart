@@ -58,6 +58,13 @@ abstract final class VrxWords {
         return 'That applet is part of the system, so it cannot be uninstalled.';
       case 'InstallFailed':
         return 'The app did not install. The details are in the log.';
+      case 'UpdateRefused':
+        return updateProblem('${err.parameters['reason'] ?? ''}');
+      case 'UpdateFailed':
+        final reason = '${err.parameters['reason'] ?? ''}';
+        return reason == 'space' || reason == 'unsigned' || reason == 'machine'
+            ? updateProblem(reason)
+            : 'The update did not install. The device is unchanged, and the details are in the log.';
     }
     return failed;
   }
@@ -75,6 +82,20 @@ abstract final class VrxWords {
         'untrusted' => 'That app is signed by someone this device does not trust.',
         'off' => 'This device does not install apps.',
         _ => 'That app cannot be installed on this device.',
+      };
+
+  /// Why an offered update cannot be installed (vrxhost's reasons, plan
+  /// 0016 D7, D11).
+  static String updateProblem(String reason) => switch (reason) {
+        'unsigned' => 'That update is not signed by this device\'s maker, so it is refused.',
+        'machine' => 'That update is for another kind of device.',
+        'older' => 'That update is older than the software running now.',
+        'same' => 'That is the version running now.',
+        'space' => 'There is not enough room to install that update.',
+        'gone' => 'That update is no longer there. Look again.',
+        'name' => 'That file is named like something else on this device.',
+        'unreadable' => 'That file is not an update this device can read.',
+        _ => 'That update cannot be installed on this device.',
       };
 
   /// An error from a system service (connman, timedated, hostnamed,

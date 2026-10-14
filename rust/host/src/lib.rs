@@ -27,6 +27,7 @@ pub mod registry;
 pub mod session;
 pub mod supply;
 pub mod trail;
+pub mod update;
 pub mod usb;
 pub mod varlink;
 pub mod wake;

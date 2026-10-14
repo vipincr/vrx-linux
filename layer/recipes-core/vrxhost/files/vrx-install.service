@@ -22,6 +22,8 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ReadWritePaths=/run/vrx/install /var/lib/extensions /var/lib/vrx/offers /etc/systemd/system /etc/vrx/settings
 ReadWritePaths=-/var/lib/private/vrx -/var/cache/private/vrx
+# the USB drive's updates/ bundles are copied here (plan 0016 D11)
+ReadWritePaths=-/data/vrx/updates
 ProtectHome=yes
 PrivateTmp=yes
 PrivateNetwork=yes

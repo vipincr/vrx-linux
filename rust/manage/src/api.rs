@@ -39,6 +39,11 @@ pub fn df_total_kb(df: &str) -> Option<u64> {
     df.lines().nth(1)?.split_whitespace().nth(1)?.parse().ok()
 }
 
+/// `df -kP <dir>`: what is free, in kB.
+pub fn df_avail_kb(df: &str) -> Option<u64> {
+    df.lines().nth(1)?.split_whitespace().nth(3)?.parse().ok()
+}
+
 /// `ip -o -4 addr show scope global`: "eth0 10.10.10.8" per link.
 pub fn links(ip: &str) -> Vec<String> {
     ip.lines()
@@ -215,6 +220,7 @@ mod tests {
     fn df_and_ip_parse() {
         let df = "Filesystem     1024-blocks    Used Available Capacity Mounted on\n/dev/mmcblk0p3    13421772  322000  12400000       3% /data\n";
         assert_eq!(df_total_kb(df), Some(13_421_772));
+        assert_eq!(df_avail_kb(df), Some(12_400_000));
         let ip = "2: eth0    inet 10.10.10.8/24 brd 10.10.10.255 scope global eth0\\       valid_lft forever\n3: wlan0    inet 192.168.1.20/24 scope global dynamic wlan0\n";
         assert_eq!(links(ip), vec!["eth0 10.10.10.8", "wlan0 192.168.1.20"]);
     }

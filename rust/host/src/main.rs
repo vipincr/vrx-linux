@@ -343,6 +343,11 @@ impl Host {
                 }
                 Some(event) = link.recv() => {
                     tracing::info!(?event, "compositor");
+                    if let LinkEvent::App { pid, state: vrx_host::compositor::AppState::Shown, .. } = &event {
+                        if session.is_shell_pid(*pid) {
+                            vrx_host::update::shell_shown();
+                        }
+                    }
                     if let LinkEvent::Screen { on, position } = event {
                         vrx_host::facts::update(|f| {
                             f.screen_on = on;

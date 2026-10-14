@@ -7,7 +7,9 @@
 // The contract is evrx-rt's docs/47-management-api.md: HTTP/1.1 with
 // Connection: close on every answer, one request per connection, GET and
 // HEAD, the Host check before the path, no CORS, a 5 s deadline to the
-// end of the head and 20 s for the whole connection, two at a time.
+// end of the head and 20 s for the whole connection, two at a time. One
+// exception (plan 0016 D11): a POST of an update bundle to /api/update,
+// which has the time a large body needs (upload.rs, http.rs).
 
 #![deny(unsafe_code)]
 
@@ -21,11 +23,15 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
-use vrx_manage::{api, files, http};
+use vrx_manage::{api, files, http, upload};
 
 const HEAD_DEADLINE: Duration = Duration::from_secs(5);
 const CONN_DEADLINE: Duration = Duration::from_secs(20);
 const CONNS: usize = 2;
+/// An upload ends if the client sends nothing for this long, or runs past
+/// the whole deadline.
+const UPLOAD_STALL: Duration = Duration::from_secs(15);
+const UPLOAD_DEADLINE: Duration = Duration::from_secs(30 * 60);
 
 fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
     std::env::var(name)
@@ -69,8 +75,11 @@ async fn main() -> ExitCode {
                 .as_secs()
                 .saturating_sub(last.load(Ordering::Relaxed)),
         );
-        let left = idle.saturating_sub(quiet);
-        if left.is_zero() {
+        let mut left = idle.saturating_sub(quiet);
+        if left.is_zero() && slots.available_permits() < CONNS {
+            // an upload still running keeps the server up
+            left = Duration::from_secs(1);
+        } else if left.is_zero() {
             tracing::info!(idle_s = idle.as_secs(), "nobody asked: stopping");
             return ExitCode::SUCCESS;
         }
@@ -82,9 +91,7 @@ async fn main() -> ExitCode {
                 last.store(start.elapsed().as_secs(), Ordering::Relaxed);
                 let root = root.clone();
                 tokio::spawn(async move {
-                    if tokio::time::timeout(CONN_DEADLINE, serve(stream, &root)).await.is_err() {
-                        tracing::debug!(%peer, "connection over its 20 s");
-                    }
+                    serve(stream, &root, peer).await;
                     drop(permit);
                 });
             }
@@ -93,16 +100,17 @@ async fn main() -> ExitCode {
     }
 }
 
-/// Read up to the blank line: the head, or the status that ends it (None:
-/// close without an answer).
-async fn read_head(stream: &mut TcpStream) -> Result<Vec<u8>, Option<u16>> {
+/// Read up to the blank line: the head and the body bytes read past it, or
+/// the status that ends it (None: close without an answer).
+async fn read_head(stream: &mut TcpStream) -> Result<(Vec<u8>, Vec<u8>), Option<u16>> {
     let mut buf = Vec::with_capacity(512);
     let mut chunk = [0u8; 512];
     let deadline = tokio::time::Instant::now() + HEAD_DEADLINE;
     loop {
         if let Some(end) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+            let rest = buf.split_off(end + 4);
             buf.truncate(end);
-            return Ok(buf);
+            return Ok((buf, rest));
         }
         if buf.len() > http::HEAD_MAX {
             return Err(Some(431));
@@ -138,11 +146,17 @@ impl Reply {
     fn refusal(status: u16) -> Self {
         let sentence = match status {
             404 => "There is nothing here.",
-            405 => "Only GET and HEAD are answered.",
+            403 => "An upload needs the page's X-Vrx-Upload header.",
+            405 => {
+                "Only GET and HEAD are answered, and a POST of an update to /api/update."
+            }
             406 => "The page is sent gzipped; this client does not accept gzip.",
             408 => "The request did not arrive in time.",
+            411 => "An upload needs a Content-Length.",
+            413 => "That is larger than an update can be.",
             421 => "This host name is not this device.",
             431 => "The request's head is too long.",
+            507 => "There is not enough room on the device for that update.",
             _ => http::reason(status),
         };
         Self::json(status, &json!({ "error": sentence }))
@@ -200,12 +214,89 @@ async fn answer(req: &http::Request, root: &Path) -> Reply {
     }
 }
 
-async fn serve(mut stream: TcpStream, root: &Path) {
+/// Receive an update bundle into upload::UPDATES: `rest` is what came
+/// with the head, the remainder is read to `length` bytes, then renamed
+/// into place whole. Any failure removes the part.
+async fn receive_upload(stream: &mut TcpStream, length: u64, rest: Vec<u8>) -> Reply {
+    let max = env_or("VRX_MANAGE_UPLOAD_MAX", upload::MAX);
+    let dir = PathBuf::from(env_or("VRX_MANAGE_UPDATES", upload::UPDATES.to_owned()));
+    let df = output("df", &["-kP", &dir.to_string_lossy()]).await;
+    if let Some(status) = upload::refusal(length, max, api::df_avail_kb(&df)) {
+        return Reply::refusal(status);
+    }
+    let part = dir.join(upload::PART);
+    let received =
+        tokio::time::timeout(UPLOAD_DEADLINE, receive(stream, &part, length, rest)).await;
+    let status = match received {
+        Ok(Ok(())) => match std::fs::rename(&part, dir.join(upload::NAME)) {
+            Ok(()) => {
+                tracing::info!(bytes = length, "update bundle received");
+                return Reply::json(
+                    200,
+                    &json!({ "stored": upload::NAME, "bytes": length }),
+                );
+            }
+            Err(_) => 500,
+        },
+        Ok(Err(status)) => status,
+        Err(_) => 408,
+    };
+    let _ = std::fs::remove_file(&part);
+    Reply::refusal(status)
+}
+
+async fn receive(
+    stream: &mut TcpStream,
+    part: &Path,
+    length: u64,
+    mut rest: Vec<u8>,
+) -> Result<(), u16> {
+    use std::io::Write;
+    let mut file = std::fs::File::create(part).map_err(|_| 500u16)?;
+    rest.truncate(
+        usize::try_from(length)
+            .unwrap_or(usize::MAX)
+            .min(rest.len()),
+    );
+    file.write_all(&rest).map_err(|_| 507u16)?;
+    let mut got = rest.len() as u64;
+    let mut buf = vec![0u8; 64 * 1024];
+    while got < length {
+        let want = usize::try_from(length - got)
+            .unwrap_or(usize::MAX)
+            .min(buf.len());
+        match tokio::time::timeout(UPLOAD_STALL, stream.read(&mut buf[..want])).await {
+            Ok(Ok(0)) | Ok(Err(_)) => return Err(400),
+            Ok(Ok(n)) => {
+                file.write_all(&buf[..n]).map_err(|_| 507u16)?;
+                got += n as u64;
+            }
+            Err(_) => return Err(408),
+        }
+    }
+    file.sync_all().map_err(|_| 500u16)
+}
+
+async fn serve(mut stream: TcpStream, root: &Path, peer: std::net::SocketAddr) {
+    let started = tokio::time::Instant::now();
     let (reply, head_only) = match read_head(&mut stream).await {
         Err(None) => return,
         Err(Some(status)) => (Reply::refusal(status), false),
-        Ok(head) => match http::parse(&head, &hostname()) {
-            Ok(req) => (answer(&req, root).await, req.method == http::Method::Head),
+        Ok((head, rest)) => match http::parse(&head, &hostname()) {
+            Ok(req) if req.method == http::Method::Post => {
+                (receive_upload(&mut stream, req.length, rest).await, false)
+            }
+            Ok(req) => {
+                match tokio::time::timeout_at(started + CONN_DEADLINE, answer(&req, root))
+                    .await
+                {
+                    Ok(reply) => (reply, req.method == http::Method::Head),
+                    Err(_) => {
+                        tracing::debug!(%peer, "connection over its 20 s");
+                        return;
+                    }
+                }
+            }
             Err(http::Refusal(status)) => (Reply::refusal(status), false),
         },
     };

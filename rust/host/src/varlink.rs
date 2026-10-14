@@ -94,6 +94,27 @@ method Offers() -> (offers: []Offer)
 # system grants.
 method Install(file: string, build: string) -> (id: string)
 
+# Software update (plan 0016 D11), for callers holding the update grant.
+# The bundles offered (the USB drive's updates/ folder read in first when
+# nothing shares it, and the Manage page's uploads): each inspected by
+# RAUC, which checks its signature; problem says why it cannot be
+# installed (unsigned, machine, older, same, unreadable).
+type UpdateOffer (file: string, version: string, compatible: string, problem: ?string)
+method UpdateOffers() -> (running: string, offers: []UpdateOffer)
+
+# Install an offered bundle into the slot that is not running. Nothing
+# restarts: UpdateRestart does, when the person says so.
+method UpdateInstall(file: string) -> (version: string)
+
+# Restart into the installed slot on trial: kept only if the device comes
+# up healthy, otherwise the next boot is the old slot again (D2, D6).
+method UpdateRestart() -> ()
+
+# The running version, the slot booted, whether this boot is a trial, the
+# last update's outcome (none, trial, kept, fell-back) and each root slot.
+type UpdateSlot (name: string, bootname: string, state: string, boot_status: string, version: string)
+method UpdateStatus() -> (running: string, booted: string, trial: bool, last: string, slots: []UpdateSlot)
+
 # Uninstall an installed applet: its unit stops; its image, drop-in,
 # saved state, cache and settings are deleted.
 method Uninstall(applet: string) -> ()
@@ -661,6 +682,43 @@ async fn dispatch(
             let applet = str_param("applet").ok_or_else(|| Failure::invalid("applet"))?;
             uninstall(host, installer, applet).await
         }
+        "io.vrx.Host.UpdateOffers" => {
+            may_update(host, caller)?;
+            if let Some(installer) = host.installer.as_ref() {
+                let drive_idle = !installer
+                    .applets
+                    .is_active(crate::install::DRIVE_UNIT)
+                    .await;
+                let _ = helper(
+                    installer,
+                    crate::install::Request::ImportUpdates { drive_idle },
+                )
+                .await;
+            }
+            crate::update::offers()
+                .await
+                .map_err(|(e, p)| Failure::host(&e, p))
+        }
+        "io.vrx.Host.UpdateInstall" => {
+            may_update(host, caller)?;
+            let file = str_param("file").ok_or_else(|| Failure::invalid("file"))?;
+            crate::update::clear_fallback();
+            crate::update::install(file)
+                .await
+                .map_err(|(e, p)| Failure::host(&e, p))
+        }
+        "io.vrx.Host.UpdateRestart" => {
+            may_update(host, caller)?;
+            crate::update::restart()
+                .await
+                .map_err(|(e, p)| Failure::host(&e, p))
+        }
+        "io.vrx.Host.UpdateStatus" => {
+            may_update(host, caller)?;
+            crate::update::status()
+                .await
+                .map_err(|(e, p)| Failure::host(&e, p))
+        }
         "io.vrx.Host.WakeAt" => {
             // the time grant's meaning includes alarms and timers
             // (an applet only: the timer is named for it)
@@ -951,6 +1009,25 @@ fn may_install<'a>(
     host.installer
         .as_ref()
         .ok_or_else(|| Failure::host("Unavailable", json!({})))
+}
+
+/// The update methods are for built-ins holding the `update` grant (and
+/// the system).
+fn may_update(host: &Host, caller: Option<&str>) -> Result<(), Failure> {
+    if let Some(applet) = caller {
+        let holds = host.registry.get().find(applet).is_some_and(|e| {
+            e.builtin
+                && e.manifest
+                    .applet
+                    .permissions
+                    .system
+                    .contains(&vrx_protocol::SystemGrant::Update)
+        });
+        if !holds {
+            return Err(Failure::host("NotPermitted", json!({})));
+        }
+    }
+    Ok(())
 }
 
 /// Run one request in vrx-install.service (install.rs, the privileged
