@@ -88,6 +88,29 @@ class FrontApplet {
   final String? stopped;
 }
 
+/// System facts that change, heard from vrxhost rather than polled (plan
+/// 0012 D6): the USB device port's state, the supply alarm, and a count of
+/// backlight changes (read the level again when it moves).
+class SystemFacts {
+  const SystemFacts({this.usb = '', this.supplyLow = false, this.backlight = 0});
+
+  factory SystemFacts.fromJson(Map<String, dynamic> j) => SystemFacts(
+        usb: '${j['usb'] ?? ''}',
+        supplyLow: j['supply_low'] == true,
+        backlight: (j['backlight'] as num?)?.toInt() ?? 0,
+      );
+
+  /// The UDC's state ("configured" with a computer on the cable); '' on a
+  /// board with no USB device port.
+  final String usb;
+
+  /// The supply is below the board's alarm.
+  final bool supplyLow;
+
+  /// Changes to the backlight's level so far.
+  final int backlight;
+}
+
 /// The applet OS's own service: navigation, the registry, intents.
 abstract class AppletsService implements IntentTransport, NavDelegate {
   static AppletsService? _installed;
@@ -111,6 +134,9 @@ abstract class AppletsService implements IntentTransport, NavDelegate {
 
   /// The front applet now, and again on every change.
   Stream<FrontApplet> watch();
+
+  /// The system's changing facts now, and again on every change.
+  Stream<SystemFacts> facts();
 
   /// Every applet's declared settings (plan 0008 D5).
   Future<List<AppletSettingsDecl>> settings();
@@ -147,7 +173,7 @@ Stream<T> resubscribed<T>(Stream<T> Function() open, {Duration retry = const Dur
     } on Object {
       // gone or refused: the next attempt says whether it is back
     }
-    await Future<void>.delayed(retry);
+    await Future<void>.delayed(retry); // poll-ok: only while vrxhost is down or restarting, to reconnect
   }
 }
 
@@ -301,6 +327,9 @@ class VarlinkAppletsService extends AppletsService {
               stopped: p['stopped'] as String?,
             ),
           ));
+
+  @override
+  Stream<SystemFacts> facts() => resubscribed(() => _client.stream('io.vrx.Host.Facts').map(SystemFacts.fromJson));
 
   @override
   Future<IntentResult> send(String name, Object? payload) async {

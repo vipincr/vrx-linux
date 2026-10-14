@@ -13,7 +13,7 @@ use vrx_host::compositor::{self, Control, LinkEvent};
 use vrx_host::freeze::{self, Freezer};
 use vrx_host::session::{NavOp, Order, Session};
 use vrx_host::varlink::{self, Front, NavRequest};
-use vrx_host::{paths, power, registry, usb};
+use vrx_host::{paths, power, registry, supply, usb};
 use vrx_protocol::Intent;
 
 #[tokio::main]
@@ -148,6 +148,15 @@ async fn main() -> ExitCode {
             .await;
             if let Err(err) = ended {
                 tracing::warn!(error = %err, "USB device port: not watched");
+            }
+        });
+    }
+    // the supply's under-voltage alarm, published as a fact (plan 0012
+    // D6); a board without rpi_volt has none
+    if let Some(alarm) = supply::alarm_file(std::path::Path::new(supply::HWMON_ROOT)) {
+        tokio::spawn(async move {
+            if let Err(err) = supply::watch(alarm).await {
+                tracing::warn!(error = %err, "supply alarm: not watched");
             }
         });
     }

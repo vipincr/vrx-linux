@@ -4,7 +4,9 @@
 // offers to share files. The kernel tells only through sysfs_notify on
 // that attribute (usb_gadget_state_work), never a uevent, so no udev rule
 // can see it: this waits for POLLPRI on the file, reading it again after
-// each wake. A board without a UDC has nothing to watch.
+// each wake, and publishes each state as a fact (plan 0012 D6) so the kit
+// hears it instead of reading the file every second. A board without a
+// UDC has nothing to watch.
 
 #[cfg(any(target_os = "linux", test))]
 use std::fs::File;
@@ -54,6 +56,8 @@ pub async fn watch(state: PathBuf, mut on_connect: impl FnMut()) -> std::io::Res
     let file = File::open(&state)?;
     let mut before = read_state(&file)?;
     tracing::info!(state = %state.display(), now = %before, "watching the USB device port");
+    let start = before.clone();
+    crate::facts::update(|f| f.usb = start);
     let fd = AsyncFd::with_interest(file, Interest::PRIORITY)?;
     loop {
         let mut guard = fd.ready(Interest::PRIORITY).await?;
@@ -62,6 +66,8 @@ pub async fn watch(state: PathBuf, mut on_connect: impl FnMut()) -> std::io::Res
         let now = read_state(fd.get_ref())?;
         if now != before {
             tracing::info!(from = %before, to = %now, "USB device port");
+            let state = now.clone();
+            crate::facts::update(|f| f.usb = state);
         }
         if connected(&before, &now) {
             on_connect();

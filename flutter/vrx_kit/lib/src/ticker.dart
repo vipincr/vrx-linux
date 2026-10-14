@@ -47,7 +47,7 @@ class VrxTicker {
   void _start() {
     if (_cancelled) return;
     _timer?.cancel();
-    _timer = Timer.periodic(period, (_) => onTick()); // vrx-allow: the kit's one periodic source
+    _timer = Timer.periodic(period, (_) => onTick()); // poll-ok: VrxTicker, the one periodic source, rests while the applet is hidden (G021)
   }
 
   // by the state itself, not the transition callbacks: a state may arrive

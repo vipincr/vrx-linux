@@ -16,6 +16,7 @@ import 'dart:io';
 import 'package:dbus/dbus.dart';
 
 import 'bluetooth.dart';
+import 'host.dart';
 import 'locale.dart';
 import 'power_supply.dart';
 
@@ -357,7 +358,11 @@ class ConnmanNetworkService implements NetworkService {
   Stream<NetworkState> watch() {
     late StreamController<NetworkState> out;
     final subscriptions = <StreamSubscription<Object?>>[];
+    Timer? strength;
     Future<void> read() async {
+      // a full read covers a strength change still waiting
+      strength?.cancel();
+      strength = null;
       try {
         out.add(await _read());
       } on DBusMethodResponseException catch (err) {
@@ -376,9 +381,19 @@ class ConnmanNetworkService implements NetworkService {
         }
         // a service's own state (association, ready) and a technology's
         // Powered arrive as PropertyChanged on their own objects
+        // a signal strength moves every few seconds and wakes every
+        // process watching: one read in strengthGap for those, at once for
+        // anything else (plan 0012 D6)
         subscriptions
           ..add(DBusSignalStream(_bus, sender: 'net.connman', interface: 'net.connman.Service', name: 'PropertyChanged')
-              .listen((_) => unawaited(read())))
+              .listen((signal) {
+            final property = signal.values.isEmpty ? '' : signal.values.first.asString();
+            if (property != 'Strength') {
+              unawaited(read());
+            } else {
+              strength ??= Timer(strengthGap, () => unawaited(read()));
+            }
+          }))
           ..add(DBusSignalStream(_bus, sender: 'net.connman', interface: 'net.connman.Technology', name: 'PropertyChanged')
               .listen((_) => unawaited(read())))
           ..add(_bus.nameOwnerChanged
@@ -387,6 +402,7 @@ class ConnmanNetworkService implements NetworkService {
         unawaited(read());
       },
       onCancel: () async {
+        strength?.cancel();
         for (final s in subscriptions) {
           await s.cancel();
         }
@@ -395,6 +411,9 @@ class ConnmanNetworkService implements NetworkService {
     );
     return out.stream;
   }
+
+  /// The longest a signal strength change waits to be read.
+  static const strengthGap = Duration(seconds: 10);
 
   @override
   Future<void> setWifi(bool on) => _call(() => _object('/net/connman/technology/wifi').callMethod(
@@ -748,14 +767,14 @@ class LinuxPowerService implements PowerService {
     }
     final file = alarm;
     if (file == null || !await file.exists()) return;
-    Future<bool> read() async => (await file.readAsString()).trim() == '1';
-    var last = await read();
+    var last = (await file.readAsString()).trim() == '1';
     yield last;
-    // a sysfs attribute raises no inotify event: a small read every 2 s
-    // (the firmware re-checks about that often)
-    await for (final _ in Stream<void>.periodic(const Duration(seconds: 2))) {
-      final now = await read();
-      if (now != last) yield last = now;
+    // vrxhost watches the attribute (POLLPRI, a minute's re-read at most)
+    // and tells it as a fact (plan 0012 D6); off-device nothing changes
+    final facts = AppletsService.installed?.facts();
+    if (facts == null) return;
+    await for (final f in facts) {
+      if (f.supplyLow != last) yield last = f.supplyLow;
     }
   }
 
@@ -817,19 +836,45 @@ class _Unit {
       _managerIface, on ? 'StartUnit' : 'StopUnit', [DBusString(name), const DBusString('replace')],
       replySignature: DBusSignature('o')));
 
+  static const _unitIface = 'org.freedesktop.systemd1.Unit';
+
+  static bool _running(String state) => state == 'active' || state == 'activating' || state == 'reloading';
+
+  Future<DBusRemoteObject> _object() async {
+    final reply = await _manager.callMethod(_managerIface, 'LoadUnit', [DBusString(name)],
+        replySignature: DBusSignature('o'));
+    return DBusRemoteObject(bus, name: 'org.freedesktop.systemd1', path: reply.returnValues.first.asObjectPath());
+  }
+
   /// Active (or on its way there).
   Future<bool> active() => _call(() async {
-        final reply = await _manager.callMethod(_managerIface, 'LoadUnit', [DBusString(name)],
-            replySignature: DBusSignature('o'));
-        final unit = DBusRemoteObject(bus, name: 'org.freedesktop.systemd1', path: reply.returnValues.first.asObjectPath());
-        final state = (await unit.getProperty('org.freedesktop.systemd1.Unit', 'ActiveState')).asString();
-        return state == 'active' || state == 'activating' || state == 'reloading';
+        final unit = await _object();
+        return _running((await unit.getProperty(_unitIface, 'ActiveState')).asString());
       });
+
+  /// Active now, and again whenever that changes: the unit's
+  /// PropertiesChanged, which systemd sends once a client on the bus has
+  /// called Subscribe (vrxhost has; so does this, which is harmless).
+  Stream<bool> watchActive() async* {
+    await _call(() => _manager.callMethod(_managerIface, 'Subscribe', const []));
+    final unit = await _call(_object);
+    var last = await active();
+    yield last;
+    await for (final change in unit.propertiesChanged) {
+      if (change.propertiesInterface != _unitIface) continue;
+      final state = change.changedProperties['ActiveState'];
+      if (state == null) continue;
+      final now = _running(state.asString());
+      if (now != last) yield last = now;
+    }
+  }
 }
 
 /// The UDC's state and the gadget in configfs (vrx-usb's vrx-usb-gadget);
 /// sharing through systemd. Neither sysfs nor configfs raises inotify
-/// events, so a small read every second, as for the light.
+/// events: the UDC's state arrives as vrxhost's fact (it watches the file
+/// by POLLPRI), and sharing follows vrx-usb-files' unit state from systemd
+/// (plan 0012 D6). Each is a reason to read both again.
 class LinuxUsbService implements UsbService {
   LinuxUsbService(DBusClient bus, {this.udcRoot = '/sys/class/udc', this.gadget = '/sys/kernel/config/usb_gadget/vrx'})
       : _unit = _Unit(bus, 'vrx-usb-files.service');
@@ -850,37 +895,52 @@ class LinuxUsbService implements UsbService {
   }
 
   @override
-  Stream<UsbState> watch() async* {
-    var last = await _read();
-    yield last;
-    await for (final _ in Stream<void>.periodic(const Duration(seconds: 1))) {
+  Stream<UsbState> watch() {
+    late final StreamController<UsbState> out;
+    final subscriptions = <StreamSubscription<Object?>>[];
+    UsbState? last;
+    Future<void> read() async {
       final now = await _read();
-      if (now.present != last.present || now.connected != last.connected || now.sharing != last.sharing) {
-        yield last = now;
+      if (out.isClosed) return;
+      final before = last;
+      if (before == null || now.present != before.present || now.connected != before.connected || now.sharing != before.sharing) {
+        out.add(last = now);
       }
     }
+
+    out = StreamController<UsbState>(
+      onListen: () {
+        unawaited(read());
+        final facts = AppletsService.installed?.facts();
+        if (facts != null) {
+          subscriptions.add(facts.map((f) => f.usb).distinct().listen((_) => unawaited(read())));
+        }
+        subscriptions.add(_unit.watchActive().listen((_) => unawaited(read()), onError: (Object _) {}));
+      },
+      onCancel: () async {
+        // not awaited: a watch still waiting on the bus would hold the
+        // listener's cancel (and a .first) until the bus answers
+        for (final s in subscriptions) {
+          unawaited(s.cancel());
+        }
+        await out.close();
+      },
+    );
+    return out.stream;
   }
 
   @override
   Future<void> share(bool on) => _unit.run(on);
 }
 
-/// vrx-manage.service, read every second (systemd sends unit changes only
-/// to a subscribed client; one property read is cheaper than that).
+/// vrx-manage.service, its state as systemd tells it (plan 0012 D6).
 class SystemdManageService implements ManageService {
   SystemdManageService(DBusClient bus) : _unit = _Unit(bus, 'vrx-manage.service');
 
   final _Unit _unit;
 
   @override
-  Stream<bool> watch() async* {
-    var last = await _unit.active();
-    yield last;
-    await for (final _ in Stream<void>.periodic(const Duration(seconds: 1))) {
-      final now = await _unit.active();
-      if (now != last) yield last = now;
-    }
-  }
+  Stream<bool> watch() => _unit.watchActive();
 
   @override
   Future<void> serve(bool on) => _unit.run(on);

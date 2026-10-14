@@ -63,8 +63,11 @@ pub fn run(args: &[String]) -> ExitCode {
             .unwrap_or(&v.path)
             .display();
         eprintln!(
-            "{shown}:{}: `{}`: {} (or mark the line `vrx-allow: <reason>`)",
-            v.line, v.needle, v.why
+            "{shown}:{}: `{}`: {}{}",
+            v.line,
+            v.needle,
+            v.why,
+            v.remedy()
         );
     }
     if !found.is_empty() {

@@ -103,6 +103,13 @@ method Uninstall(applet: string) -> ()
 # gave up), until the next navigation (plan 0011 D2).
 method Watch() -> (front: string, depth: int, stopped: ?string)
 
+# System facts that change, for an applet to hear rather than poll (plan
+# 0012 D6): usb, the USB device port's UDC state (\"\" with no UDC);
+# supply_low, the supply's under-voltage alarm; backlight, a count of
+# changes to the backlight's level (read the level again when it moves).
+# With \"more\", again on every change.
+method Facts() -> (usb: string, supply_low: bool, backlight: int)
+
 error NoSuchApplet (applet: string)
 error NotOpenable (applet: string)
 error Disabled (applet: string)
@@ -266,6 +273,10 @@ async fn handle(mut conn: zlink::tokio::unix::Connection, host: Host) {
         tracing::debug!(%caller, %method, "call");
         if method == format!("{INTERFACE}.Watch") && call.more() {
             watch_front(&mut conn, host.front.clone()).await;
+            return;
+        }
+        if method == format!("{INTERFACE}.Facts") && call.more() {
+            watch_facts(&mut conn, crate::facts::subscribe()).await;
             return;
         }
         if method == format!("{INTERFACE}.Listen") && call.more() {
@@ -433,6 +444,22 @@ async fn watch_front(
     }
 }
 
+async fn watch_facts(
+    conn: &mut zlink::tokio::unix::Connection,
+    mut facts: watch::Receiver<crate::facts::Facts>,
+) {
+    loop {
+        let now = facts.borrow_and_update().clone();
+        let reply = Reply::new(Some(now)).set_continues(Some(true));
+        if conn.send_reply(&reply, Vec::new()).await.is_err() {
+            return;
+        }
+        if facts.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
 async fn dispatch(
     host: &Host,
     caller: Option<&str>,
@@ -519,6 +546,10 @@ async fn dispatch(
         "io.vrx.Host.Watch" => {
             Ok(serde_json::to_value(host.front.borrow().clone()).unwrap_or(Value::Null))
         }
+        "io.vrx.Host.Facts" => Ok(serde_json::to_value(
+            crate::facts::subscribe().borrow().clone(),
+        )
+        .unwrap_or(Value::Null)),
         "org.varlink.service.GetInfo" => Ok(json!({
             "vendor": "vrx",
             "product": "vrxhost",

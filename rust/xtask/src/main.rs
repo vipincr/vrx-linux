@@ -463,8 +463,11 @@ fn gate(all: bool) -> ExitCode {
     for v in &found {
         let shown = v.path.strip_prefix(&repo).unwrap_or(&v.path).display();
         eprintln!(
-            "{shown}:{}: `{}`: {} (or mark the line `vrx-allow: <reason>`)",
-            v.line, v.needle, v.why
+            "{shown}:{}: `{}`: {}{}",
+            v.line,
+            v.needle,
+            v.why,
+            v.remedy()
         );
     }
     if !found.is_empty() {

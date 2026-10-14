@@ -147,6 +147,7 @@ class Pty {
       calloc.free(buf);
     }
     // the pty's buffer is full: the shell has not read yet
+    // poll-ok: only while the shell has unread input queued; it stops once the buffer drains
     if (_pending.isNotEmpty) _retry = Timer(const Duration(milliseconds: 10), _flush);
   }
 

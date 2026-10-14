@@ -28,6 +28,7 @@ import 'dart:math' as math;
 import 'package:flutter/widgets.dart';
 
 import 'file.dart';
+import 'host.dart';
 import 'settings.dart';
 import 'store.dart';
 import 'system.dart';
@@ -81,10 +82,6 @@ class ScreenSettings {
 
   /// The shortest time between two writes while a slider is dragged.
   static const dragInterval = Duration(milliseconds: 100);
-
-  /// How often a watched backlight level is read (sysfs raises no
-  /// inotify event for it).
-  static const backlightPoll = Duration(seconds: 1);
 
   VrxDimming? _dim;
 
@@ -160,10 +157,11 @@ class ScreenSettings {
   }
 
   /// The settings now, and again whenever they change: screen.conf by
-  /// inotify, a backlight level by a read every [backlightPoll].
+  /// inotify, a backlight level when vrxhost hears the backlight's change
+  /// uevent (a fact, plan 0012 D6; sysfs raises no inotify event for it).
   Stream<ScreenState> watch() {
     StreamSubscription<Object?>? file;
-    Timer? poll;
+    StreamSubscription<Object?>? light;
     late final StreamController<ScreenState> out;
     Future<void> emit() async {
       final s = await read();
@@ -173,12 +171,13 @@ class ScreenSettings {
     out = StreamController(
       onListen: () async {
         file = watchSettingsFile(dir, ScreenSettings.file, _raw).listen((_) => emit());
-        if (await dimming() == VrxDimming.backlight && !out.isClosed) {
-          poll = Timer.periodic(backlightPoll, (_) => emit());
+        final facts = AppletsService.installed?.facts();
+        if (await dimming() == VrxDimming.backlight && !out.isClosed && facts != null) {
+          light = facts.map((f) => f.backlight).distinct().skip(1).listen((_) => emit());
         }
       },
       onCancel: () async {
-        poll?.cancel();
+        await light?.cancel();
         await file?.cancel();
         await out.close();
       },

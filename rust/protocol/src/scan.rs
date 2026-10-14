@@ -53,6 +53,7 @@ const NO_CLASS: &str =
 const NO_SCREEN_POWER: &str = "G019: the screen's power is the compositor's (plan 0010 D1); the backlight is reached through the kit's ScreenSettings, a hold is StoreModel.keepsScreenOn";
 const NO_DIALOG: &str = "G020: a modal is a route the kit opens (vrxConfirm, vrxAsk), so Back, Escape and the strip close it first (plan 0011 D1)";
 const NO_TIMER: &str = "G021: a periodic source is VrxTicker, which rests while the applet is hidden (plan 0011 D3)";
+const NO_POLL: &str = "G027: nothing polls (plan 0012 D6): the system's state arrives as events (vrxhost's Facts and Watch, D-Bus signals, inotify); a loop that must wake on a clock says why with `// poll-ok: <reason>`";
 const NO_RAW_PRESS: &str = "a tappable control comes from the kit's press components (VrxPress and the rows, chips and buttons on it), so every press is acknowledged the same way";
 
 /// Forms no `vrx-allow` excuses. G019: an applet that switches the light
@@ -456,6 +457,198 @@ fn allowed(line: &str) -> bool {
         .is_some_and(|(_, reason)| !reason.trim().is_empty())
 }
 
+/// A polling form's reason (G027), on its line or the line above.
+fn poll_ok(line: &str) -> bool {
+    line.split_once("poll-ok:")
+        .is_some_and(|(_, reason)| !reason.trim().is_empty())
+}
+
+fn ident_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// The identifier ending just before `at` in `chars`, skipping blanks.
+fn ident_before(chars: &[char], at: usize) -> String {
+    let mut end = at;
+    while end > 0 && chars[end - 1].is_whitespace() {
+        end -= 1;
+    }
+    let mut start = end;
+    while start > 0 && ident_char(chars[start - 1]) {
+        start -= 1;
+    }
+    chars[start..end].iter().collect()
+}
+
+/// The polling forms in Dart code (comments and strings already blanked):
+/// (line, form). A periodic stream or timer; `Future.delayed` inside a
+/// loop body; a `Timer(` whose arguments name the function it is in (it
+/// re-arms itself). Loops and functions are found by their braces: a `{`
+/// after `while`, `for` or `do` opens a loop body, and a `{` after
+/// `name(...)` (with `async`, `sync*` or `async*` between) opens that
+/// function's body.
+fn polls(code: &str) -> Vec<(usize, &'static str)> {
+    let chars: Vec<char> = code.chars().collect();
+    let mut found = Vec::new();
+    // per open brace: whether it opened a loop body, and a function's name
+    let mut stack: Vec<(bool, Option<String>)> = Vec::new();
+    let mut loop_pending = false;
+    let mut line = 1;
+    let starts = |i: usize, word: &str| -> bool {
+        let w: Vec<char> = word.chars().collect();
+        chars.len() >= i + w.len()
+            && chars[i..i + w.len()] == w[..]
+            && (i == 0 || !ident_char(chars[i - 1]))
+    };
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '\n' {
+            line += 1;
+            i += 1;
+            continue;
+        }
+        for word in ["while", "for", "do"] {
+            if starts(i, word)
+                && !chars.get(i + word.len()).copied().is_some_and(ident_char)
+            {
+                loop_pending = true;
+            }
+        }
+        if starts(i, "Timer.periodic") {
+            found.push((line, "Timer.periodic"));
+        }
+        // Stream.periodic / Stream<T>.periodic, Future.delayed /
+        // Future<T>.delayed: the class before the dot, past any type
+        // arguments
+        let class_before_dot = |at: usize| -> String {
+            let mut j = at;
+            if j > 0 && chars[j - 1] == '>' {
+                let mut depth = 0;
+                while j > 0 {
+                    j -= 1;
+                    match chars[j] {
+                        '>' => depth += 1,
+                        '<' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            ident_before(&chars, j)
+        };
+        if c == '.' && starts(i + 1, "periodic") && class_before_dot(i) == "Stream" {
+            found.push((line, "Stream.periodic"));
+        }
+        if c == '.'
+            && starts(i + 1, "delayed")
+            && class_before_dot(i) == "Future"
+            && stack.iter().any(|(is_loop, _)| *is_loop)
+        {
+            found.push((line, "Future.delayed in a loop"));
+        }
+        if starts(i, "Timer(") {
+            // the call's arguments, to its closing parenthesis
+            let mut depth = 0;
+            let mut j = i + 5;
+            let mut args = String::new();
+            while j < chars.len() {
+                match chars[j] {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                args.push(chars[j]);
+                j += 1;
+            }
+            let arg_chars: Vec<char> = args.chars().collect();
+            let names_self = stack
+                .iter()
+                .rev()
+                .find_map(|(_, f)| f.as_ref())
+                .is_some_and(|f| {
+                    let w: Vec<char> = f.chars().collect();
+                    (0..arg_chars.len()).any(|k| {
+                        arg_chars.len() >= k + w.len()
+                            && arg_chars[k..k + w.len()] == w[..]
+                            && (k == 0 || !ident_char(arg_chars[k - 1]))
+                            && !arg_chars
+                                .get(k + w.len())
+                                .copied()
+                                .is_some_and(ident_char)
+                    })
+                });
+            if names_self {
+                found.push((line, "a Timer re-armed in its own callback"));
+            }
+        }
+        match c {
+            '{' => {
+                // what precedes the brace: `name(...) [async|sync*|async*]`
+                let mut k = i;
+                while k > 0 && chars[k - 1].is_whitespace() {
+                    k -= 1;
+                }
+                for modifier in ["async*", "sync*", "async"] {
+                    let m: Vec<char> = modifier.chars().collect();
+                    if k >= m.len() && chars[k - m.len()..k] == m[..] {
+                        k -= m.len();
+                        while k > 0 && chars[k - 1].is_whitespace() {
+                            k -= 1;
+                        }
+                        break;
+                    }
+                }
+                let mut name = None;
+                if k > 0 && chars[k - 1] == ')' {
+                    let mut depth = 0;
+                    let mut j = k;
+                    while j > 0 {
+                        j -= 1;
+                        match chars[j] {
+                            ')' => depth += 1,
+                            '(' => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    let n = ident_before(&chars, j);
+                    if !n.is_empty()
+                        && !matches!(
+                            n.as_str(),
+                            "if" | "while" | "for" | "switch" | "catch"
+                        )
+                    {
+                        name = Some(n);
+                    }
+                }
+                stack.push((loop_pending, name));
+                loop_pending = false;
+            }
+            '}' => {
+                stack.pop();
+            }
+            ';' => loop_pending = false,
+            _ => {}
+        }
+        i += 1;
+    }
+    found
+}
+
 /// An emoji: the image ships no emoji font, so one renders as a
 /// missing-glyph box (bench 2026-10-13: the Wi-Fi lock). Symbols come
 /// from the icon font (VrxSymbols) instead.
@@ -529,6 +722,27 @@ fn violations(
             found.push((i + 1, rule.needle, rule.why));
         }
     }
+    // G027, applets and the kit alike: a polling form needs its reason
+    if ext == "dart" {
+        let code: String = bare.join("\n");
+        let kit = KIT.iter().any(|k| path.contains(k));
+        for (n, form) in polls(&code) {
+            // in an applet a periodic timer is already G021's, never allowed
+            if form == "Timer.periodic" && !kit {
+                continue;
+            }
+            let here = lines.get(n - 1).copied().unwrap_or("");
+            let above = n
+                .checked_sub(2)
+                .and_then(|j| lines.get(j))
+                .copied()
+                .unwrap_or("");
+            if !poll_ok(here) && !poll_ok(above) {
+                found.push((n, form, NO_POLL));
+            }
+        }
+    }
+    found.sort_by_key(|f| f.0);
     found
 }
 
@@ -539,6 +753,21 @@ pub struct Violation {
     pub line: usize,
     pub needle: &'static str,
     pub why: &'static str,
+}
+
+impl Violation {
+    /// What would make the line acceptable, for the message: a polling
+    /// form's reason (G027), nothing for a form no marker excuses, or a
+    /// reasoned `vrx-allow`.
+    pub fn remedy(&self) -> &'static str {
+        if self.why == NO_POLL {
+            " (or say why it must wake on a clock: `// poll-ok: <reason>`)"
+        } else if NEVER_ALLOWED.contains(&self.needle) {
+            ""
+        } else {
+            " (or mark the line `vrx-allow: <reason>`)"
+        }
+    }
 }
 
 /// Scan every .dart and .rs file under [roots]. A Rust file's test module
@@ -824,6 +1053,69 @@ mod tests {
 
     /// G020, G021, rule 16 and rule 34: the kit's forms outside the kit.
     #[test]
+    fn nothing_polls_without_a_reason_in_applets_or_the_kit_g027() {
+        let periodic = "Stream<void>.periodic(const Duration(seconds: 1)).listen(f);\n\
+                        final t = Stream.periodic(d);\n";
+        let found = violations("applets/a/lib/main.dart", "dart", periodic);
+        assert_eq!(
+            found.iter().filter(|f| f.1 == "Stream.periodic").count(),
+            2,
+            "{found:?}"
+        );
+        // the kit is no exception
+        assert!(
+            violations("flutter/vrx_kit/lib/src/x.dart", "dart", periodic)
+                .iter()
+                .any(|f| f.1 == "Stream.periodic")
+        );
+        let kit_timer = "  _t = Timer.periodic(p, (_) => tick());\n";
+        assert!(
+            violations("flutter/vrx_kit/lib/src/x.dart", "dart", kit_timer)
+                .iter()
+                .any(|f| f.1 == "Timer.periodic" && f.2 == NO_POLL)
+        );
+        let delayed = "Future<void> f() async {\n  while (true) {\n    await g();\n    await Future<void>.delayed(d);\n  }\n}\nFuture<void> once() async {\n  await Future<void>.delayed(d);\n}\n";
+        let found = violations("applets/a/lib/main.dart", "dart", delayed);
+        assert_eq!(
+            found
+                .iter()
+                .filter(|f| f.1 == "Future.delayed in a loop")
+                .map(|f| f.0)
+                .collect::<Vec<_>>(),
+            [4],
+            "{found:?}"
+        );
+        let rearm = "void _tick() {\n  dispatch();\n  _timer = Timer(next(), _tick);\n}\nvoid _later() {\n  _t = Timer(d, () => flush());\n}\n";
+        let found = violations("applets/a/lib/main.dart", "dart", rearm);
+        assert_eq!(
+            found
+                .iter()
+                .filter(|f| f.1 == "a Timer re-armed in its own callback")
+                .map(|f| f.0)
+                .collect::<Vec<_>>(),
+            [3],
+            "{found:?}"
+        );
+        // a stated reason passes, on the line or above; a bare marker does not
+        let ok = "  _t = Timer(next(), _tick); // poll-ok: the face shows minutes\n";
+        assert!(violations(
+            "applets/a/lib/main.dart",
+            "dart",
+            &format!("void _tick() {{\n{ok}}}\n")
+        )
+        .is_empty());
+        let bare = "void _tick() {\n  // poll-ok:\n  _t = Timer(next(), _tick);\n}\n";
+        assert!(!violations("applets/a/lib/main.dart", "dart", bare).is_empty());
+        // a comment or a string never polls
+        assert!(violations(
+            "applets/a/lib/main.dart",
+            "dart",
+            "// Stream.periodic(d)\nfinal s = 'Timer.periodic';\n"
+        )
+        .is_empty());
+    }
+
+    #[test]
     fn dialogs_timers_raw_presses_and_the_class_stay_in_the_kit() {
         let applet = "applets/x/lib/main.dart";
         // (a marker covers its own line and the one below)
@@ -848,7 +1140,7 @@ mod tests {
         assert!(violations(
             "flutter/vrx_kit/lib/src/modals.dart",
             "dart",
-            "showDialog(c);\nTimer.periodic(d, f);\nInkWell();\n"
+            "showDialog(c);\nTimer.periodic(d, f); // poll-ok: the kit's one ticker\nInkWell();\n"
         )
         .is_empty());
     }
