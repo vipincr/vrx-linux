@@ -124,6 +124,9 @@ trait Manager {
     fn start_unit(&self, name: &str, mode: &str) -> zbus::Result<OwnedObjectPath>;
     fn stop_unit(&self, name: &str, mode: &str) -> zbus::Result<OwnedObjectPath>;
     fn reset_failed_unit(&self, name: &str) -> zbus::Result<()>;
+    /// cgroup v2 freeze (plan 0012 D2); the reply comes once it is done
+    fn freeze_unit(&self, name: &str) -> zbus::Result<()>;
+    fn thaw_unit(&self, name: &str) -> zbus::Result<()>;
     fn reload(&self) -> zbus::Result<()>;
     #[zbus(signal)]
     fn job_removed(
@@ -241,6 +244,23 @@ impl Applets {
             proxy.active_state().await
         };
         read.await.is_ok_and(|state| state == "active")
+    }
+
+    /// Freeze an applet's unit (plan 0012 D2): systemd replies once the
+    /// cgroup is frozen, and stops the unit's watchdog meanwhile.
+    pub async fn freeze(&self, applet: &str) -> zbus::Result<()> {
+        ManagerProxy::new(&self.conn)
+            .await?
+            .freeze_unit(&unit_name(applet))
+            .await
+    }
+
+    /// Thaw it; a running unit is left as it is.
+    pub async fn thaw(&self, applet: &str) -> zbus::Result<()> {
+        ManagerProxy::new(&self.conn)
+            .await?
+            .thaw_unit(&unit_name(applet))
+            .await
     }
 
     /// Start an applet's unit. A unit that failed past its start limit

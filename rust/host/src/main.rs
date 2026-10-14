@@ -10,6 +10,7 @@ use std::process::ExitCode;
 use tokio::sync::{mpsc, watch};
 use vrx_host::applets::{Applets, Event};
 use vrx_host::compositor::{self, Control, LinkEvent};
+use vrx_host::freeze::{self, Freezer};
 use vrx_host::session::{NavOp, Order, Session};
 use vrx_host::varlink::{self, Front, NavRequest};
 use vrx_host::{paths, power, registry, usb};
@@ -68,6 +69,21 @@ async fn main() -> ExitCode {
     let home = Session::home_of(&registry);
     let shell = home.as_ref().and_then(|_| Session::shell_of(&registry));
     let registry = registry::Shared::new(registry);
+    // applets behind the screen are frozen (plan 0012 D2); a headless
+    // image has no screen to be behind
+    let freezer = home.as_ref().map(|_| {
+        Freezer::new(
+            Box::new(freeze::LinuxBackend {
+                applets: applets.clone(),
+            }),
+            registry.clone(),
+            [home.clone(), shell.clone()]
+                .into_iter()
+                .flatten()
+                .collect(),
+            freeze::DELAY,
+        )
+    });
     let (added_tx, added_rx) = mpsc::unbounded_channel();
     if home.is_some() {
         tokio::spawn(compositor::run(
@@ -93,6 +109,8 @@ async fn main() -> ExitCode {
         focus: focus_tx,
         front: front_tx,
         stopped: None,
+        freezer: freezer.clone(),
+        focus_generation: Default::default(),
     };
     tokio::spawn(host.run(
         Session::new(home, shell),
@@ -108,7 +126,10 @@ async fn main() -> ExitCode {
         installer: Some(installer),
         nav: nav_tx,
         front: front_rx,
-        bridge: vrx_host::bridge::Bridge::default(),
+        bridge: freezer.map_or_else(
+            vrx_host::bridge::Bridge::default,
+            vrx_host::bridge::Bridge::with_freezer,
+        ),
     };
     // a computer on the USB device port (plan 0008 D11), on boards with one
     if let Some(state) = usb::state_file(std::path::Path::new(usb::UDC_ROOT)) {
@@ -172,6 +193,11 @@ struct Host {
     /// An applet that crashed, by name, until the next navigation (plan
     /// 0011 D2: the shell says "X stopped." once).
     stopped: Option<String>,
+    /// Freezes applets behind the screen (plan 0012 D2); None headless.
+    freezer: Option<Freezer>,
+    /// Bumped by every focus order, so a focus that waited for a thaw is
+    /// not sent after a newer one.
+    focus_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Host {
@@ -204,6 +230,12 @@ impl Host {
             let orders = tokio::select! {
                 Some(event) = events.recv() => {
                     tracing::info!(?event, "applet");
+                    if let Some(freezer) = &self.freezer {
+                        match &event {
+                            Event::Started { applet, pid } => freezer.started(applet, *pid),
+                            _ => freezer.gone(event.applet()),
+                        }
+                    }
                     if let Event::Restarting { applet, .. } | Event::Disabled { applet, .. } = &event {
                         self.stopped = Some(
                             self.registry
@@ -255,7 +287,31 @@ impl Host {
             match order {
                 Order::Focus(pid) => {
                     tracing::info!(pid, top = ?session.top(), "focus");
-                    let _ = self.focus.send(Control::Focus(pid));
+                    let generation = self
+                        .focus_generation
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                        + 1;
+                    let top = session.top().unwrap_or_default().to_owned();
+                    match &self.freezer {
+                        // frozen (or unknown): thawed first, so it can
+                        // present its frame when focused
+                        Some(freezer) if freezer.shown(&top) => {
+                            let freezer = freezer.clone();
+                            let focus = self.focus.clone();
+                            let current = self.focus_generation.clone();
+                            tokio::spawn(async move {
+                                freezer.thaw(&top, "focus").await;
+                                if current.load(std::sync::atomic::Ordering::SeqCst)
+                                    == generation
+                                {
+                                    let _ = focus.send(Control::Focus(pid));
+                                }
+                            });
+                        }
+                        _ => {
+                            let _ = self.focus.send(Control::Focus(pid));
+                        }
+                    }
                 }
                 Order::Shell(pid) => {
                     tracing::info!(pid, "shell");

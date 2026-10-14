@@ -57,9 +57,29 @@ struct Inner {
 #[derive(Clone, Default)]
 pub struct Bridge {
     inner: Arc<Mutex<Inner>>,
+    /// Thaws an applet before anything is handed to it (plan 0012 D2);
+    /// None in the tests and on a board without systemd's freezer.
+    freezer: Option<crate::freeze::Freezer>,
 }
 
 impl Bridge {
+    /// A bridge that thaws a frozen applet before every delivery.
+    pub fn with_freezer(freezer: crate::freeze::Freezer) -> Self {
+        Self {
+            inner: Arc::default(),
+            freezer: Some(freezer),
+        }
+    }
+
+    /// Thaw `applet` in the background (the delivery waits in its socket
+    /// until it runs again).
+    fn wake(&self, applet: &str, why: &'static str) {
+        if let Some(freezer) = self.freezer.clone() {
+            let applet = applet.to_owned();
+            tokio::spawn(async move { freezer.awake(&applet, why).await });
+        }
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         // a panic while holding it would be a bug elsewhere; the map is
         // still consistent, so carry on with it
@@ -124,6 +144,11 @@ impl Bridge {
             name: name.to_owned(),
             payload: payload.clone(),
         };
+        // thawed before the budget starts: a frozen handler would pass by
+        // silence
+        if let Some(freezer) = &self.freezer {
+            freezer.awake(applet, "an intent").await;
+        }
         let answer = if self.send(applet, delivery).is_ok() {
             tokio::time::timeout(budget, rx)
                 .await
@@ -149,6 +174,7 @@ impl Bridge {
             applet.to_owned(),
             (route.to_owned(), payload.clone(), intent.map(str::to_owned)),
         );
+        self.wake(applet, "a route");
         let _ = self.send(
             applet,
             Delivery::Route {
@@ -181,6 +207,13 @@ impl Bridge {
     /// Hand a stream's end to `applet`'s Listen; false (the descriptor
     /// dropped) when it is not listening. The caller keeps its own copy.
     pub fn hand(&self, applet: &str, from: &str, channel: &str, fd: OwnedFd) -> bool {
+        // it holds this end until every process of its cgroup closes it
+        if let Some(freezer) = &self.freezer {
+            if let Some(inode) = crate::freeze::inode_of(&fd) {
+                freezer.channel_handed(applet, inode);
+            }
+        }
+        self.wake(applet, "a channel");
         let delivery = Delivery::Channel {
             from: from.to_owned(),
             channel: channel.to_owned(),
