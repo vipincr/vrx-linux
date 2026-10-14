@@ -11,10 +11,10 @@ import 'package:launcher_applet/state.dart';
 void main() {
   for (final display in allDisplays) {
     testWidgets('home on ${display.name}', (tester) async {
-      final home = LauncherApplet()
-        ..replaceRegistry({
+      final home = LauncherApplet(startingFacts: [
+        LauncherRegistry({
           for (final (i, t) in [
-            ('web', 'Web requests', 'language'),
+            ('web', 'Web requests', 'http'),
             ('clock', 'Clock', 'schedule'),
             ('settings', 'Settings', 'settings'),
             ('terminal', 'Terminal', 'terminal'),
@@ -24,7 +24,8 @@ void main() {
             ('scripts', 'Scripts', 'code'),
           ].indexed)
             t.$1: Tile(id: t.$1, name: t.$2, position: i, icon: t.$3),
-        });
+        }),
+      ]);
       await shotApplet(tester, 'home', home, display: display);
     }, skip: Platform.environment['VRX_SHOTS'] == null);
   }

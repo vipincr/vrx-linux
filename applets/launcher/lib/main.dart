@@ -10,13 +10,14 @@ import 'state.dart';
 /// to push the applet onto the back trail (Nav, never Navigator).
 class LauncherApplet
     extends Applet<LauncherState, LauncherAction, LauncherView> {
+  LauncherApplet({this.startingFacts = const []});
+
   final _model = LauncherModel();
 
-  /// The registry and the offers a test starts from, reduced like any
-  /// other fact (the store dispatches them on a device).
-  void replaceRegistry(Map<String, Tile> tiles) => _model.reduce(_model.snapshot, LauncherRegistry(tiles));
-
-  void replaceOffers(List<AppOffer> offers) => _model.reduce(_model.snapshot, LauncherOffers(offers));
+  /// The registry and the offers a test starts from, dispatched by the
+  /// store after boot like any other fact (on a device vrxhost sends them).
+  @override
+  final List<LauncherAction> startingFacts;
 
   @override
   LauncherState get initial => _model.initial;

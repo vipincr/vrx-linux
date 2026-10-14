@@ -69,6 +69,12 @@ abstract class StoreModel<S, A, V> {
   /// suspension preserves and eviction loses.
   S get snapshot;
 
+  /// Facts the store dispatches right after [bootAction], in order (plan
+  /// 0013 D1): the world a test or a screenshot starts from goes through
+  /// the store loop like any other fact, never around it. Empty on a
+  /// device, where the world sends its facts itself.
+  List<A> get startingFacts => const [];
+
   /// Why the screen must stay on now, or null (plan 0010 D3): true only
   /// while something is being watched or must be seen (a ringing alarm).
   /// The store reads it after every reduce and holds or releases the
@@ -158,6 +164,7 @@ class Store<S, A, V> {
   Store(this.model) {
     _state = model.initial;
     _apply(model.bootAction);
+    model.startingFacts.forEach(dispatch);
   }
 
   /// A store resumed from [saved] (plan 0013 D2): the model restores it,
@@ -175,6 +182,7 @@ class Store<S, A, V> {
       }
     }
     _apply(model.bootAction);
+    model.startingFacts.forEach(dispatch);
   }
 
   final StoreModel<S, A, V> model;

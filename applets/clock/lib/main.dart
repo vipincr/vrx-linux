@@ -31,8 +31,21 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
   @override
   ClockAction get bootAction => model.bootAction;
 
+  /// The reducer is the model's; its effects run after it, here: the book
+  /// written when it changed, a ring that began brought to the front, and
+  /// the next wake-up armed (plan 0013 D1).
   @override
-  ClockView reduce(ClockState state, ClockAction action) => model.reduce(state, action);
+  ClockView reduce(ClockState state, ClockAction action) {
+    final wasRinging = model.ring != null;
+    final view = model.reduce(state, action);
+    final s = _scheduler;
+    if (s != null) {
+      if (model.takeSave()) s.saveSoon();
+      if (model.ring != null && !wasRinging) s._ring();
+      s.arm();
+    }
+    return view;
+  }
 
   @override
   ClockState get snapshot => model.snapshot;
@@ -40,12 +53,7 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
   @override
   String? get keepsScreenOn => model.keepsScreenOn;
 
-  void _do(void Function() change, {bool save = false}) {
-    change();
-    if (save) _scheduler?.saveSoon();
-    _scheduler?.arm();
-    _events.add(ClockAction.changed);
-  }
+  void _do(ClockAction action) => _events.add(action);
 
   void _back() {
     if (model.atRoot) {
@@ -61,7 +69,7 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
 
   void _pickZone(String zone) {
     final home = model.pickHome;
-    _do(() => model.pickZone(zone), save: !home);
+    _do(ClockPickZone(zone));
     if (home) {
       // the system's zone: timedated changes it, and the watch brings
       // the change back here like any other
@@ -80,8 +88,8 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
       body = _RingScreen(
         view: view,
         flash: flash,
-        onStop: () => _do(model.stopRing, save: true),
-        onSnooze: () => _do(model.snoozeRing, save: true),
+        onStop: () => _do(ClockDo.stopRing),
+        onSnooze: () => _do(ClockDo.snoozeRing),
       );
     } else {
       body = switch (view.screen) {
@@ -96,16 +104,16 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
         ClockScreen.editor => _Editor(
             view: view,
             onBack: _back,
-            onTime: () => _do(model.editTime),
-            onDays: () => _do(model.cycleDays),
-            onSnooze: () => _do(model.toggleSnooze),
-            onSave: () => _do(() => model.saveDraft(), save: true),
-            onDelete: () => _do(model.deleteDraft, save: true),
+            onTime: () => _do(ClockDo.editTime),
+            onDays: () => _do(ClockDo.cycleDays),
+            onSnooze: () => _do(ClockDo.toggleSnooze),
+            onSave: () => _do(ClockDo.saveDraft),
+            onDelete: () => _do(ClockDo.deleteDraft),
           ),
         ClockScreen.editTime => VrxTimePicker(
             minutes: view.draft.minutes,
             onBack: _back,
-            onSet: (m) => _do(() => model.setDraftTime(m)),
+            onSet: (m) => _do(ClockDraftTime(m)),
           ),
       };
     }
@@ -120,7 +128,7 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
       ClockTab.timer: 'Timer',
     };
     final Widget content = switch (view.tab) {
-      ClockTab.face => _Face(view: view, onZone: () => _do(model.pickHomeZone)),
+      ClockTab.face => _Face(view: view, onZone: () => _do(ClockDo.pickHomeZone)),
       ClockTab.world => VrxList(children: [
           if (!view.valid) const _Note('The clock has not been set, so these would all be wrong.'),
           for (var i = 0; i < view.cities.length; i++)
@@ -132,11 +140,11 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
                   'Remove this city?',
                   '${view.cities[i].$1} will be taken off the world clock.',
                   'Remove',
-                  () => _do(() => model.removeCity(i), save: true))),
+                  () => _do(ClockRemoveCity(i)))),
             ),
           if (view.cities.isEmpty) const _Note('No cities yet.'),
           if (view.canAddCity)
-            VrxRow(glyph: VrxSymbols.public, label: 'Add a city', onTap: () => _do(model.addCity))
+            VrxRow(glyph: VrxSymbols.public, label: 'Add a city', onTap: () => _do(ClockDo.addCity))
           else
             const _Note('That is six cities, which is all one screen holds.'),
           if (view.cities.isNotEmpty) const _Note('Press and hold a city to remove it.'),
@@ -148,29 +156,29 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
               value: view.alarms[i].$2,
               // the bell is the switch and the row is the editor
               valueGlyph: view.alarms[i].$3 ? VrxSymbols.notifications : VrxSymbols.notifications_off,
-              onValueGlyph: () => _do(() => model.toggleAlarm(i), save: true),
-              onTap: () => _do(() => model.editAlarm(i)),
+              onValueGlyph: () => _do(ClockToggleAlarm(i)),
+              onTap: () => _do(ClockEditAlarm(i)),
               onLongPress: () => unawaited(_confirm(
                   context,
                   'Delete this alarm?',
                   'The ${view.alarms[i].$1} alarm will be deleted.',
                   'Delete',
-                  () => _do(() => model.removeAlarm(i), save: true))),
+                  () => _do(ClockRemoveAlarm(i)))),
             ),
           if (view.alarms.isEmpty)
             const _Note('No alarms yet. An alarm brings the clock to the front and lights the screen.'),
           if (view.canAddAlarm)
-            VrxRow(glyph: VrxSymbols.alarm, label: 'Add an alarm', onTap: () => _do(model.newAlarm))
+            VrxRow(glyph: VrxSymbols.alarm, label: 'Add an alarm', onTap: () => _do(ClockDo.newAlarm))
           else
             const _Note('That is the most alarms this device holds. Remove one to add another.'),
           if (view.alarms.isNotEmpty) const _Note('Alarms ring while the device is on. Powering it off stops them.'),
         ]),
       ClockTab.timer => _Timer(
           view: view,
-          onPick: (i) => _do(() => model.pickDial(i)),
-          onPrecise: (m) => _do(() => model.setPrecise(m)),
-          onPress: () => _do(model.pressDial, save: true),
-          onHold: () => _do(model.resetTimer, save: true),
+          onPick: (i) => _do(ClockPickDial(i)),
+          onPrecise: (m) => _do(ClockPrecise(m)),
+          onPress: () => _do(ClockDo.pressDial),
+          onHold: () => _do(ClockDo.resetTimer),
         ),
     };
     final precise = view.mode == TimerMode.precise;
@@ -185,12 +193,12 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
                 label: precise ? 'Precise' : 'Pomodoro',
                 onTap: view.running
                     ? null
-                    : () => _do(() => model.setMode(precise ? TimerMode.pomodoro : TimerMode.precise)),
+                    : () => _do(ClockTimerMode(precise ? TimerMode.pomodoro : TimerMode.precise)),
               )
             : null,
       ),
       Expanded(child: content),
-      _TabBar(tab: view.tab, onTab: (t) => _do(() => model.openTab(t))),
+      _TabBar(tab: view.tab, onTab: (t) => _do(ClockOpenTab(t))),
     ]);
   }
 }
@@ -671,13 +679,9 @@ class _Scheduler {
     });
   }
 
-  void _onWake() {
-    final wasRinging = model.ring != null;
-    if (model.check()) saveSoon();
-    if (model.ring != null && !wasRinging) _ring();
-    arm();
-    _events.add(ClockAction.tick);
-  }
+  // the schedule's turn, through the store: the reducer checks what came
+  // due, and the applet's effects save, ring and re-arm
+  void _onWake() => _events.add(ClockDo.check);
 
   void _ring() {
     // to the front: the intent's handler is this applet, at its ring
@@ -696,10 +700,7 @@ class _Scheduler {
     // background: the ring must give up after ringSeconds even if nobody
     // sees it (hidden behind a refused focus, or a screen that stayed off)
     _flash = VrxTicker.background(const Duration(milliseconds: 500), () {
-      if (model.ring != null && model.ringExpired) {
-        model.stopRing();
-        saveSoon();
-      }
+      if (model.ring != null && model.ringExpired) _events.add(ClockDo.stopRing);
       if (model.ring == null) {
         _flash?.cancel();
         applet.flash = false;

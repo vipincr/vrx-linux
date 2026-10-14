@@ -8,35 +8,38 @@ import 'package:launcher_applet/state.dart';
 
 /// Home holds on every display vrx drives (vrx_check), with a full grid.
 void main() {
-  LauncherApplet home() => LauncherApplet()
-    ..replaceRegistry({
-      for (final (i, t) in [
-        ('web', 'Web requests', 'language'),
-        ('long', 'A tile with a name far too long for two lines', 'apps'),
-        ('clock', 'Clock', 'schedule'),
-        ('settings', 'Settings', 'settings'),
-        ('terminal', 'Terminal', 'terminal'),
-        ('wifi', 'Wi-Fi', 'wifi'),
-        ('docs', 'Licences', 'gavel'),
-        ('recorder', 'Recorder', 'mic'),
-        ('scripts', 'Scripts', 'code'),
-      ].indexed)
-        t.$1: Tile(id: t.$1, name: t.$2, position: i, icon: t.$3),
-    });
+  Map<String, Tile> tiles() => {
+        for (final (i, t) in [
+          ('web', 'Web requests', 'http'),
+          ('long', 'A tile with a name far too long for two lines', 'apps'),
+          ('clock', 'Clock', 'schedule'),
+          ('settings', 'Settings', 'settings'),
+          ('terminal', 'Terminal', 'terminal'),
+          ('wifi', 'Wi-Fi', 'wifi'),
+          ('docs', 'Licences', 'gavel'),
+          ('recorder', 'Recorder', 'mic'),
+          ('scripts', 'Scripts', 'code'),
+        ].indexed)
+          t.$1: Tile(id: t.$1, name: t.$2, position: i, icon: t.$3),
+      };
+  LauncherApplet home() => LauncherApplet(startingFacts: [LauncherRegistry(tiles())]);
   // every applet in the repo as Home shows it: its manifest's name and
   // icon on a tile, so a new applet's name is measured with no new test
-  LauncherApplet repoHome() => LauncherApplet()
-    ..replaceRegistry({
-      for (final m in repoManifests())
-        if (m.tile) m.id: Tile(id: m.id, name: m.name, position: m.position, icon: m.icon),
-    });
+  LauncherApplet repoHome() => LauncherApplet(startingFacts: [
+        LauncherRegistry({
+          for (final m in repoManifests())
+            if (m.tile) m.id: Tile(id: m.id, name: m.name, position: m.position, icon: m.icon),
+        }),
+      ]);
   // offers after the tiles: one to install, an update, one refused
-  LauncherApplet offered() => home()
-    ..replaceOffers(const [
-      AppOffer(file: 'notes.raw', id: 'notes', name: 'Notes', version: '1.2.0', build: 'a', kind: 'install'),
-      AppOffer(file: 'tasks.raw', id: 'tasks', name: 'Tasks for the week', version: '2.0.0', build: 'b', kind: 'update', installed: '1.9.0'),
-      AppOffer(file: 'bad.raw', id: 'bad', name: 'Bad', version: '1.0.0', build: 'c', kind: 'install', problem: 'paths'),
-    ]);
+  LauncherApplet offered() => LauncherApplet(startingFacts: [
+        LauncherRegistry(tiles()),
+        const LauncherOffers([
+          AppOffer(file: 'notes.raw', id: 'notes', name: 'Notes', version: '1.2.0', build: 'a', kind: 'install'),
+          AppOffer(file: 'tasks.raw', id: 'tasks', name: 'Tasks for the week', version: '2.0.0', build: 'b', kind: 'update', installed: '1.9.0'),
+          AppOffer(file: 'bad.raw', id: 'bad', name: 'Bad', version: '1.0.0', build: 'c', kind: 'install', problem: 'paths'),
+        ]),
+      ]);
   for (final display in allDisplays) {
     testWidgets('home with offers on ${display.name}', (tester) async {
       await expectCleanLayout(tester, offered(), display: display);

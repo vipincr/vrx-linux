@@ -13,25 +13,31 @@ ClockModel model() => ClockModel(now: () => now)
   ..world['Europe/London'] = Zone.fixed('Europe/London', 3600)
   ..world['America/New_York'] = Zone.fixed('America/New_York', -14400);
 
+/// Apply [action] as the store would: a fixture reaches its screen
+/// through the reducer, the only writer (plan 0013 D1).
+extension ClockDoes on ClockModel {
+  void does(ClockAction action) => reduce(const ClockState(), action);
+}
+
 ClockModel ringing() {
   final m = model()
     ..book.checked = now - 60
     ..book.alarms[0] = const Alarm(minutes: 7 * 60, days: daysAll);
-  m.check();
+  m.does(ClockDo.check);
   return m;
 }
 
 final clockScreens = <String, ClockModel Function()>{
   'face': model,
   'face 12h': () => model()..h12 = true,
-  'alarms 12h': () => model()..h12 = true..openTab(ClockTab.alarms),
-  'world': () => model()..openTab(ClockTab.world),
-  'alarms': () => model()..openTab(ClockTab.alarms),
-  'editor': () => model()..openTab(ClockTab.alarms)..editAlarm(0),
-  'time': () => model()..openTab(ClockTab.alarms)..editAlarm(0)..editTime(),
-  'timer': () => model()..openTab(ClockTab.timer),
-  'running': () => model()..openTab(ClockTab.timer)..pressDial(),
-  'precise': () => model()..openTab(ClockTab.timer)..setMode(TimerMode.precise),
-  'zones': () => model()..openTab(ClockTab.world)..addCity(),
+  'alarms 12h': () => model()..h12 = true..does(const ClockOpenTab(ClockTab.alarms)),
+  'world': () => model()..does(const ClockOpenTab(ClockTab.world)),
+  'alarms': () => model()..does(const ClockOpenTab(ClockTab.alarms)),
+  'editor': () => model()..does(const ClockOpenTab(ClockTab.alarms))..does(const ClockEditAlarm(0)),
+  'time': () => model()..does(const ClockOpenTab(ClockTab.alarms))..does(const ClockEditAlarm(0))..does(ClockDo.editTime),
+  'timer': () => model()..does(const ClockOpenTab(ClockTab.timer)),
+  'running': () => model()..does(const ClockOpenTab(ClockTab.timer))..does(ClockDo.pressDial),
+  'precise': () => model()..does(const ClockOpenTab(ClockTab.timer))..does(const ClockTimerMode(TimerMode.precise)),
+  'zones': () => model()..does(const ClockOpenTab(ClockTab.world))..does(ClockDo.addCity),
   'ring': ringing,
 };
