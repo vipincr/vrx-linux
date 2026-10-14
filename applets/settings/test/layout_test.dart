@@ -41,7 +41,7 @@ void main() {
       BluetoothDevice(id: '/org/bluez/hci0/dev_1', name: 'Pixel 9 Pro XL of a long-named person', connected: true),
     ])
     ..dimming = VrxDimming.alpha
-    ..screen = const ScreenState(brightness: 40, lightOff: 600)
+    ..display = const ScreenState(brightness: 40, lightOff: 600)
     // a colour panel drawing scheme 12, with 13 chosen: the longest Display
     ..runningScheme = 12
     ..values['vrx'] = {'scheme': '13', 'polarity': 'light'}
@@ -120,7 +120,7 @@ void main() {
     'display with sleep and deep sleep': () => model()
       ..open = SettingsCategory.display
       ..cascade = const VrxCascade(sleep: true, deep: true, wakeAlarm: true)
-      ..screen = const ScreenState(brightness: 40, lightOff: 600, sleepAfter: 1800, deepAfter: 7200),
+      ..display = const ScreenState(brightness: 40, lightOff: 600, sleepAfter: 1800, deepAfter: 7200),
     // plan 0012 D12: the longest names and values a ranking holds
     'battery use': () => model()
       ..energyAvailable = true

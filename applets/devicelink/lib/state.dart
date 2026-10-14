@@ -141,6 +141,10 @@ class LinkModel extends StoreModel<Object, LinkAction, LinkView> {
   @override
   bool get atRoot => showing == null;
 
+  // the list, or one device's screen
+  @override
+  Object get screen => showing ?? 0;
+
   @override
   Object? get fingerprint => [bt?.on, bt?.discoverable, bt?.homePairing, bt?.devices.map((d) => d.id).toList(), asking?.name,
       visibleUntil, showing, h24, error, notice];

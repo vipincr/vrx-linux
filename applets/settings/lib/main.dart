@@ -290,8 +290,10 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
         unawaited(_ask(context, () => _screen.setSleepAfter(model.nextSleepAfter)));
       case 'deep_after':
         unawaited(_ask(context, () => _screen.setDeepAfter(model.nextDeepAfter)));
+      case 'reduce_motion':
+        unawaited(_ask(context, () => _screen.setReduceMotion(on: !model.display.reduceMotion)));
       case 'on_screen_keyboard':
-        unawaited(_ask(context, () => _screen.setKeyboard(nextKeyboardMode(model.screen.keyboard))));
+        unawaited(_ask(context, () => _screen.setKeyboard(nextKeyboardMode(model.display.keyboard))));
       case 'scheme':
         _go(context, const SettingsGo(pickingScheme: true));
       case 'polarity':

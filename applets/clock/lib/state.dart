@@ -257,6 +257,7 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
   bool h12 = false;
 
   int get now => _now();
+  @override
   ClockScreen get screen => _stack.last;
 
   /// Back within the applet; false when Back should leave it.
@@ -521,6 +522,15 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
 
   @override
   bool get atRoot => screen == ClockScreen.tabs;
+
+  // `screen` is the ClockScreen: the tabs, the zones list, an editor, the time
+  // setter, each a level deeper (plan 0017 D6)
+  @override
+  int get depth => switch (screen) {
+        ClockScreen.tabs => 0,
+        ClockScreen.zones || ClockScreen.editor => 1,
+        ClockScreen.editTime => 2,
+      };
 
   @override
   Object? get fingerprint => [

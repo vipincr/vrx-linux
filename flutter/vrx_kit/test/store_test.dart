@@ -165,6 +165,7 @@ class PromiseModel extends StoreModel<int, String, int> {
 
   final bool throwsOnTap, forgets, stuck, trapRoute, rejects;
   final int Function()? noise;
+  @override
   int depth = 0;
   int taps = 0;
   bool trapped = false;

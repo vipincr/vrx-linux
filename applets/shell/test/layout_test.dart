@@ -12,7 +12,7 @@ void main() {
         ..clockValid = true
         ..wifiUp = true
         ..bleUp = true
-        ..depth = 2
+        ..trailDepth = 2
         ..version = 'vrx 0.1.0077'
         ..dimming = VrxDimming.alpha
         ..brightness = 60

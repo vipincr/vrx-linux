@@ -120,7 +120,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
 
   /// The back trail's depth (vrxhost), Home included: Back is offered
   /// above Home (the bench showed it on Home at depth > 0).
-  int depth = 0;
+  int trailDepth = 0;
 
   /// The battery, where the kernel reports one (plan 0011 D12).
   Battery? battery;
@@ -208,7 +208,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
         brightness = f.brightness ?? brightness;
         dimming = f.dimming ?? dimming;
         version = f.version ?? version;
-        depth = f.depth ?? depth;
+        trailDepth = f.depth ?? trailDepth;
         if (f.notice != null) notice = f.notice!.value;
         if (f.battery != null) battery = f.battery!.value;
         batteryZone = f.batteryZone ?? batteryZone;
@@ -224,7 +224,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
       drawer: drawer,
       askingPower: askingPower,
       facts: VrxStatusFacts(
-        showBack: depth > 1,
+        showBack: trailDepth > 1,
         clockText: clockText,
         dateText: dateText,
         wifiUp: wifiUp,
@@ -237,7 +237,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
       brightness: dimming == VrxDimming.none ? null : brightness,
       wifiUp: wifiUp,
       bleUp: bleUp,
-      canGoBack: depth > 1,
+      canGoBack: trailDepth > 1,
       alert: alerts.where((a) => a.open).firstOrNull,
       batteryNotice: batteryNotice,
       batteryCritical: batteryZone == 'critical',
@@ -258,8 +258,16 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
   @override
   bool get atRoot => !drawer && !askingPower;
 
+  // one screen: the drawer and the power menu move on their own (VrxPull),
+  // and the kit's screen slide is not for them
   @override
-  Object? get fingerprint => [drawer, askingPower, wifiUp, bleUp, dimming, brightness, clockValid, version, depth,
+  Object get screen => 0;
+
+  @override
+  int get depth => 0;
+
+  @override
+  Object? get fingerprint => [drawer, askingPower, wifiUp, bleUp, dimming, brightness, clockValid, version, trailDepth,
       battery?.percent, notice, h24, [for (final a in alerts) '${a.applet}/${a.answer}'], batteryZone, batteryShown,
       nextWake, wakeAlarm];
 }

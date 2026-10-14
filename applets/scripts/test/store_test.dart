@@ -82,7 +82,7 @@ void main() {
       probes: const [ScriptsScreen(screen), ScriptsScreen(null), ScriptsAction.output, ScriptsAction.back, ScriptsAction.closed],
     );
     h.dispatch(ScriptsAction.back);
-    expect((m.open, m.screen), (null, null));
+    expect((m.open, m.drawn), (null, null));
   });
 
   test('what runs in the background, its own screen, and Back', () {

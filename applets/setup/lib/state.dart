@@ -176,6 +176,14 @@ class SetupModel extends StoreModel<SetupState, SetupAction, SetupView> {
   @override
   bool get atRoot => step == SetupStep.licence;
 
+  // the walk is a line of screens: each step a level deeper than the last, so
+  // Next comes from the right and Back from the left
+  @override
+  Object get screen => step;
+
+  @override
+  int get depth => step.index;
+
   @override
   Object? get fingerprint => [step, name, zone, zones, network, error, finishing, again];
 }

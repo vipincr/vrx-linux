@@ -269,7 +269,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
   DeviceState? device;
 
   /// The screen's settings and how the compositor dims (plan 0010).
-  ScreenState screen = const ScreenState();
+  ScreenState display = const ScreenState();
   VrxDimming dimming = VrxDimming.none;
 
   /// The cascade's steps the board offers after the screen (plan 0012
@@ -369,7 +369,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         time = f.time ?? time;
         network = f.network ?? network;
         device = f.device ?? device;
-        screen = f.screen ?? screen;
+        display = f.screen ?? display;
         dimming = f.dimming ?? dimming;
         cascade = f.cascade ?? cascade;
         canPowerOff = f.canPowerOff ?? canPowerOff;
@@ -486,15 +486,15 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
   bool pickingScheme = false;
 
   /// The screen-off timeout now.
-  int get lightOff => screen.lightOff;
+  int get lightOff => display.lightOff;
 
   String get _screenOffText => lightOff == 0 ? 'Stays on' : 'Off after ${lightOffLabel(lightOff)}';
 
   /// What a tap on "Sleep after" sets: a step later than the screen's.
-  int get nextSleepAfter => nextCascade(screen.sleepAfter, lightOff);
+  int get nextSleepAfter => nextCascade(display.sleepAfter, lightOff);
 
   /// What a tap on "Power off when idle" sets: later than sleep's too.
-  int get nextDeepAfter => nextCascade(screen.deepAfter, math.max(lightOff, cascade.sleep ? screen.sleepAfter : 0));
+  int get nextDeepAfter => nextCascade(display.deepAfter, math.max(lightOff, cascade.sleep ? display.sleepAfter : 0));
 
   /// What a tap on the light-off row sets: the next choice.
   int get nextLightOff {
@@ -534,9 +534,9 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
             SettingRow(
               key: 'brightness',
               label: 'Brightness',
-              value: '${screen.brightness}',
+              value: '${display.brightness}',
               kind: RowKind.slider,
-              level: screen.brightness,
+              level: display.brightness,
             ),
           // a tap steps through the choices; the compositor watches the file
           SettingRow(
@@ -551,7 +551,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
             SettingRow(
               key: 'sleep_after',
               label: 'Sleep after',
-              value: lightOffLabel(screen.sleepAfter),
+              value: lightOffLabel(display.sleepAfter),
               kind: RowKind.toggle,
               widest: _widest(lightOffChoices.map(lightOffLabel)),
             ),
@@ -559,10 +559,20 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
             SettingRow(
               key: 'deep_after',
               label: 'Power off when idle',
-              value: screen.deepAfter == 0 ? 'Never' : 'After ${lightOffLabel(screen.deepAfter)}',
+              value: display.deepAfter == 0 ? 'Never' : 'After ${lightOffLabel(display.deepAfter)}',
               kind: RowKind.toggle,
               widest: _widest(['Never', for (final c in lightOffChoices) 'After ${lightOffLabel(c)}']),
             ),
+          // Reduce motion (plan 0017 D5): travel lands at once; it only ever
+          // takes motion away, and an e-paper build stays still whatever it says
+          SettingRow(
+            key: 'reduce_motion',
+            label: 'Reduce motion',
+            value: display.reduceMotion ? 'On' : 'Off',
+            kind: RowKind.toggle,
+            on: display.reduceMotion,
+            widest: 'Off',
+          ),
           // the scheme, on a panel that draws one; it changes at the next boot
           if (runningScheme > 0) ...[
             SettingRow(key: 'scheme', label: 'Colour scheme', value: VrxColors.schemeName(chosenScheme), kind: RowKind.open),
@@ -706,7 +716,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
           SettingRow(
             key: 'on_screen_keyboard',
             label: 'On-screen keyboard',
-            value: keyboardModeLabel(screen.keyboard),
+            value: keyboardModeLabel(display.keyboard),
             kind: RowKind.toggle,
             widest: _widest(VrxKeyboardMode.values.map(keyboardModeLabel)),
           ),
@@ -822,10 +832,43 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
   @override
   bool get atRoot => open == null;
 
+  // the screens over the categories (plan 0017 D6): the category, then
+  // whatever is open over it; each is a screen, so a change slides
+  @override
+  Object get screen => [
+        open,
+        renaming,
+        editingSetting,
+        pairing,
+        showingUpdate,
+        showingUse,
+        showingAwake,
+        pickingScheme,
+        pickingTimeFormat,
+        settingTime,
+        pickingZone,
+      ];
+
+  @override
+  int get depth {
+    if (open == null) return 0;
+    final over = renaming ||
+        editingSetting != null ||
+        pairing ||
+        showingUpdate ||
+        showingUse ||
+        showingAwake ||
+        pickingScheme ||
+        pickingTimeFormat ||
+        settingTime != SettingTime.none ||
+        pickingZone;
+    return over ? 2 : 1;
+  }
+
   @override
   Object? get fingerprint => [
-        time?.zone, time?.automatic, time?.synced, network?.ethernetAddress, device?.name, screen.lightOff,
-        screen.brightness, screen.sleepAfter, screen.deepAfter, dimming, cascade.sleep, cascade.deep, canPowerOff,
+        time?.zone, time?.automatic, time?.synced, network?.ethernetAddress, device?.name, display.lightOff,
+        display.brightness, display.sleepAfter, display.deepAfter, dimming, cascade.sleep, cascade.deep, canPowerOff,
         usbPresent, bluetooth?.on, supplyLow, battery?.percent, energyAvailable, energy == null, awake == null,
         updatesAvailable, updateStatus?.running, updateStatus?.last, updateStatus?.trial,
         [for (final o in updateOffers ?? const <UpdateOffer>[]) o.file], updateOffers == null, updateInstalling,

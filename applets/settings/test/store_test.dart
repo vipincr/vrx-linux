@@ -142,6 +142,16 @@ void main() {
     expect(harness.view.rows.firstWhere((r) => r.key == 'devicelink').value, '2 paired');
   });
 
+  test('the Reduce motion row says what the screen settings say (plan 0017 D5)', () {
+    final h = StoreHarness(SettingsModel());
+    SettingRow row() => h.view.rows.firstWhere((r) => r.key == 'reduce_motion');
+    h.dispatch(const SettingsGo(open: Change(SettingsCategory.display)));
+    expect(row().value, 'Off');
+    expect(row().label, 'Reduce motion');
+    h.dispatch(const SettingsFacts(screen: ScreenState(reduceMotion: true)));
+    expect((row().value, row().on), ('On', true));
+  });
+
   test('the on-screen keyboard row reads the screen settings and steps between its two modes', () {
     final harness = StoreHarness(SettingsModel())..dispatch(const SettingsGo(open: Change(SettingsCategory.device)));
     harness.dispatch(const SettingsFacts(device: DeviceState(name: 'b', hostname: 'b')));

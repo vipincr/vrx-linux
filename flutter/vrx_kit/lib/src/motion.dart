@@ -215,6 +215,8 @@ class VrxSpringValue extends ChangeNotifier {
   final VrxUnit unit;
   VrxMotionMode _mode;
   double _target;
+  // the running spring is a fade Reduce motion allowed, not a travel
+  bool _fadeRun = false;
 
   VrxMotionMode get mode => _mode;
 
@@ -223,7 +225,7 @@ class VrxSpringValue extends ChangeNotifier {
   set mode(VrxMotionMode m) {
     if (m == _mode) return;
     _mode = m;
-    if (!m.springs && _c.isAnimating) jumpTo(_target);
+    if (!m.springs && !_fadeRun && _c.isAnimating) jumpTo(_target);
   }
 
   double get value => _c.value;
@@ -237,21 +239,26 @@ class VrxSpringValue extends ChangeNotifier {
   double get target => _target;
 
   /// Spring to [target] on [spring], from where it is and with the velocity
-  /// it has (or [velocity], a fling's).
-  void springTo(double target, VrxSpring spring, {double? velocity}) {
+  /// it has (or [velocity], a fling's). With [fadeWhenReduced], Reduce motion
+  /// on a build that moves still runs it, on the standard's quickest effects
+  /// spring: for a value that only draws a fade (a screen change, an entrance).
+  void springTo(double target, VrxSpring spring, {double? velocity, bool fadeWhenReduced = false}) {
     _target = target;
-    if (!_mode.springs) {
+    final runs = _mode.springs || (fadeWhenReduced && _mode.fadesOnly);
+    if (!runs) {
       _c.stop();
       _setValue(target);
       return;
     }
+    _fadeRun = !_mode.springs;
+    final on = _mode.springs ? spring : const VrxSpring(VrxSpringSet.standard, VrxSpringToken.effectsFast);
     final v = velocity ?? this.velocity;
     // an exact arrival is not an animation
     if (value == target && v == 0) {
       _c.stop();
       return;
     }
-    unawaited(_c.animateWith(vrxSimulate(spring, _c.value, target, v, unit)).orCancel.then((_) {}, onError: (Object _) {}));
+    unawaited(_c.animateWith(vrxSimulate(on, _c.value, target, v, unit)).orCancel.then((_) {}, onError: (Object _) {}));
   }
 
   /// Set the value now (a finger dragging, a restored state), cancelling any

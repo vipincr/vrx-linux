@@ -259,7 +259,7 @@ class ScriptsModel extends StoreModel<ScriptsState, ScriptsAction, ScriptsView> 
   bool editing = false;
   bool naming = false;
   bool typing = false;
-  ScriptScreen? screen;
+  ScriptScreen? drawn;
   bool output = false;
   List<ScriptUnit> background = const [];
   bool showRunning = false;
@@ -280,7 +280,7 @@ class ScriptsModel extends StoreModel<ScriptsState, ScriptsAction, ScriptsView> 
       typing = false;
     } else if (open != null) {
       open = null;
-      screen = null;
+      drawn = null;
       output = false;
       lines.clear();
     } else if (editing) {
@@ -306,7 +306,7 @@ class ScriptsModel extends StoreModel<ScriptsState, ScriptsAction, ScriptsView> 
 
   void start(String script) {
     open = script;
-    screen = null;
+    drawn = null;
     output = false;
     running = true;
     lines.clear();
@@ -352,9 +352,9 @@ class ScriptsModel extends StoreModel<ScriptsState, ScriptsAction, ScriptsView> 
         running = false;
         if (code != null) exit = code;
         if (err != null) error = err;
-      case ScriptsScreen(screen: final drawn):
-        screen = drawn;
-        if (drawn != null) output = false;
+      case ScriptsScreen(screen: final shown):
+        drawn = shown;
+        if (shown != null) output = false;
       case ScriptsBackground(units: final units, error: final err):
         if (units != null) background = List.unmodifiable(units);
         if (err != null) error = err;
@@ -365,7 +365,7 @@ class ScriptsModel extends StoreModel<ScriptsState, ScriptsAction, ScriptsView> 
         output = !output;
       case ScriptsSignal.closed:
         open = null;
-        screen = null;
+        drawn = null;
         output = false;
         lines.clear();
       case ScriptsSignal.back:
@@ -391,7 +391,7 @@ class ScriptsModel extends StoreModel<ScriptsState, ScriptsAction, ScriptsView> 
       editing: editing,
       naming: naming,
       typing: typing,
-      screen: screen,
+      screen: drawn,
       output: output,
       background: background,
       showRunning: showRunning,
@@ -411,9 +411,16 @@ class ScriptsModel extends StoreModel<ScriptsState, ScriptsAction, ScriptsView> 
   @override
   bool get atRoot => !typing && open == null && !editing && !naming && !showRunning && selected == null;
 
+  // the list, a script (its output or its own screen), and what is over it
+  @override
+  Object get screen => [open, editing, naming, typing, showRunning, selected];
+
+  @override
+  int get depth => atRoot ? 0 : (editing || naming || typing || selected != null ? 2 : 1);
+
   @override
   Object? get fingerprint =>
-      [scripts, open, running, lines.toList(), exit, error, selected, editing, naming, typing, screen, output, background.toList(), showRunning];
+      [scripts, open, running, lines.toList(), exit, error, selected, editing, naming, typing, drawn, output, background.toList(), showRunning];
 }
 
 class ScriptsState {

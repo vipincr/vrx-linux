@@ -138,6 +138,10 @@ class DocsModel extends StoreModel<DocsState, DocsAction, DocsView> {
   @override
   bool get atRoot => open == null;
 
+  // the package list, or one package's licence text
+  @override
+  Object get screen => open?.package ?? 0;
+
   @override
   Object? get fingerprint => [for (final p in packages) p.package, open?.package, text, error];
 }

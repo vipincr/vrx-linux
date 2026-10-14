@@ -96,8 +96,14 @@ Future<List<LayoutIssue>> checkApplet<S, A, V>(
     tester.view.devicePixelRatio = display.pixelRatio;
     await mountApplet(tester, applet, touch: display.touch);
     await tester.pump(const Duration(milliseconds: 50));
+    // plan 0017 D1: the applet is entering now; nothing under that motion may
+    // sit behind an IgnorePointer or an AbsorbPointer
+    issues.addAll(motionBlocksInput(tester));
     if (setUp != null) await setUp(tester);
-    await tester.pump(const Duration(seconds: 1));
+    // the end state of every motion: layout is judged settled (G035 holds with
+    // motion on), never half-way through a slide
+    await settleMotion(tester);
+    issues.addAll(motionBlocksInput(tester));
     issues.addAll(_inspect(tester, display));
     issues.addAll(unlabelledControls(tester));
     // G035 (plan 0013 D11): the same screen, the same state, under every
@@ -110,11 +116,11 @@ Future<List<LayoutIssue>> checkApplet<S, A, V>(
     final input = VrxInputFacts(touch: display.touch);
     final classes = VrxColors.everyClass();
     await tester.pumpWidget(AppletHost<S, A, V>(applet: applet, colors: classes.first, input: input));
-    await tester.pump(const Duration(seconds: 1));
+    await settleMotion(tester);
     final base = _geometry(tester);
     for (final colors in classes.skip(1)) {
       await tester.pumpWidget(AppletHost<S, A, V>(applet: applet, colors: colors, input: input));
-      await tester.pump(const Duration(seconds: 1));
+      await settleMotion(tester);
       issues.addAll(_classIssues(base, _geometry(tester), colors.displayClass.name));
     }
     // plan 0013 D7: a touch panel's board may also have no touchscreen
@@ -122,7 +128,7 @@ Future<List<LayoutIssue>> checkApplet<S, A, V>(
     // touch floor must still fit, though a dense control is no fault there
     if (display.touch) {
       await tester.pumpWidget(AppletHost<S, A, V>(applet: applet, input: const VrxInputFacts(touch: false)));
-      await tester.pump(const Duration(seconds: 1));
+      await settleMotion(tester);
       final dense = Display(display.name, display.width, display.height, display.widthMm, touch: false, turns: display.turns);
       issues.addAll([
         for (final i in _inspect(tester, dense)) LayoutIssue(i.rule, 'without touch: ${i.what}', i.at),
@@ -132,6 +138,37 @@ Future<List<LayoutIssue>> checkApplet<S, A, V>(
     FlutterError.onError = previous;
     tester.view.reset();
     semantics.dispose();
+  }
+  return issues;
+}
+
+/// Pump until every motion has landed: a frame a second of simulated time, as
+/// long as a frame is still wanted (a few rounds, so a spring started by the
+/// last one lands too). The layout rules judge this end state (plan 0017 Part E).
+Future<void> settleMotion(WidgetTester tester) async {
+  for (var i = 0; i < 4; i++) {
+    await tester.pump(const Duration(seconds: 1));
+    if (!tester.binding.hasScheduledFrame) break;
+  }
+}
+
+/// D1 (plan 0017): input lands mid-motion. A control is never behind an
+/// `IgnorePointer` that ignores or an `AbsorbPointer` that absorbs, which is
+/// how an animation that "locks until it ends" is written; a drawing over the
+/// content that takes no input (a focus ring, a picture of a screen that has
+/// left) holds no control and is fine. Call it while something moves.
+List<LayoutIssue> motionBlocksInput(WidgetTester tester) {
+  final issues = <LayoutIssue>[];
+  bool blocks(Widget w) => (w is IgnorePointer && w.ignoring) || (w is AbsorbPointer && w.absorbing);
+  for (final e in find.byWidgetPredicate(blocks).evaluate()) {
+    final controls = find.descendant(of: find.byWidget(e.widget), matching: find.byWidgetPredicate(_answersTap));
+    if (controls.evaluate().isEmpty) continue;
+    final box = e.renderObject;
+    issues.add(LayoutIssue(
+      'motion blocks input',
+      '${e.widget.runtimeType} sits over a control: input must land at every moment of a motion (plan 0017 D1)',
+      box is RenderBox && box.hasSize ? _rectOf(box) : Rect.zero,
+    ));
   }
   return issues;
 }
@@ -180,7 +217,7 @@ Future<void> shotLayout<S, A, V>(WidgetTester tester, Applet<S, A, V> applet, {D
   tester.view.devicePixelRatio = display.pixelRatio;
   addTearDown(tester.view.reset);
   await mountApplet(tester, applet);
-  await tester.pump(const Duration(seconds: 1));
+  await settleMotion(tester);
 }
 
 /// Run [checkApplet] and fail the test with every issue, one per line.
@@ -216,10 +253,10 @@ Future<List<LayoutIssue>> checkStable<S, A, V>(
   tester.view.devicePixelRatio = display.pixelRatio;
   try {
     await mountApplet(tester, applet, actions: actions);
-    await tester.pump(const Duration(seconds: 1));
+    await settleMotion(tester);
     final before = _targets(tester);
     await change(tester);
-    await tester.pump(const Duration(seconds: 1));
+    await settleMotion(tester);
     final after = _targets(tester);
     final issues = <LayoutIssue>[];
     final seen = <String, int>{};

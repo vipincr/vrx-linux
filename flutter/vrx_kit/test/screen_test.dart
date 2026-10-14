@@ -98,6 +98,22 @@ void main() {
         reason: 'the temporary file was renamed over the old one');
   });
 
+  test('Reduce motion is screen.conf\'s reduce_motion=0|1, beside the keys it keeps (plan 0017 D5)', () async {
+    final s = settings(dim: 'alpha');
+    await File('${dir.path}/screen.conf').writeAsString('output=HDMI-A-1\nlight_off=45\n');
+    expect((await s.read()).reduceMotion, isFalse);
+    await s.setReduceMotion(on: true);
+    var text = await File('${dir.path}/screen.conf').readAsString();
+    expect(text, contains('reduce_motion=1'), reason: 'the exact key flutter-vrx reads');
+    expect(text, contains('output=HDMI-A-1'));
+    expect(text, contains('light_off=45'));
+    expect((await s.read()).reduceMotion, isTrue);
+    await s.setReduceMotion(on: false);
+    text = await File('${dir.path}/screen.conf').readAsString();
+    expect(text, contains('reduce_motion=0'));
+    expect((await s.read()).reduceMotion, isFalse);
+  });
+
   test('a drag writes at most once a tenth of a second, and the last position always', () async {
     final s = settings(dim: 'alpha');
     var writes = 0;

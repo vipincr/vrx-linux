@@ -97,6 +97,19 @@ abstract class StoreModel<S, A, V> {
   /// (Nav.pop), so the harness's Back check stops here.
   bool get atRoot => true;
 
+  /// Which screen the applet shows, by identity: a change of it is a screen
+  /// change, and the kit slides it in (plan 0017 D6, VrxSwitch). Compared
+  /// deeply, so a list of the flags that name a screen will do. Read-only,
+  /// like [atRoot]: it follows the state and is never a field a view writes.
+  /// The default is the root and one level over it.
+  Object get screen => atRoot ? 0 : 1;
+
+  /// How deep that screen is: 0 at the root, 1 for a screen over it, and so
+  /// on. A deeper screen comes from the right, a shallower one from the left,
+  /// an equal one cross-fades. Never negative, and a Back never raises it
+  /// (the harness checks both).
+  int get depth => atRoot ? 0 : 1;
+
   /// What replay and restore compare (plan 0013 D2): by default the
   /// snapshot, deep-compared. A model whose snapshot leaves out what its
   /// view depends on says what to compare instead.
@@ -378,7 +391,11 @@ class StoreHarness<S, A, V> {
         if (b == null || steps++ >= backBound) {
           throw StateError('$check: $from did not reach the root in $backBound steps (plan 0013 D2)');
         }
+        final before = s.model.depth;
         s.dispatch(b);
+        if (s.model.depth < 0 || s.model.depth > before) {
+          throw StateError('$check: $from: Back took depth from $before to ${s.model.depth}; a Back never goes deeper (plan 0017 D6)');
+        }
       }
     }
 

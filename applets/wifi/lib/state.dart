@@ -154,6 +154,13 @@ class WifiModel extends StoreModel<WifiState, WifiAction, WifiView> {
   @override
   bool get atRoot => showing == null;
 
+  // the networks, one network's screen, or the passphrase being asked
+  @override
+  Object get screen => [showing, asking?.id];
+
+  @override
+  int get depth => asking != null || showing != null ? 1 : 0;
+
   @override
   Object? get fingerprint => [network?.networks.map((n) => '${n.id}/${n.state}').toList(), network?.wifiOn,
       asking?.id, error, joining, showing];

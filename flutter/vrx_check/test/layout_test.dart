@@ -25,6 +25,28 @@ Future<List<String>> rules(WidgetTester tester, Widget Function(BuildContext) bo
     [for (final i in await checkApplet(tester, _Screen(body))) i.rule];
 
 void main() {
+  testWidgets('plan 0017 D1: a control behind an IgnorePointer or an AbsorbPointer breaks the motion rule', (tester) async {
+    Widget control() => Center(
+          child: Semantics(
+            label: 'Start',
+            child: GestureDetector(onTap: () {}, child: const SizedBox(width: 120, height: 80)),
+          ),
+        );
+    expect(await rules(tester, (c) => IgnorePointer(child: control())), contains('motion blocks input'));
+    expect(await rules(tester, (c) => AbsorbPointer(child: control())), contains('motion blocks input'));
+    // a drawing that takes no input holds no control; one that does not ignore is nothing
+    expect(await rules(tester, (c) => Stack(children: [control(), const IgnorePointer(child: SizedBox.expand())])),
+        isNot(contains('motion blocks input')));
+    expect(await rules(tester, (c) => IgnorePointer(ignoring: false, child: control())), isNot(contains('motion blocks input')));
+    expect(await rules(tester, (c) => control()), isNot(contains('motion blocks input')));
+  });
+
+  testWidgets('plan 0017 Part E: layout is judged settled, with the entrance run out', (tester) async {
+    // rows that enter in turn, then a layout that is the same on every class
+    final found = await rules(tester, (c) => VrxList(children: [for (var i = 0; i < 10; i++) VrxRow(label: 'Row $i', onTap: () {})]));
+    expect(found, isEmpty);
+  });
+
   testWidgets('G038: a control with no words fails, the same control labelled passes', (tester) async {
     final bare = await rules(
       tester,

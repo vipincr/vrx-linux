@@ -22,6 +22,7 @@ import 'screen.dart';
 import 'shell.dart';
 import 'settings.dart';
 import 'store.dart';
+import 'switch.dart';
 import 'text_input.dart';
 import 'theme.dart';
 import 'ui_standard.g.dart';
@@ -243,12 +244,20 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
           ),
         ),
       ),
-      home: VrxInput.install(
-        modality: _modality,
-        child: AppletScope<A>(
-          onAction: _store.dispatch,
-          child: Builder(
-            builder: (context) => widget.applet.build(context, _store.view),
+      // an applet comes to the front with its own entrance (D8); a screen
+      // change inside it slides (D6)
+      home: VrxEntrance(
+        child: VrxInput.install(
+          modality: _modality,
+          child: AppletScope<A>(
+            onAction: _store.dispatch,
+            child: VrxSwitch(
+              screen: widget.applet.screen,
+              depth: widget.applet.depth,
+              child: Builder(
+                builder: (context) => widget.applet.build(context, _store.view),
+              ),
+            ),
           ),
         ),
       ),

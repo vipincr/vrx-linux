@@ -103,6 +103,7 @@ class ScreenState {
     this.sleepAfter = 0,
     this.deepAfter = 0,
     this.keyboard = VrxKeyboardMode.auto,
+    this.reduceMotion = false,
   });
 
   /// The slider's position, 0 to 100 (0 is the dimmest, never dark).
@@ -120,6 +121,11 @@ class ScreenState {
   /// When the on-screen keyboard shows.
   final VrxKeyboardMode keyboard;
 
+  /// Settings > Display > Reduce motion (plan 0017 D5): the compositor's
+  /// client passes it to Flutter as `disableAnimations`, so it reaches every
+  /// applet through the engine. It only ever takes motion away.
+  final bool reduceMotion;
+
   @override
   bool operator ==(Object other) =>
       other is ScreenState &&
@@ -127,10 +133,11 @@ class ScreenState {
       other.lightOff == lightOff &&
       other.sleepAfter == sleepAfter &&
       other.deepAfter == deepAfter &&
-      other.keyboard == keyboard;
+      other.keyboard == keyboard &&
+      other.reduceMotion == reduceMotion;
 
   @override
-  int get hashCode => Object.hash(brightness, lightOff, sleepAfter, deepAfter, keyboard);
+  int get hashCode => Object.hash(brightness, lightOff, sleepAfter, deepAfter, keyboard, reduceMotion);
 }
 
 /// The screen's settings, each in its one home: the backlight's sysfs
@@ -264,6 +271,7 @@ class ScreenSettings {
       sleepAfter: seconds('sleep_after'),
       deepAfter: seconds('deep_after'),
       keyboard: raw['on_screen_keyboard'] == 'show' ? VrxKeyboardMode.show : VrxKeyboardMode.auto,
+      reduceMotion: raw['reduce_motion'] == '1',
     );
   }
 
@@ -305,6 +313,10 @@ class ScreenSettings {
 
   /// When the on-screen keyboard shows (plan 0013 D6).
   Future<void> setKeyboard(VrxKeyboardMode mode) => _setConf('on_screen_keyboard', mode.name);
+
+  /// Reduce motion (plan 0017 D5): `reduce_motion=0|1`, the key flutter-vrx
+  /// reads (inotify on the directory) to set Flutter's `disableAnimations`.
+  Future<void> setReduceMotion({required bool on}) => _setConf('reduce_motion', on ? '1' : '0');
 
   /// Set the brightness. While a slider moves ([settled] false) at most
   /// one write in [dragInterval], the last position always written; on
