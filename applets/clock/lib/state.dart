@@ -6,7 +6,36 @@ import 'tz.dart';
 /// The clock's events. The model's methods make the changes (each a
 /// rule ported from evrx-rt's clock model); an event says the view is
 /// due again.
-enum ClockAction { init, changed, tick }
+/// Everything the applet reacts to: a signal, or facts from the world
+/// carried as data (plan 0013 D1: the reducer is the only writer).
+sealed class ClockAction {
+  const ClockAction();
+
+  static const init = ClockSignal.init;
+  static const changed = ClockSignal.changed;
+  static const tick = ClockSignal.tick;
+  static const back = ClockSignal.back;
+}
+
+enum ClockSignal implements ClockAction { init, changed, tick, back }
+
+/// The world's facts (null fields: unchanged): the book read from its
+/// file, the home zone's rules, network time, the locale's 12 or 24
+/// hours, the zone list, and world cities' rules as they load.
+final class ClockFacts implements ClockAction {
+  const ClockFacts({this.book, this.home, this.synced, this.h12, this.zones, this.world});
+
+  final ClockBook? book;
+  final Zone? home;
+  final bool? synced;
+  final bool? h12;
+  final List<String>? zones;
+  final Map<String, Zone>? world;
+
+  @override
+  String toString() => 'ClockFacts(book: ${book != null}, home: ${home?.name}, synced: $synced, h12: $h12, '
+      'zones: ${zones?.length}, world: ${world?.keys.toList()})';
+}
 
 /// Screens over the tabs. The tabs are one screen: a tab change is
 /// state, not a push, so Back leaves the applet from any tab.
@@ -373,6 +402,38 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
   @override
   ClockState get snapshot => const ClockState();
 
+  /// The book is the applet's own file (plan 0013 D4); the snapshot
+  /// carries nothing, so restoring it changes nothing.
+  @override
+  void restore(ClockState snapshot) {}
+
+  @override
+  ClockAction get backAction => ClockAction.back;
+
+  @override
+  bool get atRoot => screen == ClockScreen.tabs;
+
+  @override
+  Object? get fingerprint => [
+        book.toJson(),
+        home.name,
+        world.keys.toList(),
+        synced,
+        zones,
+        tab,
+        _stack.toList(),
+        pickHome,
+        editing,
+        draft.toJson(),
+        notice,
+        mode,
+        dial,
+        precise,
+        ring?.kind,
+        ring?.index,
+        h12,
+      ];
+
   /// A ring must be seen: it holds the screen on, and the hold wakes a
   /// dark screen (plan 0010 D3). Released when the ring stops, snoozes or
   /// gives up, after which the idle timeout runs in full again.
@@ -381,6 +442,15 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
 
   @override
   ClockView reduce(ClockState state, ClockAction action) {
+    if (action case ClockFacts(:final book, :final home, :final synced, :final h12, :final zones, :final world)) {
+      if (book != null) this.book = book;
+      if (home != null) this.home = home;
+      if (synced != null) this.synced = synced;
+      if (h12 != null) this.h12 = h12;
+      if (zones != null) this.zones = zones;
+      if (world != null) this.world.addAll(world);
+    }
+    if (action == ClockAction.back) back();
     final t = now;
     final wall = home.local(t);
     final valid = synced || wall.year >= 2025;

@@ -128,6 +128,16 @@ void main() {
     h.dispatch(ClockAction.changed);
     expect(keeper.events.last, 'release');
   });
+  test("the store's promises hold over the world's facts and Back (plan 0013 D2)", () {
+    final h = StoreHarness(model());
+    h.dispatch(ClockFacts(home: Zone.fixed('Europe/London', 3600), synced: true));
+    h.dispatch(const ClockFacts(h12: true, zones: ['Asia/Kolkata', 'Europe/London']));
+    h.dispatch(ClockFacts(book: ClockBook(alarms: [const Alarm(minutes: 8 * 60, days: daysAll)])));
+    h.dispatch(ClockAction.tick);
+    h.dispatch(ClockAction.back);
+    h.assertView((v) => v.h12 && v.time.endsWith('AM') && v.next == 'Next alarm at 8:00 AM.');
+    h.verify(fresh: model, probes: const [ClockAction.changed, ClockAction.tick, ClockAction.back]);
+  });
 }
 
 class _Keeper implements ScreenKeeper {
@@ -138,4 +148,5 @@ class _Keeper implements ScreenKeeper {
 
   @override
   void release() => events.add('release');
+
 }

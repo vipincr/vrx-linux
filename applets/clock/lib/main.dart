@@ -48,11 +48,11 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
   }
 
   void _back() {
-    if (!model.back()) {
+    if (model.atRoot) {
       unawaited(Nav.pop());
       return;
     }
-    _events.add(ClockAction.changed);
+    _events.add(ClockAction.back);
   }
 
   Future<void> _confirm(BuildContext context, String title, String message, String act, VoidCallback onYes) async {
@@ -67,7 +67,7 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
       // the change back here like any other
       unawaited(VrxSystem.time.setZone(zone).catchError((Object _) {}));
     } else {
-      unawaited(_scheduler?.loadWorld());
+      unawaited(_scheduler?.loadWorld(model.book));
     }
   }
 
@@ -710,38 +710,37 @@ class _Scheduler {
     });
   }
 
-  Future<void> loadWorld() async {
-    for (final z in model.book.world) {
-      model.world[z] ??= await loadZone(z);
+  Future<void> loadWorld(ClockBook book) async {
+    final loaded = <String, Zone>{};
+    for (final z in book.world) {
+      if (!model.world.containsKey(z)) loaded[z] = await loadZone(z);
     }
-    _events.add(ClockAction.changed);
+    _events.add(ClockFacts(world: loaded));
   }
 
   Future<void> start() async {
     // a save still in flight finishes before the unit stops
     VrxFile.flushOnStop(() => _saving);
     _followSleep();
-    model.book = await ClockBook.load(_bookPath);
-    await loadWorld();
+    final book = await ClockBook.load(_bookPath);
+    _events.add(ClockFacts(book: book));
+    await loadWorld(book);
     AppletsService.installed?.watch().listen((f) => _front = f.front, onError: (Object _) {});
     VrxSystem.time.watch().listen((t) async {
-      if (t.zone != model.home.name) model.home = await loadZone(t.zone);
-      model.synced = t.synced;
-      arm();
-      _events.add(ClockAction.changed);
+      final home = t.zone != model.home.name ? await loadZone(t.zone) : null;
+      _events.add(ClockFacts(home: home, synced: t.synced));
+      // after the store has taken the facts (the stream delivers first)
+      scheduleMicrotask(arm);
     }, onError: (Object err) => debugPrint('clock: no time service: $err'));
     // 12 or 24 hours is the system's locale (plan 0011 D7), followed as
     // it changes
     final format = VrxTimeFormat.changes;
-    void follow() {
-      model.h12 = !format.value;
-      _events.add(ClockAction.changed);
-    }
+    void follow() => _events.add(ClockFacts(h12: !format.value));
 
     follow();
     format.addListener(follow);
     try {
-      model.zones = await VrxSystem.time.zones();
+      _events.add(ClockFacts(zones: await VrxSystem.time.zones()));
     } on Object catch (err) {
       debugPrint('clock: no zone list: $err');
     }
