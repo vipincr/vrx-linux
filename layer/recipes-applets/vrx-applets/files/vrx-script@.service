@@ -1,0 +1,45 @@
+# A Python script from the Scripts folder, run in the background (vrx
+# plan 0013 D13). Instance %i is the script's name without .py: only
+# letters, digits, - and _ (the kit refuses others), so %i needs no
+# unescaping and names exactly one file. The Scripts applet starts, stops
+# and clears instances through its `scripts` grant (vrx-policy's polkit
+# rule); systemd supervises, restarts a crash, and stops trying after the
+# start limit, which the Running screen shows as "Stopped after failing".
+# It runs as the Scripts applet's user, in the same sandbox as an applet,
+# with no grant of its own.
+
+[Unit]
+Description=vrx background script %i
+After=vrxhost.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+User=vrx-scripts
+Group=vrx-scripts
+ExecStart=/usr/bin/python3 -u /var/lib/vrx/scripts/scripts/%i.py
+WorkingDirectory=/var/lib/vrx/scripts/scripts
+StateDirectory=vrx/scripts
+Environment=HOME=/var/lib/vrx/scripts PYTHONPATH=@VRX_SCRIPTS_PYTHON@ VRX_SCRIPT=%i
+Restart=on-failure
+RestartSec=2s
+DevicePolicy=closed
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictSUIDSGID=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077

@@ -41,6 +41,18 @@ polkit.addRule(function (action, subject) {
         if (subject.isInGroup("vrx-serve") && startStop && unit === "vrx-manage.service") {
             return polkit.Result.YES;
         }
+        /* background scripts (plan 0013 D13): instances of the layer's
+         * vrx-script@.service only, whose ExecStart and sandbox are fixed
+         * in the template; clearing one systemd stopped after it kept
+         * failing is reset-failed. StartTransientUnit is never granted:
+         * polkit cannot see a transient unit's properties, so it would
+         * hand out any command as root. */
+        if (subject.isInGroup("vrx-scripting") &&
+            (startStop || verb === "reset-failed") &&
+            unit.indexOf("vrx-script@") === 0 &&
+            unit.slice(-8) === ".service") {
+            return polkit.Result.YES;
+        }
     }
 
     return polkit.Result.NOT_HANDLED;

@@ -87,6 +87,10 @@ pub enum SystemGrant {
     /// D12: io.vrx.Host.Energy and Awake).
     #[serde(rename = "power-stats")]
     PowerStats,
+    /// Start, stop and clear the background scripts: instances of the
+    /// layer's vrx-script@.service template, and no other unit (plan 0013
+    /// D13).
+    Scripts,
 }
 
 impl SystemGrant {
@@ -114,11 +118,12 @@ impl SystemGrant {
             SystemGrant::Ml => "ml",
             SystemGrant::Locale => "locale",
             SystemGrant::PowerStats => "power-stats",
+            SystemGrant::Scripts => "scripts",
         }
     }
 
     /// Every grant, for table checks.
-    pub const ALL: [SystemGrant; 21] = [
+    pub const ALL: [SystemGrant; 22] = [
         SystemGrant::Network,
         SystemGrant::Bluetooth,
         SystemGrant::Time,
@@ -140,6 +145,7 @@ impl SystemGrant {
         SystemGrant::Ml,
         SystemGrant::Locale,
         SystemGrant::PowerStats,
+        SystemGrant::Scripts,
     ];
 }
 

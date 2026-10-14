@@ -18,3 +18,8 @@ heap_mb = 64
 
 [applet.command]
 enabled = false
+
+[applet.permissions]
+# scripts: run a script in the background as an instance of the layer's
+# vrx-script@.service (plan 0013 D13), and stop or clear it
+system = ["scripts"]
