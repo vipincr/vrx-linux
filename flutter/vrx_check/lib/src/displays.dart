@@ -7,7 +7,7 @@ import 'dart:convert';
 import 'dart:io';
 
 class Display {
-  const Display(this.name, this.width, this.height, this.widthMm, {this.touch = true});
+  const Display(this.name, this.width, this.height, this.widthMm, {this.touch = true, this.turns = false});
 
   final String name;
 
@@ -21,7 +21,17 @@ class Display {
   /// Fingers on it (the 9mm minimum is a promise there).
   final bool touch;
 
+  /// vrx may show it turned a quarter (displays.json): a panel fixed in
+  /// its carrier, on a controller that cannot scan out 90 degrees, never
+  /// is, and its turned shape is not checked.
+  final bool turns;
+
   double get pixelRatio => widthMm <= 0 ? 1.0 : width / widthMm / (160 / 25.4);
+
+  /// The same panel turned a quarter (plan 0013 D10): its pixels swapped,
+  /// at the same density. An applet whose manifest says
+  /// `orientation = "any"` is laid out at this shape too.
+  Display get turned => Display('$name turned', height, width, widthMm <= 0 ? 0 : widthMm * height / width, touch: touch, turns: turns);
 
   @override
   String toString() => name;
@@ -41,7 +51,7 @@ final List<Display> allDisplays = () {
   final root = configFile.absolute.parent.uri.resolve('${entry['rootUri']}'.endsWith('/') ? '${entry['rootUri']}' : '${entry['rootUri']}/');
   // vrx-allow: test-time setup
   final table = jsonDecode(File.fromUri(root.resolve('lib/displays.json')).readAsStringSync()) as Map<String, dynamic>;
-  return [
+  final panels = [
     for (final d in (table['displays'] as List).cast<Map<String, dynamic>>())
       Display(
         '${d['name']}',
@@ -49,9 +59,26 @@ final List<Display> allDisplays = () {
         (d['height'] as num).toDouble(),
         (d['width_mm'] as num).toDouble(),
         touch: d['touch'] as bool,
+        turns: d['turns'] as bool? ?? false,
       ),
   ];
+  // the applet under test (its tests run in its own directory) says
+  // whether it turns with the device: then every display's turned shape
+  // is a display too (plan 0013 D10)
+  return [
+    ...panels,
+    if (_turns()) ...panels.where((d) => d.turns).map((d) => d.turned),
+  ];
 }();
+
+/// The current package's manifest declares `orientation = "any"`.
+bool _turns() {
+  // vrx-allow: test-time setup
+  final manifest = File('manifest.toml');
+  if (!manifest.existsSync()) return false;
+  // vrx-allow: test-time setup
+  return RegExp(r'^\s*orientation\s*=\s*"any"', multiLine: true).hasMatch(manifest.readAsStringSync());
+}
 
 Display _named(String name) => allDisplays.firstWhere((d) => d.name == name);
 

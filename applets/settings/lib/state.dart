@@ -131,12 +131,17 @@ class SettingRow {
     required this.kind,
     this.on = false,
     this.level = 0,
+    this.widest,
   });
 
   final String key;
   final String label;
   final String value;
   final RowKind kind;
+
+  /// A toggle's widest value among its choices: the row lays itself out
+  /// for it, so stepping a choice never makes it jump (plan 0013 D12).
+  final String? widest;
 
   /// A toggle's state.
   final bool on;
@@ -190,6 +195,11 @@ class SettingsView {
 /// The compositor reads `light_off` from the screen's settings file
 /// (/etc/vrx/display/screen.conf, plan 0010 D7); vrx-policy seeds it.
 const lightOffChoices = [0, 30, 60, 120, 300, 600];
+
+/// The longest of a toggle's choices, by characters (the row measures it
+/// in its own type).
+String? _widest(Iterable<String> choices) =>
+    choices.fold<String?>(null, (w, c) => w == null || c.length > w.length ? c : w);
 
 String lightOffLabel(int seconds) => switch (seconds) {
       0 => 'Never',
@@ -453,6 +463,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
             label: 'Screen off after',
             value: lightOffLabel(lightOff),
             kind: RowKind.toggle,
+            widest: _widest(lightOffChoices.map(lightOffLabel)),
           ),
           // the cascade's later steps, where the board offers them
           if (cascade.sleep)
@@ -461,6 +472,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
               label: 'Sleep after',
               value: lightOffLabel(screen.sleepAfter),
               kind: RowKind.toggle,
+              widest: _widest(lightOffChoices.map(lightOffLabel)),
             ),
           if (cascade.deep)
             SettingRow(
@@ -468,6 +480,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
               label: 'Power off when idle',
               value: screen.deepAfter == 0 ? 'Never' : 'After ${lightOffLabel(screen.deepAfter)}',
               kind: RowKind.toggle,
+              widest: _widest(['Never', for (final c in lightOffChoices) 'After ${lightOffLabel(c)}']),
             ),
           // the scheme, on a panel that draws one; it changes at the next boot
           if (runningScheme > 0) ...[
@@ -478,6 +491,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
               value: chosenDark ? 'On' : 'Off',
               kind: RowKind.toggle,
               on: chosenDark,
+              widest: 'Off',
             ),
             if (lookPending)
               const SettingRow(key: 'restart', label: 'Restart to apply', value: '', kind: RowKind.confirm),
@@ -528,6 +542,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
             value: t == null ? '…' : (t.automatic ? 'On' : 'Off'),
             kind: RowKind.toggle,
             on: t?.automatic ?? false,
+            widest: 'Off',
           ),
           SettingRow(
             key: 'synced',
@@ -619,6 +634,11 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
                 value: decl.type == 'bool' ? (valueOf(a.id, decl) == 'true' ? 'On' : 'Off') : valueOf(a.id, decl),
                 kind: decl.type == 'enum' || decl.type == 'bool' ? RowKind.toggle : RowKind.open,
                 on: valueOf(a.id, decl) == 'true',
+                widest: switch (decl.type) {
+                  'bool' => 'Off',
+                  'enum' => _widest(decl.options),
+                  _ => null,
+                },
               ),
         ];
     }

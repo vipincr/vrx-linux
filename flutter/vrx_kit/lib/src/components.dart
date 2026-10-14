@@ -14,6 +14,7 @@
 ///   spatial-fast spring — press is never eased on any panel
 library;
 
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -157,6 +158,7 @@ class VrxRow extends StatelessWidget {
     required this.label,
     this.detail,
     this.value,
+    this.widestValue,
     this.valueGlyph,
     this.onValueGlyph,
     this.onTap,
@@ -171,6 +173,13 @@ class VrxRow extends StatelessWidget {
   /// giving way, and long identifiers break at their punctuation.
   final String? detail;
   final String? value;
+
+  /// The widest value this row will ever show (a setting's longest
+  /// choice), when the value changes under a finger: the row lays itself
+  /// out for it, so flipping On to Off or stepping a choice never makes
+  /// it jump between one line and two (plan 0013 D12, evrx-rt docs/13:
+  /// fit text to the widest string the slot will ever hold).
+  final String? widestValue;
 
   /// A glyph after the value (a lock on a secured network): a symbol
   /// from the icon font, never an emoji (the image ships no emoji font).
@@ -226,8 +235,11 @@ class VrxRow extends StatelessWidget {
               ? 0.0
               : (onValueGlyph != null ? ScaledSpacing.minInteractive(context) : glyphSize + space.xs);
           final room = box.maxWidth - lead - trail;
+          final valueWidth = !hasValue
+              ? 0.0
+              : math.max(width(value!, valueStyle), widestValue == null ? 0.0 : width(widestValue!, valueStyle));
           final stacked = detail != null ||
-              (hasValue && width(label, labelStyle) + space.sm + width(value!, valueStyle) > room) ||
+              (hasValue && width(label, labelStyle) + space.sm + valueWidth > room) ||
               (!hasValue && width(label, labelStyle) > room);
           final trailing = [
             if (valueGlyph != null && onValueGlyph != null)
@@ -449,10 +461,17 @@ class VrxChip extends StatelessWidget {
             ? null
             : BoxDecoration(
                 color: filled ? colors.primary : colors.secondaryContainer,
-                // a container the page's own grey needs a frame to be seen
-                border: colors.secondaryContainer == colors.page
-                    ? Border.all(color: colors.outline, width: Strokes.hairline)
-                    : null,
+                // a container the page's own grey needs a frame to be seen;
+                // elsewhere the frame is there in the fill's own colour, so
+                // it is not seen and the label sits
+                // in the same place on every display class (G035: a border
+                // is padding to a Container)
+                border: Border.all(
+                  color: colors.secondaryContainer == colors.page
+                      ? colors.outline
+                      : (filled ? colors.primary : colors.secondaryContainer),
+                  width: Strokes.hairline,
+                ),
                 borderRadius: BorderRadius.circular(Radii.sm),
               ),
         child: fit

@@ -168,6 +168,14 @@ class VrxColors extends ThemeExtension<VrxColors> with VrxSlotNames {
   }
 
   final List<Color> _table;
+  /// The colours under every display class the kit knows, colour first,
+  /// for a checker that must see each screen under each (plan 0013 D11,
+  /// G035: the layout may not depend on the class). An applet never
+  /// branches on the class; it draws with the colours it is given.
+  static List<VrxColors> everyClass({int scheme = vrxDefaultScheme, bool dark = true}) => [
+        for (final c in VrxDisplayClass.values) VrxColors.resolve(displayClass: c, scheme: scheme, dark: dark),
+      ];
+
   final VrxDisplayClass displayClass;
 
   /// The dark polarity (only ever true on a colour panel).

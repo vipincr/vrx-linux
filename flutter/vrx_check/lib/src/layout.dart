@@ -59,10 +59,10 @@ class _Target {
 
 /// Mount [applet] as the board shows it: below the shell's strip (the
 /// shell's plane covers that much of every app), unless it is the shell.
-Future<void> mountApplet<S, A, V>(WidgetTester tester, Applet<S, A, V> applet) async {
+Future<void> mountApplet<S, A, V>(WidgetTester tester, Applet<S, A, V> applet, {Stream<A>? actions}) async {
   VrxShell.reset();
   addTearDown(VrxShell.reset);
-  await tester.pumpWidget(AppletHost<S, A, V>(applet: applet));
+  await tester.pumpWidget(AppletHost<S, A, V>(applet: applet, actions: actions));
   if (find.byType(VrxShellRegion).evaluate().isNotEmpty) return;
   final inside = find.byType(VrxInputRoot).evaluate().first;
   VrxShell.top.value = VrxStatusStrip.heightOf(inside) * tester.view.devicePixelRatio;
@@ -94,6 +94,22 @@ Future<List<LayoutIssue>> checkApplet<S, A, V>(
     if (setUp != null) await setUp(tester);
     await tester.pump(const Duration(seconds: 1));
     issues.addAll(_inspect(tester, display));
+    // G035 (plan 0013 D11): the same screen, the same state, under every
+    // other display class: colours may differ, positions and sizes may
+    // not. The host is pumped again with each class's colours; its store
+    // and every route stay as they are.
+    // the baseline is a re-pump too, with the colour class's own colours:
+    // a rebuild may settle a screen (a list following its newest line),
+    // and that is not the class's doing
+    final classes = VrxColors.everyClass();
+    await tester.pumpWidget(AppletHost<S, A, V>(applet: applet, colors: classes.first));
+    await tester.pump(const Duration(seconds: 1));
+    final base = _geometry(tester);
+    for (final colors in classes.skip(1)) {
+      await tester.pumpWidget(AppletHost<S, A, V>(applet: applet, colors: colors));
+      await tester.pump(const Duration(seconds: 1));
+      issues.addAll(_classIssues(base, _geometry(tester), colors.displayClass.name));
+    }
   } finally {
     FlutterError.onError = previous;
     tester.view.reset();
@@ -125,6 +141,106 @@ Future<void> expectCleanLayout<S, A, V>(
   if (issues.isNotEmpty) {
     fail('${issues.length} layout issue(s) on ${display.name}:\n  ${issues.join('\n  ')}');
   }
+}
+
+/// D12 (plan 0013): mount [applet] on [display], let [change] act (a value
+/// changes, a toggle flips, a fact arrives on [actions], the same stream
+/// runApplet feeds), and return every tap target present before and after
+/// whose size changed. A row grows with its own content up to its
+/// ceiling; nothing under a finger resizes because the screen changed
+/// around it.
+Future<List<LayoutIssue>> checkStable<S, A, V>(
+  WidgetTester tester,
+  Applet<S, A, V> applet, {
+  Display? display,
+  Stream<A>? actions,
+  required Future<void> Function(WidgetTester tester) change,
+}) async {
+  display ??= disp28a;
+  await loadVrxFonts();
+  tester.view.physicalSize = Size(display.width, display.height);
+  tester.view.devicePixelRatio = display.pixelRatio;
+  try {
+    await mountApplet(tester, applet, actions: actions);
+    await tester.pump(const Duration(seconds: 1));
+    final before = _targets(tester);
+    await change(tester);
+    await tester.pump(const Duration(seconds: 1));
+    final after = _targets(tester);
+    final issues = <LayoutIssue>[];
+    final seen = <String, int>{};
+    for (final (what, rect) in before) {
+      final n = seen[what] = (seen[what] ?? -1) + 1;
+      final same = after.where((t) => t.$1 == what).toList();
+      if (n >= same.length) continue; // gone: not a resize
+      final now = same[n].$2;
+      if ((now.width - rect.width).abs() > _eps || (now.height - rect.height).abs() > _eps) {
+        issues.add(LayoutIssue(
+          'resized',
+          '$what was ${_size(rect)} and is ${_size(now)}: a control under a finger changed size',
+          now,
+        ));
+      }
+    }
+    return issues;
+  } finally {
+    tester.view.reset();
+  }
+}
+
+/// Run [checkStable] and fail the test with every issue, one per line.
+Future<void> expectStable<S, A, V>(
+  WidgetTester tester,
+  Applet<S, A, V> applet, {
+  Display? display,
+  Stream<A>? actions,
+  required Future<void> Function(WidgetTester tester) change,
+}) async {
+  display ??= disp28a;
+  final issues = await checkStable(tester, applet, display: display, actions: actions, change: change);
+  if (issues.isNotEmpty) {
+    fail('${issues.length} control(s) resized on ${display.name}:\n  ${issues.join('\n  ')}');
+  }
+}
+
+String _size(Rect r) => '${r.width.toStringAsFixed(0)}x${r.height.toStringAsFixed(0)}';
+
+/// Every tap target on screen, in order, by what it says.
+List<(String, Rect)> _targets(WidgetTester tester) => [
+      for (final e in find.byWidgetPredicate(_answersTap).evaluate())
+        if (e.renderObject case final RenderBox box when box.attached && box.hasSize && !_offstage(e)) (_describe(e), _rectOf(box)),
+    ];
+
+/// Where every text run and tap target sits, in order: what the class
+/// sweep compares (plan 0013 D11).
+List<(String, Rect)> _geometry(WidgetTester tester) => [
+      for (final e in find.byWidgetPredicate((w) => w is RichText || _answersTap(w)).evaluate())
+        if (e.renderObject case final RenderBox box when box.attached && box.hasSize && !_offstage(e))
+          (e.widget is RichText ? '"${(e.widget as RichText).text.toPlainText()}"' : _describe(e), _rectOf(box)),
+    ];
+
+List<LayoutIssue> _classIssues(List<(String, Rect)> base, List<(String, Rect)> other, String cls) {
+  if (base.length != other.length) {
+    final only = [for (final b in base) if (!other.any((o) => o.$1 == b.$1)) b.$1];
+    final extra = [for (final o in other) if (!base.any((b) => b.$1 == o.$1)) o.$1];
+    return [
+      LayoutIssue(
+        'class',
+        '${base.length} texts and targets under lcdColour, ${other.length} under $cls '
+            '(only under lcdColour: ${only.join(', ')}; only under $cls: ${extra.join(', ')}): the layout depends on the display class',
+        Rect.zero,
+      ),
+    ];
+  }
+  return [
+    for (var i = 0; i < base.length; i++)
+      if (!_same(base[i].$2, other[i].$2) || base[i].$1 != other[i].$1)
+        LayoutIssue(
+          'class',
+          '${base[i].$1} sits at ${base[i].$2} under lcdColour and ${other[i].$1} at ${other[i].$2} under $cls: the layout depends on the display class',
+          other[i].$2,
+        ),
+  ];
 }
 
 /// A box's rect on the display, through every transform above it (a

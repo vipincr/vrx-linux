@@ -94,4 +94,51 @@ void main() {
       expect(found, isEmpty);
     });
   }
+
+  // G035 (plan 0013 D11): a screen that sizes itself by the display class
+  // is caught; the kit's own screens are not
+  testWidgets('a layout that depends on the display class is caught (G035)', (tester) async {
+    final found = await rules(
+      tester,
+      (c) => VrxList(children: [
+        // a branch on the class: more room on a colour panel
+        // vrx-allow: the fixture breaks G035 on purpose
+        SizedBox(height: VrxTheme.of(c).displayClass.name == 'lcdColour' ? 40 : 60),
+        VrxRow(label: 'Repeat', value: 'Weekdays', onTap: () {}),
+      ]),
+    );
+    expect(found, contains('class'));
+  });
+
+  // D12 (plan 0013): a row whose value changes under a finger keeps its
+  // size when it knows its widest value; without it, it jumps
+  testWidgets('a row that changes size under a finger is caught, and widestValue holds it (D12)', (tester) async {
+    Future<List<String>> flip({String? widest}) async {
+      final long = ValueNotifier(false);
+      final applet = _Screen((c) => ValueListenableBuilder<bool>(
+            valueListenable: long,
+            builder: (c, on, _) => VrxList(children: [
+              VrxRow(
+                label: 'Keep the screen on',
+                value: on ? 'Always, while plugged in' : 'Off',
+                widestValue: widest,
+                onTap: () => long.value = !long.value,
+              ),
+            ]),
+          ));
+      final issues = await checkStable(tester, applet, change: (t) async => long.value = true);
+      return [for (final i in issues) i.rule];
+    }
+
+    expect(await flip(), contains('resized'));
+    expect(await flip(widest: 'Always, while plugged in'), isEmpty);
+  });
+
+  test('a turned display is the same panel on its side, at the same density (D10)', () {
+    final t = disp28a.turned;
+    expect((t.width, t.height), (disp28a.height, disp28a.width));
+    expect(t.pixelRatio, closeTo(disp28a.pixelRatio, 1e-9));
+    // vrx_check itself has no manifest: no applet here turns
+    expect(allDisplays.where((d) => d.name.endsWith('turned')), isEmpty);
+  });
 }

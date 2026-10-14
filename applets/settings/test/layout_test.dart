@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vrx_check/vrx_check.dart';
 import 'package:vrx_kit/vrx_kit.dart';
@@ -133,6 +135,20 @@ void main() {
         await expectCleanLayout(tester, SettingsApplet(s.value()), display: display);
       });
     }
+    // D12 (plan 0013): stepping a choice changes the value under the
+    // finger; the row is laid out for its widest choice, so it keeps its
+    // size (a short "Never" and the longest step)
+    testWidgets('settings display keeps its rows as Screen off after steps, on ${display.name}', (tester) async {
+      final facts = StreamController<SettingsAction>();
+      addTearDown(facts.close);
+      await expectStable(
+        tester,
+        SettingsApplet(model()..open = SettingsCategory.display),
+        display: display,
+        actions: facts.stream,
+        change: (t) async => facts.add(const SettingsFacts(screen: ScreenState(brightness: 40, lightOff: 0))),
+      );
+    });
   }
 }
 
