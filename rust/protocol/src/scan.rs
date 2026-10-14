@@ -685,7 +685,9 @@ fn model_writes(code: &str) -> Vec<usize> {
         let here: String = chars[i..i + 5].iter().collect();
         let before = if i == 0 { ' ' } else { chars[i - 1] };
         let after = chars.get(i + 5).copied().unwrap_or(' ');
-        if here != "model" || ident(before) || ident(after) {
+        // `model`, or a private `_model` (the launcher's)
+        let private = before == '_' && (i < 2 || !ident(chars[i - 2]));
+        if here != "model" || (ident(before) && !private) || ident(after) {
             i += 1;
             continue;
         }
@@ -1375,13 +1377,13 @@ mod tests {
     /// reducer's own file and the kit are exempt.
     #[test]
     fn the_store_is_the_only_writer_g031() {
-        let code = "model.error = e;\nif (model.error == null) x();\nfinal f = () => model.view;\nmodel.count += 1;\nmodel.count++;\n++model.taps;\nmodel..open = c\n  ..error = null;\nmodel.list.add(x);\nmodel.ips ??= [];\nmodel.a.b = 2; // vrx-allow: no\nh.model.x = 1;\nmyModel.x = 1;\nmodel.world[z] ??= y;\nif (model.values['a'] == b) {}\nmodel.h12 = !f;\nfinal model = M();\nvar model2 = 1;\n";
+        let code = "model.error = e;\nif (model.error == null) x();\nfinal f = () => model.view;\nmodel.count += 1;\nmodel.count++;\n++model.taps;\nmodel..open = c\n  ..error = null;\nmodel.list.add(x);\nmodel.ips ??= [];\nmodel.a.b = 2; // vrx-allow: no\nh.model.x = 1;\nmyModel.x = 1;\nmodel.world[z] ??= y;\nif (model.values['a'] == b) {}\nmodel.h12 = !f;\nfinal model = M();\nvar model2 = 1;\n_model.error = null;\nmy_model.x = 1;\n";
         let found: Vec<usize> = violations("applets/x/lib/main.dart", "dart", code)
             .into_iter()
             .filter(|f| f.1 == "model.<field> =")
             .map(|f| f.0)
             .collect();
-        assert_eq!(found, vec![1, 4, 5, 6, 7, 8, 10, 11, 12, 14, 16]);
+        assert_eq!(found, vec![1, 4, 5, 6, 7, 8, 10, 11, 12, 14, 16, 19]);
         assert!(violations("applets/x/lib/state.dart", "dart", code)
             .iter()
             .all(|f| f.1 != "model.<field> ="));
