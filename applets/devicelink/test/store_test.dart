@@ -8,13 +8,11 @@ void main() {
   late LinkModel model;
   late StoreHarness<Object, LinkAction, LinkView> h;
   var clock = DateTime(2026, 10, 14, 14, 20).millisecondsSinceEpoch;
-  void facts(BluetoothState b) {
-    model.bt = b;
-    h.dispatch(LinkAction.factsChanged);
-  }
+  void facts(BluetoothState b) => h.dispatch(LinkFacts(bt: b));
+  LinkModel fresh() => LinkModel(now: () => clock);
 
   setUp(() {
-    model = LinkModel(now: () => clock)..h24 = true;
+    model = fresh();
     h = StoreHarness(model);
   });
 
@@ -38,8 +36,7 @@ void main() {
     facts(const BluetoothState(present: true, on: true, discoverable: true, name: 'hi'));
     h.assertView((v) => v.pairing && v.pairDetail == 'Visible to phones until 14:23' && v.status.contains('choose hi'));
     expect(model.keepsScreenOn, isNotNull, reason: 'the person is busy on the phone, not this screen');
-    model.h24 = false;
-    h.dispatch(LinkAction.factsChanged);
+    h.dispatch(const LinkFacts(h24: false));
     h.assertView((v) => v.pairDetail == 'Visible to phones until 2:23 PM');
     // DiscoverableTimeout passed: BlueZ turned it off
     facts(const BluetoothState(present: true, on: true, name: 'hi'));
@@ -51,10 +48,8 @@ void main() {
   test('a request is a screen until answered; the passkey is grouped the way a phone shows it', () {
     facts(const BluetoothState(present: true, on: true, discoverable: true));
     bool? answered;
-    model
-      ..asking = BluetoothPairing(device: '/org/bluez/hci0/dev_2', name: 'iPhone', passkey: 42)
-      ..answer = (pair) => answered = pair;
-    h.dispatch(LinkAction.asked);
+    h.dispatch(LinkAsked(BluetoothPairing(device: '/org/bluez/hci0/dev_2', name: 'iPhone', passkey: 42),
+        (pair) => answered = pair));
     h.assertView((v) => v.screen == LinkScreen.asking && v.passkey == '000 042' && v.askingName == 'iPhone');
     expect(model.keepsScreenOn, 'a phone is asking to pair');
     model.answer!(true);
@@ -66,15 +61,15 @@ void main() {
 
   test('a device screen closes when the device is forgotten; a new fact clears a refusal', () {
     facts(const BluetoothState(present: true, on: true, devices: [phone]));
-    model.showing = phone.id;
-    h.dispatch(LinkAction.deviceOpened);
+    h.dispatch(LinkOpenDevice(phone.id));
     h.assertView((v) => v.screen == LinkScreen.device && v.device?.name == 'Pixel');
-    model.error = 'refused';
-    h.dispatch(LinkAction.failed);
+    h.dispatch(const LinkFacts(error: Change('refused')));
     h.assertView((v) => v.error == 'refused');
     facts(const BluetoothState(present: true, on: true));
     h.assertView((v) => v.screen == LinkScreen.main && v.error == null);
     expect(model.showing, isNull);
+    h.dispatch(LinkOpenDevice(phone.id));
+    h.verify(fresh: fresh, probes: const [LinkAction.deviceClosed, LinkAction.pairingOpened, LinkAction.pairingClosed]);
     clock += 1;
   });
 }

@@ -1,7 +1,48 @@
 import 'package:vrx_kit/vrx_kit.dart';
 
 /// Everything the applet reacts to.
-enum LinkAction { init, factsChanged, failed, pairingOpened, pairingClosed, asked, answered, deviceOpened, deviceClosed }
+/// Everything the applet reacts to (plan 0013 D1: the reducer is the only
+/// writer): a signal, or a fact from the world carried as data.
+sealed class LinkAction {
+  const LinkAction();
+
+  static const init = LinkSignal.init;
+  static const pairingOpened = LinkSignal.pairingOpened;
+  static const pairingClosed = LinkSignal.pairingClosed;
+  static const answered = LinkSignal.answered;
+  static const deviceClosed = LinkSignal.deviceClosed;
+}
+
+enum LinkSignal implements LinkAction { init, pairingOpened, pairingClosed, answered, deviceClosed }
+
+/// BlueZ and connman's state, the locale's hours, a refusal, a notice
+/// (null fields: unchanged; Change(null) clears).
+final class LinkFacts implements LinkAction {
+  const LinkFacts({this.bt, this.h24, this.error, this.notice});
+
+  final BluetoothState? bt;
+  final bool? h24;
+  final Change<String?>? error;
+  final Change<String?>? notice;
+
+  @override
+  String toString() => 'LinkFacts($bt, $h24, $error, $notice)';
+}
+
+/// A phone asked to pair; [answer] settles BlueZ's question.
+final class LinkAsked implements LinkAction {
+  const LinkAsked(this.request, this.answer);
+
+  final BluetoothPairing request;
+  final void Function(bool pair) answer;
+}
+
+/// A paired device's screen was opened.
+final class LinkOpenDevice implements LinkAction {
+  const LinkOpenDevice(this.id);
+
+  final String id;
+}
 
 /// Which screen is up.
 enum LinkScreen { main, device, asking }
@@ -88,30 +129,57 @@ class LinkModel extends StoreModel<Object, LinkAction, LinkView> {
   @override
   Object get initial => const Object();
 
+  /// The facts are BlueZ's, read again at every start; nothing is kept.
+  @override
+  void restore(Object snapshot) {}
+
+  @override
+  LinkAction get backAction => LinkAction.deviceClosed;
+
+  /// A phone's question is answered, never backed out of; a device's
+  /// screen is closed by Back.
+  @override
+  bool get atRoot => showing == null;
+
+  @override
+  Object? get fingerprint => [bt?.on, bt?.discoverable, bt?.devices.map((d) => d.id).toList(), asking?.name,
+      visibleUntil, showing, h24, error, notice];
+
   @override
   LinkAction get bootAction => LinkAction.init;
 
   @override
   LinkView reduce(Object state, LinkAction action) {
     switch (action) {
-      case LinkAction.factsChanged:
-        error = null;
-        // the window ended (timed out, or closed elsewhere)
-        if (!(bt?.discoverable ?? false)) visibleUntil = null;
-        // a forgotten device's screen has nothing to show
-        if (showing != null && !(bt?.devices.any((d) => d.id == showing) ?? false)) showing = null;
-      case LinkAction.pairingOpened:
+      case LinkFacts(bt: final b, :final h24, error: final err, notice: final note):
+        if (h24 != null) this.h24 = h24;
+        if (b != null) {
+          bt = b;
+          error = null;
+          // the window ended (timed out, or closed elsewhere)
+          if (!b.discoverable) visibleUntil = null;
+          // a forgotten device's screen has nothing to show
+          if (showing != null && !b.devices.any((d) => d.id == showing)) showing = null;
+        }
+        if (err != null) error = err.value;
+        if (note != null) notice = note.value;
+      case LinkAsked(:final request, :final answer):
+        asking = request;
+        this.answer = answer;
+      case LinkOpenDevice(:final id):
+        showing = id;
+      case LinkSignal.pairingOpened:
         error = null;
         visibleUntil = _now() + BluetoothService.window.inMilliseconds;
-      case LinkAction.pairingClosed:
+      case LinkSignal.pairingClosed:
         visibleUntil = null;
         notice = null;
-      case LinkAction.answered:
+      case LinkSignal.answered:
         asking = null;
         answer = null;
-      case LinkAction.deviceClosed:
+      case LinkSignal.deviceClosed:
         showing = null;
-      case LinkAction.init || LinkAction.failed || LinkAction.asked || LinkAction.deviceOpened:
+      case LinkSignal.init:
         break;
     }
     final b = bt;

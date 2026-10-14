@@ -71,8 +71,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(fake.calls, ['closePairing']);
     // the window open again, and a request the phone then gives up on
-    model.bt = const BluetoothState(present: true, on: true);
-    events.add(LinkAction.factsChanged);
+    events.add(const LinkFacts(bt: BluetoothState(present: true, on: true)));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Pair a phone'));
     await tester.pumpAndSettle();

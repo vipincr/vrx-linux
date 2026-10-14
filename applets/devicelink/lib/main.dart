@@ -42,12 +42,11 @@ class LinkApplet extends Applet<Object, LinkAction, LinkView> {
       unawaited(act().then((_) {
         if (then != null) _out.add(then);
       }).catchError((Object err) {
-        model.error = VrxWords.of(err, context: context);
-        _out.add(LinkAction.failed);
+        _out.add(LinkFacts(error: Change(VrxWords.of(err, context: context))));
       }));
 
   void _openPairing(LinkView view) {
-    if (!view.on) model.notice = 'Bluetooth is on now.';
+    if (!view.on) _out.add(const LinkFacts(notice: Change('Bluetooth is on now.')));
     _do(() => VrxSystem.bluetooth.openPairing(confirm: _confirm), context: 'devicelink: pair', then: LinkAction.pairingOpened);
   }
 
@@ -61,10 +60,7 @@ class LinkApplet extends Applet<Object, LinkAction, LinkView> {
       _out.add(LinkAction.answered);
     }
 
-    model
-      ..asking = request
-      ..answer = settle;
-    _out.add(LinkAction.asked);
+    _out.add(LinkAsked(request, settle));
     unawaited(request.canceled.then((_) => settle(false)));
     return answer.future;
   }
@@ -120,10 +116,7 @@ class LinkApplet extends Applet<Object, LinkAction, LinkView> {
                 glyph: d.connected ? VrxSymbols.bluetooth_connected : VrxSymbols.smartphone,
                 label: d.name,
                 value: d.connected ? 'Connected' : '',
-                onTap: () {
-                  model.showing = d.id;
-                  _out.add(LinkAction.deviceOpened);
-                },
+                onTap: () => _out.add(LinkOpenDevice(d.id)),
               ),
           ],
         ]),
@@ -206,19 +199,11 @@ class _Device extends StatelessWidget {
 void main() {
   final model = LinkModel();
   runApplet(LinkApplet(model), actions: _events.stream);
-  VrxSystem.bluetooth.watch().listen((b) {
-    model.bt = b;
-    _events.add(LinkAction.factsChanged);
-  }, onError: (Object err) {
-    model.error = VrxWords.of(err, context: 'devicelink: watch');
-    _events.add(LinkAction.failed);
-  });
+  VrxSystem.bluetooth.watch().listen((b) => _events.add(LinkFacts(bt: b)),
+      onError: (Object err) => _events.add(LinkFacts(error: Change(VrxWords.of(err, context: 'devicelink: watch')))));
   // 12 or 24 hours for the window's end: the system's locale
   final format = VrxTimeFormat.changes;
-  void follow() {
-    model.h24 = format.value;
-    _events.add(LinkAction.factsChanged);
-  }
+  void follow() => _events.add(LinkFacts(h24: format.value));
 
   follow();
   format.addListener(follow);
