@@ -142,6 +142,7 @@ class VrxStatusStrip extends StatelessWidget {
           if (facts.showBack)
             VrxPress(
               onTap: facts.onBack,
+              label: 'Back',
               child: SizedBox(
                 width: _backWidth(context),
                 height: double.infinity,

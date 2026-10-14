@@ -128,7 +128,7 @@ class _VrxTextEntryState extends State<VrxTextEntry> {
           SizedBox(
             height: space.touch,
             child: Row(children: [
-              VrxIconButton(glyph: VrxSymbols.arrow_back, onTap: widget.onBack),
+              VrxIconButton(glyph: VrxSymbols.arrow_back, label: 'Back', onTap: widget.onBack),
               SizedBox(width: space.xs),
               Expanded(child: _field(context, hint: widget.hint ?? widget.title, lines: false)),
               SizedBox(width: space.inset),

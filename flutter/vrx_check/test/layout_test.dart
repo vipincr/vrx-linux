@@ -25,6 +25,24 @@ Future<List<String>> rules(WidgetTester tester, Widget Function(BuildContext) bo
     [for (final i in await checkApplet(tester, _Screen(body))) i.rule];
 
 void main() {
+  testWidgets('G038: a control with no words fails, the same control labelled passes', (tester) async {
+    final bare = await rules(
+      tester,
+      (c) => Center(child: GestureDetector(onTap: () {}, child: const SizedBox(width: 80, height: 80))),
+    );
+    expect(bare, contains('label'));
+    final labelled = await rules(
+      tester,
+      (c) => Center(
+        child: Semantics(
+          label: 'Start the timer',
+          child: GestureDetector(onTap: () {}, child: const SizedBox(width: 80, height: 80)),
+        ),
+      ),
+    );
+    expect(labelled, isNot(contains('label')));
+  });
+
   testWidgets('a clean list screen breaks nothing', (tester) async {
     final found = await rules(
       tester,

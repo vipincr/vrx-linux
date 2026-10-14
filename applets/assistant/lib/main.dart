@@ -171,7 +171,7 @@ class _ConversationState extends State<_Conversation> {
       VrxHeader(
         title: 'Assistant',
         onBack: Nav.pop,
-        action: empty ? null : VrxIconButton(glyph: VrxSymbols.delete_sweep, onTap: widget.onClear),
+        action: empty ? null : VrxIconButton(glyph: VrxSymbols.delete_sweep, label: 'Clear the conversation', onTap: widget.onClear),
       ),
       if (view.notice != null) VrxBanner(text: view.notice),
       Expanded(

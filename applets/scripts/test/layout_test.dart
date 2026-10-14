@@ -46,11 +46,11 @@ void main() {
     testWidgets("a script's own screen on ${display.name}", (tester) async {
       final model = ScriptsModel()
         ..start('counter.py')
-        ..screen = ScriptScreen('A counter with a rather long title', [
-          const ScriptItem.text('Pressed 12 times since the script started, which is a sentence that wraps.'),
-          const ScriptItem.row('Press', tap: 'press'),
-          const ScriptItem.row('Mode', value: 'Counting up', tap: 'mode'),
-          const ScriptItem.row('Reset', tap: 'reset'),
+        ..screen = const ScriptScreen('A counter with a rather long title', [
+          ScriptItem.text('Pressed 12 times since the script started, which is a sentence that wraps.'),
+          ScriptItem.row('Press', tap: 'press'),
+          ScriptItem.row('Mode', value: 'Counting up', tap: 'mode'),
+          ScriptItem.row('Reset', tap: 'reset'),
         ]);
       await expectCleanLayout(tester, ScriptsApplet(model), display: display);
     });

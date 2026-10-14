@@ -155,6 +155,11 @@ method Profiling(on: ?bool) -> (on: bool, available: bool, reason: ?string, trac
 # 5 s while profiling is on; plan 0014 D5).
 method FrameStats(route: string, frames: int, build_p50_us: int, build_p95_us: int, build_p99_us: int, raster_p50_us: int, raster_p95_us: int, raster_p99_us: int, over_build: int, over_raster: int, budget_us: int) -> ()
 
+# Walks' semantics trees (plan 0014 D8): every app builds its tree while
+# on, and the compositor writes each to /run/vrx-ui/semantics/<id>.json.
+# Not for applets.
+method Semantics(on: bool) -> (on: bool)
+
 # The latest per-applet rates and frame summaries while profiling is on,
 # for walks (plan 0014 D9). Not for applets.
 method ProfileStats() -> (on: bool, applets: object, hvs_underruns: ?int)
@@ -747,6 +752,20 @@ async fn dispatch(
                     .map_err(|_| Failure::invalid("frames"))?;
             p.frames(applet, frames);
             Ok(json!({}))
+        }
+        "io.vrx.Host.Semantics" => {
+            if caller.is_some() {
+                return Err(Failure::host("NotPermitted", json!({})));
+            }
+            let p = host
+                .profiler
+                .as_ref()
+                .ok_or_else(|| Failure::host("Unavailable", json!({})))?;
+            let on = params
+                .get("on")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| Failure::invalid("on"))?;
+            Ok(json!({ "on": p.set_semantics(on) }))
         }
         "io.vrx.Host.ProfileStats" => {
             if caller.is_some() {

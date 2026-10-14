@@ -130,6 +130,7 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
           // the kit's press, as every control: acknowledged the same way
           child: VrxPress(
             onTap: onTap,
+            label: label,
             child: Container(
               height: keyHeight,
               alignment: Alignment.center,
@@ -164,34 +165,34 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
         children: [
           if (_terminal)
             Row(children: [
-              key('', widget.onBack!, glyph: VrxSymbols.arrow_back),
+              key('Back', widget.onBack!, glyph: VrxSymbols.arrow_back),
               key('esc', () => term(VrxTermKey.escape)),
               key('tab', () => term(VrxTermKey.tab)),
               key('ctrl', () => setState(() => _ctrl = !_ctrl), strong: _ctrl),
-              key('', () => term(VrxTermKey.left), glyph: VrxSymbols.keyboard_arrow_left),
-              key('', () => term(VrxTermKey.up), glyph: VrxSymbols.keyboard_arrow_up),
-              key('', () => term(VrxTermKey.down), glyph: VrxSymbols.keyboard_arrow_down),
-              key('', () => term(VrxTermKey.right), glyph: VrxSymbols.keyboard_arrow_right),
-              key('', widget.onHide!, glyph: VrxSymbols.keyboard_hide),
+              key('Left', () => term(VrxTermKey.left), glyph: VrxSymbols.keyboard_arrow_left),
+              key('Up', () => term(VrxTermKey.up), glyph: VrxSymbols.keyboard_arrow_up),
+              key('Down', () => term(VrxTermKey.down), glyph: VrxSymbols.keyboard_arrow_down),
+              key('Right', () => term(VrxTermKey.right), glyph: VrxSymbols.keyboard_arrow_right),
+              key('Hide the keyboard', widget.onHide!, glyph: VrxSymbols.keyboard_hide),
             ]),
           for (var r = 0; r < rows.length; r++)
             Row(children: [
               if (r == 2)
                 letters
-                    ? key('', () => setState(() => _mode = upper ? _Mode.lower : _Mode.upper),
+                    ? key(upper ? 'Lower case' : 'Shift', () => setState(() => _mode = upper ? _Mode.lower : _Mode.upper),
                         flex: 3, glyph: upper ? VrxSymbols.keyboard_capslock : VrxSymbols.arrow_upward)
                     : key(_mode == _Mode.more ? '123' : '#+=',
                         () => setState(() => _mode = _mode == _Mode.more ? _Mode.symbols : _Mode.more),
                         flex: 3),
               for (final ch in rows[r].split(''))
                 key(upper ? ch.toUpperCase() : ch, () => _type(upper ? ch.toUpperCase() : ch), flex: 2),
-              if (r == 2) key('', _backspace, flex: 3, glyph: VrxSymbols.backspace),
+              if (r == 2) key('Delete', _backspace, flex: 3, glyph: VrxSymbols.backspace),
             ]),
           Row(children: [
             key(letters ? '123' : 'abc', () => setState(() => _mode = letters ? _Mode.symbols : _Mode.lower),
                 flex: 3),
             key('space', () => _type(' '), flex: 10),
-            key('', _enter, flex: 3, glyph: VrxSymbols.keyboard_return, strong: true),
+            key('Enter', _enter, flex: 3, glyph: VrxSymbols.keyboard_return, strong: true),
           ]),
         ],
       ),

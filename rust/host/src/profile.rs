@@ -179,6 +179,8 @@ impl Marker {
 pub struct Profiler {
     inner: Arc<Mutex<Inner>>,
     on: watch::Sender<bool>,
+    /// Walks' semantics trees (plan 0014 D8).
+    semantics: watch::Sender<bool>,
     layer: PathBuf,
     record: PathBuf,
     marker: PathBuf,
@@ -216,6 +218,7 @@ impl Profiler {
         Self {
             inner: Arc::new(Mutex::new(Inner::default())),
             on: watch::channel(false).0,
+            semantics: watch::channel(false).0,
             layer,
             record,
             marker,
@@ -283,6 +286,19 @@ impl Profiler {
         self.on.send_replace(on);
         tracing::info!(on, "profiling switched");
         Ok(self.status())
+    }
+
+    /// The semantics trees' switch, as a channel (the compositor link).
+    pub fn watch_semantics(&self) -> watch::Receiver<bool> {
+        self.semantics.subscribe()
+    }
+
+    /// Walks turn the semantics trees on to find controls by label, and
+    /// off for timed runs (the tree costs a build pass per frame).
+    pub fn set_semantics(&self, on: bool) -> bool {
+        self.semantics.send_replace(on);
+        tracing::info!(on, "semantics trees switched");
+        on
     }
 
     /// An applet's frame summary (the kit sends one every 5 s while on).

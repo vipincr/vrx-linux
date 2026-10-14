@@ -80,6 +80,10 @@ Future<List<LayoutIssue>> checkApplet<S, A, V>(
   display ??= disp28a;
   await loadVrxFonts();
   final issues = <LayoutIssue>[];
+  // G038 (plan 0014 D8): walks find controls by label, so every control
+  // a person can tap says what it is; the semantics tree is built for the
+  // check, as the walk driver turns it on to plan
+  final semantics = tester.ensureSemantics();
   final previous = FlutterError.onError;
   // Flutter reports a Flex overflow as an error; it is one of the rules
   FlutterError.onError = (details) {
@@ -94,6 +98,7 @@ Future<List<LayoutIssue>> checkApplet<S, A, V>(
     if (setUp != null) await setUp(tester);
     await tester.pump(const Duration(seconds: 1));
     issues.addAll(_inspect(tester, display));
+    issues.addAll(unlabelledControls(tester));
     // G035 (plan 0013 D11): the same screen, the same state, under every
     // other display class: colours may differ, positions and sizes may
     // not. The host is pumped again with each class's colours; its store
@@ -113,7 +118,43 @@ Future<List<LayoutIssue>> checkApplet<S, A, V>(
   } finally {
     FlutterError.onError = previous;
     tester.view.reset();
+    semantics.dispose();
   }
+  return issues;
+}
+
+/// G038 (plan 0014 D8): every control a person can tap (a semantics node
+/// with the tap action, on screen and not hidden) has a label, value,
+/// tooltip or hint: the words a walk finds it by, and what a screen reader
+/// would say. The rect is in logical screen pixels.
+List<LayoutIssue> unlabelledControls(WidgetTester tester) {
+  SemanticsNode? root;
+  void find(PipelineOwner owner) {
+    root ??= owner.semanticsOwner?.rootSemanticsNode;
+    owner.visitChildren(find);
+  }
+
+  find(tester.binding.rootPipelineOwner);
+  if (root == null) return const [];
+  final issues = <LayoutIssue>[];
+  final dpr = tester.view.devicePixelRatio;
+  void visit(SemanticsNode node, Matrix4 parent) {
+    final transform = node.transform == null ? parent : (parent.clone()..multiply(node.transform!));
+    final data = node.getSemanticsData();
+    final words = '${data.label}${data.value}${data.tooltip}${data.hint}'.trim();
+    final hidden = data.flagsCollection.isHidden || node.isInvisible;
+    if (data.hasAction(SemanticsAction.tap) && words.isEmpty && !hidden) {
+      final r = MatrixUtils.transformRect(transform, node.rect);
+      issues.add(LayoutIssue('label', 'a control a person can tap has no label (G038)',
+          Rect.fromLTRB(r.left / dpr, r.top / dpr, r.right / dpr, r.bottom / dpr)));
+    }
+    node.visitChildren((child) {
+      visit(child, transform);
+      return true;
+    });
+  }
+
+  visit(root!, Matrix4.identity());
   return issues;
 }
 

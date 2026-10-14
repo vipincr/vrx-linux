@@ -22,6 +22,11 @@ use std::path::Path;
 
 /// Where systemd puts the applet units.
 pub const APPLET_SLICE: &str = "system.slice/system-vrx\\x2dapplet.slice";
+/// Where the Scripts applet's background scripts run, one unit each
+/// (vrx-script@<name>.service, plan 0013 D13): counted as rows of their
+/// own, keyed `script:<name>`, so a script behind the screen is seen by
+/// the energy estimate and the profiler like any applet.
+pub const SCRIPT_SLICE: &str = "system.slice/system-vrx\\x2dscript.slice";
 
 /// One applet's counters at a moment. `cpu_us`, `gpu_ns` and `wakeups`
 /// are what the energy estimate prices; the rest are the profiler's.
@@ -179,24 +184,32 @@ pub fn applet(unit_dir: &Path, proc_: &Path) -> Applet {
     c
 }
 
-/// Every applet unit's counters, and the applets whose cgroup is frozen.
+/// Every applet unit's counters (and each background script's, keyed
+/// `script:<name>`), and the applets whose cgroup is frozen.
 pub fn applets(cgroup: &Path, proc_: &Path) -> (BTreeMap<String, Applet>, Vec<String>) {
     let mut out = BTreeMap::new();
     let mut frozen = Vec::new();
-    if let Ok(units) = std::fs::read_dir(cgroup.join(APPLET_SLICE)) {
+    for (slice, prefix, key) in [
+        (APPLET_SLICE, "vrx-applet@", ""),
+        (SCRIPT_SLICE, "vrx-script@", "script:"),
+    ] {
+        let Ok(units) = std::fs::read_dir(cgroup.join(slice)) else {
+            continue;
+        };
         for unit in units.flatten() {
             let name = unit.file_name().to_string_lossy().into_owned();
             let Some(id) = name
-                .strip_prefix("vrx-applet@")
+                .strip_prefix(prefix)
                 .and_then(|n| n.strip_suffix(".service"))
             else {
                 continue;
             };
+            let id = format!("{key}{id}");
             let dir = unit.path();
             if read(&dir.join("cgroup.freeze")).is_some_and(|v| v.trim() == "1") {
-                frozen.push(id.to_owned());
+                frozen.push(id.clone());
             }
-            out.insert(id.to_owned(), applet(&dir, proc_));
+            out.insert(id, applet(&dir, proc_));
         }
     }
     (out, frozen)
@@ -294,6 +307,27 @@ mod tests {
         assert_eq!(web.cpu_stall_us, Some(777));
         assert_eq!(web.mem_stall_us, None, "a missing file is not 0 (G040)");
         assert_eq!(frozen, ["web"]);
+    }
+
+    #[test]
+    fn a_background_script_is_a_row_of_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        let unit = d
+            .join("cg")
+            .join(SCRIPT_SLICE)
+            .join("vrx-script@sensors.service");
+        std::fs::create_dir_all(&unit).unwrap();
+        std::fs::write(unit.join("cpu.stat"), "usage_usec 500\n").unwrap();
+        let app = d
+            .join("cg")
+            .join(APPLET_SLICE)
+            .join("vrx-applet@scripts.service");
+        std::fs::create_dir_all(&app).unwrap();
+        std::fs::write(app.join("cpu.stat"), "usage_usec 7\n").unwrap();
+        let (all, _) = applets(&d.join("cg"), &d.join("proc"));
+        assert_eq!(all["script:sensors"].cpu_us, 500);
+        assert_eq!(all["scripts"].cpu_us, 7);
     }
 
     #[test]

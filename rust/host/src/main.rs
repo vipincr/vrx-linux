@@ -156,6 +156,15 @@ async fn main() -> ExitCode {
     // compositor and the applets follow it
     let profiler = vrx_host::profile::Profiler::system();
     tokio::spawn(profiler.clone().run());
+    let mut semantics = profiler.watch_semantics();
+    let semantics_link = focus_for_battery.clone();
+    tokio::spawn(async move {
+        while semantics.changed().await.is_ok() {
+            let on = *semantics.borrow_and_update();
+            compositor::SEMANTICS.store(on, std::sync::atomic::Ordering::Relaxed);
+            let _ = semantics_link.send(Control::Semantics(on));
+        }
+    });
     let mut profiling = profiler.watch();
     let profiling_link = focus_for_battery.clone();
     tokio::spawn(async move {

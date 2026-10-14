@@ -110,6 +110,15 @@ pub fn load_profile(path: &Path) -> (PowerProfile, Option<String>) {
     }
 }
 
+/// A row's name: the applet's, or "Script <name>" for a background
+/// script (counters keys them `script:<name>`), or the key.
+fn display_name(names: &BTreeMap<String, String>, key: &str) -> String {
+    if let Some(script) = key.strip_prefix("script:") {
+        return format!("Script {script}");
+    }
+    names.get(key).cloned().unwrap_or_else(|| key.to_owned())
+}
+
 fn read(path: &Path) -> Option<String> {
     std::fs::read_to_string(path).ok()
 }
@@ -748,7 +757,7 @@ impl Energy {
             let day = t / 86_400;
             match st.alerts.get(&id).cloned() {
                 None if pct > budget.percent && st.alerted_day.get(&id) != Some(&day) => {
-                    let name = st.names.get(&id).cloned().unwrap_or_else(|| id.clone());
+                    let name = display_name(&st.names, &id);
                     let kind = if in_front { "front" } else { "background" };
                     journal(
                         &format!(
@@ -778,9 +787,14 @@ impl Energy {
                 Some(_) if pct < budget.percent / 2.0 => {
                     st.alerts.remove(&id);
                 }
+                // a background script runs behind the screen by design, as
+                // an applet declaring `background` does, which the freezer
+                // never freezes: it is alerted, and a person stops it from
+                // Scripts' Running screen
                 Some(a)
                     if a.answer.is_empty()
                         && !in_front
+                        && !id.starts_with("script:")
                         && pct > budget.percent
                         && t.saturating_sub(a.since) >= FREEZE_AFTER_S =>
                 {
@@ -857,10 +871,7 @@ impl Energy {
             .map(|(key, u)| {
                 let (kind, name) = match system.get(key.as_str()) {
                     Some(n) => ("system", (*n).to_owned()),
-                    None => (
-                        "applet",
-                        st.names.get(&key).cloned().unwrap_or_else(|| key.clone()),
-                    ),
+                    None => ("applet", display_name(&st.names, &key)),
                 };
                 Row {
                     over: st.alerts.contains_key(&key),

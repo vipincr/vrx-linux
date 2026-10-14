@@ -64,6 +64,7 @@ class VrxHeader extends StatelessWidget {
               if (arrow)
                 VrxIconButton(
                   glyph: VrxSymbols.arrow_back,
+                  label: 'Back',
                   onTap: onBack,
                 ),
               SizedBox(width: arrow ? ScaledSpacing.of(context).xs : ScaledSpacing.of(context).inset),
@@ -81,11 +82,14 @@ class VrxHeader extends StatelessWidget {
   }
 }
 
-/// A square icon button: 5mm, glyph centred, inverts while held.
+/// A square icon button: 5mm, glyph centred, inverts while held. [label]
+/// is what it does in words: a glyph alone says nothing to a screen reader
+/// or to a walk finding it (plan 0014 D8, G038).
 class VrxIconButton extends StatelessWidget {
-  const VrxIconButton({super.key, required this.glyph, this.onTap});
+  const VrxIconButton({super.key, required this.glyph, required this.label, this.onTap});
 
   final IconData glyph;
+  final String label;
   final VoidCallback? onTap;
 
   @override
@@ -96,6 +100,7 @@ class VrxIconButton extends StatelessWidget {
     final square = Chrome.iconButton * VrxScale.of(context);
     return VrxPress(
       onTap: onTap,
+      label: label,
       child: SizedBox(
         width: hit > square ? hit : square,
         height: hit > square ? hit : square,
@@ -245,6 +250,7 @@ class VrxRow extends StatelessWidget {
             if (valueGlyph != null && onValueGlyph != null)
               VrxPress(
                 onTap: onValueGlyph,
+                label: label,
                 child: SizedBox.square(
                   dimension: ScaledSpacing.minInteractive(context),
                   child: Icon(valueGlyph, size: glyphSize),
@@ -375,7 +381,9 @@ class _VrxSegmentedState extends State<VrxSegmented> {
           return Row(children: [
             for (var i = 0; i < widget.labels.length; i++)
               Expanded(
-                child: GestureDetector(
+                child: _SegmentSemantics(
+                  selected: i == widget.selected,
+                  child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: enabled ? () => widget.onSelected!(i) : null,
                   child: Container(
@@ -413,12 +421,26 @@ class _VrxSegmentedState extends State<VrxSegmented> {
                           ),
                   ),
                 ),
+                ),
               ),
           ]);
         }),
       ),
     );
   }
+}
+
+/// A segment is one control: its tap and its words, selected or not
+/// (plan 0014 D8).
+class _SegmentSemantics extends StatelessWidget {
+  const _SegmentSemantics({required this.selected, required this.child});
+
+  final bool selected;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) =>
+      MergeSemantics(child: Semantics(button: true, selected: selected, child: child));
 }
 
 class _StepIntent extends Intent {
@@ -529,7 +551,7 @@ class VrxBanner extends StatelessWidget {
         ),
       ]),
     );
-    return onTap == null ? band : GestureDetector(onTap: onTap, child: band);
+    return onTap == null ? band : MergeSemantics(child: GestureDetector(onTap: onTap, child: band));
   }
 }
 
@@ -547,11 +569,16 @@ class VrxBanner extends StatelessWidget {
 /// and a mouse with a right click: every control is reachable without a
 /// finger (evrx-rt AGENTS.md 2.1.2a).
 class VrxPress extends StatefulWidget {
-  const VrxPress({super.key, required this.child, this.onTap, this.onLongPress, this.onFill = false});
+  const VrxPress({super.key, required this.child, this.onTap, this.onLongPress, this.onFill = false, this.label});
 
   final Widget child;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
+
+  /// Words for a control whose child has none (a glyph). A child's own
+  /// text is merged into the control's semantics either way, so a row or a
+  /// chip says what it shows (plan 0014 D8, G038).
+  final String? label;
 
   /// The child is filled with the primary.
   final bool onFill;
@@ -630,8 +657,10 @@ class _VrxPressState extends State<VrxPress> with SingleTickerProviderStateMixin
       );
     }
     // a mouse and keyboard reach it too: focus (Tab, the arrows), Enter
-    // or Space to press, hover, and a right click for what a hold does
-    return FocusableActionDetector(
+    // or Space to press, hover, and a right click for what a hold does.
+    // One semantics node per control: its tap and hold with the words its
+    // child shows (or its label), what a walk finds it by (G038).
+    final control = FocusableActionDetector(
       enabled: enabled,
       mouseCursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
       onShowFocusHighlight: (v) => setState(() => _focused = v),
@@ -668,6 +697,7 @@ class _VrxPressState extends State<VrxPress> with SingleTickerProviderStateMixin
         child: ScaleTransition(scale: _scale, child: child),
       ),
     );
+    return MergeSemantics(child: Semantics(button: true, enabled: enabled, label: widget.label, child: control));
   }
 }
 
@@ -768,10 +798,12 @@ class _VrxRevealTextState extends State<VrxRevealText> {
         textAlign: widget.textAlign,
       );
       if (!cut || !widget.reveals) return text;
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => setState(() => _whole = !_whole),
-        child: text,
+      return MergeSemantics(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => setState(() => _whole = !_whole),
+          child: text,
+        ),
       );
     });
   }

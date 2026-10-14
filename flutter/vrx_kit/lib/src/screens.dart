@@ -57,15 +57,24 @@ class VrxQuickDrawer extends StatelessWidget {
     final colors = VrxTheme.of(context);
     final s = ScaledSpacing.of(context);
     return Positioned.fill(
-      child: GestureDetector(
-        // the scrim: a tap dismisses
-        onTap: onDismiss,
-        child: ColoredBox(
-          color: colors.page.withValues(alpha: 0.6),
-          child: Align(
+      child: Stack(children: [
+        // the scrim: a tap dismisses. A sibling of the panel, so its words
+        // ("Close the drawer", what a walk finds it by) stay its own
+        Positioned.fill(
+          child: Semantics(
+            label: 'Close the drawer',
+            button: true,
+            child: GestureDetector(
+              onTap: onDismiss,
+              child: ColoredBox(color: colors.page.withValues(alpha: 0.6)),
+            ),
+          ),
+        ),
+        Align(
             alignment: Alignment.topCenter,
             child: GestureDetector(
               onTap: () {}, // the panel eats taps; they do not dismiss
+              excludeFromSemantics: true,
               child: Container(
                 width: double.infinity,
                 // the drawer rests on the surface, as the strip it opens from
@@ -85,6 +94,7 @@ class VrxQuickDrawer extends StatelessWidget {
                         ),
                         VrxIconButton(
                           glyph: VrxSymbols.power_settings_new,
+                          label: 'Power',
                           onTap: onPower,
                         ),
                       ],
@@ -119,12 +129,14 @@ class VrxQuickDrawer extends StatelessWidget {
                         children: [
                           _Shortcut(
                             glyph: VrxSymbols.wifi,
+                            label: 'Wi-Fi',
                             filled: wifiUp,
                             onTap: onWifi,
                           ),
                           SizedBox(width: s.sm),
                           _Shortcut(
                             glyph: VrxSymbols.bluetooth,
+                            label: 'Bluetooth',
                             filled: bleUp,
                             onTap: onBle,
                           ),
@@ -136,16 +148,16 @@ class VrxQuickDrawer extends StatelessWidget {
               ),
             ),
           ),
-        ),
-      ),
+      ]),
     );
   }
 }
 
 class _Shortcut extends StatelessWidget {
-  const _Shortcut({required this.glyph, required this.filled, this.onTap});
+  const _Shortcut({required this.glyph, required this.label, required this.filled, this.onTap});
 
   final IconData glyph;
+  final String label;
   final bool filled;
   final VoidCallback? onTap;
 
@@ -156,6 +168,7 @@ class _Shortcut extends StatelessWidget {
     final side = (Chrome.statusButton * VrxScale.of(context)).clamp(ScaledSpacing.minInteractive(context), double.infinity);
     return VrxPress(
       onTap: onTap,
+      label: label,
       child: Container(
         width: side,
         height: side,

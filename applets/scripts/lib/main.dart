@@ -446,7 +446,11 @@ class _EditorState extends State<_Editor> {
     final save = VrxChip(label: 'Save', filled: true, onTap: () => widget.onSave(_text.text));
     final field = Padding(
       padding: EdgeInsets.symmetric(horizontal: space.sm),
-      child: TextField(
+      // the text area says what it holds, even empty (plan 0014 D8)
+      child: MergeSemantics(
+          child: Semantics(
+        label: 'The script ${widget.name}',
+        child: TextField(
         controller: _text,
         maxLines: null,
         expands: true,
@@ -461,6 +465,7 @@ class _EditorState extends State<_Editor> {
           if (!_keys) setState(() => _keys = true);
         },
       ),
+      )),
     );
     return LayoutBuilder(builder: (context, box) {
       // a header, a few lines and the keyboard; on a panel too short for
@@ -483,7 +488,7 @@ class _EditorState extends State<_Editor> {
               SizedBox(
                 height: space.touch,
                 child: Row(children: [
-                  VrxIconButton(glyph: VrxSymbols.arrow_back, onTap: widget.onBack),
+                  VrxIconButton(glyph: VrxSymbols.arrow_back, label: 'Back', onTap: widget.onBack),
                   SizedBox(width: space.xs),
                   Expanded(child: VrxFitText(widget.name, style: TypeRole.of(context, VrxTypeRole.list), maxLines: 1)),
                   save,
