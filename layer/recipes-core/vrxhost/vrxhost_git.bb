@@ -23,7 +23,7 @@ SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master \
            file://vrx-wake@.service \
            file://vrx-wakealarm.service \
            "
-SRCREV = "877a3dfb300fe7b506601c69e8152248e471da4d"
+SRCREV = "c2d4cf75999e008c9eb6a2337e7ae0a8fcc24339"
 
 # the workspace member this recipe builds (the root manifest is the
 # workspace, not a package); the lock is the workspace's, not the
