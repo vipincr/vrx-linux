@@ -17,7 +17,7 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use vrx_protocol::sysext::{release_ok, release_path, APPS_DIR};
 use vrx_protocol::unit::{dropin, settings_defaults, Grants, Place};
 use vrx_protocol::{Manifest, Registry, RegistryEntry};
@@ -554,28 +554,161 @@ async fn installed_build(registry: &Registry, id: &str) -> Option<(String, Strin
     Some((entry.manifest.applet.version.clone(), build))
 }
 
+/// The privileged half of installing. vrxhost runs sandboxed (no
+/// capabilities, a read-only system but /run/vrx), and the work here
+/// cannot: systemd-dissect needs a mount namespace and loop devices, the
+/// copy writes /var/lib/extensions and /etc/systemd/system. So it runs in
+/// vrx-install.service, this same binary (`vrxhost install-helper`),
+/// started by the daemon over D-Bus for each call, the request and its
+/// outcome in HELPER_DIR. The daemon keeps the consent's caller check,
+/// the merge (systemd-sysext's Varlink socket merges in the system's
+/// mount namespace; a refresh inside this unit's would merge only there),
+/// the reload and the registry.
+pub const HELPER_UNIT: &str = "vrx-install.service";
+pub const HELPER_DIR: &str = "/run/vrx/install";
+
+/// One call to the helper.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "lowercase")]
+pub enum Request {
+    /// The offers waiting; the USB drive's apps/ read in first when
+    /// nothing shares the drive.
+    Offers { drive_idle: bool },
+    /// Copy an agreed offer in: check it, write its drop-in, stage it.
+    Install { file: String, build: String },
+    /// Delete an installed applet's image, drop-in, state and settings.
+    Uninstall { applet: String },
+}
+
+/// A refusal as the daemon replies it: an io.vrx.Host error and its
+/// parameters.
+fn refused(error: &str, parameters: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "error": error, "parameters": parameters })
+}
+
+/// Carry out `request` against the system's registry.
+pub async fn helper(
+    paths: &crate::paths::VrxPaths,
+    request: Request,
+) -> serde_json::Value {
+    use serde_json::json;
+    let registry = match crate::registry::scan(paths) {
+        Ok(r) => r,
+        Err(err) => {
+            return refused(
+                "InstallFailed",
+                json!({ "applet": "", "detail": err.to_string() }),
+            )
+        }
+    };
+    match request {
+        Request::Offers { drive_idle } => {
+            if drive_idle {
+                import_drive().await;
+            }
+            json!({ "offers": offers(&registry, &paths.system_defaults).await })
+        }
+        Request::Install { file, build } => {
+            if id_of_file(&file).is_none() {
+                return refused(
+                    "OfferRefused",
+                    json!({ "file": file, "reason": "name" }),
+                );
+            }
+            let image = Path::new(OFFERS).join(&file);
+            let flutter = system_flutter(&paths.system_defaults);
+            let inspected = match check_offer(&registry, &image, flutter.as_deref()).await
+            {
+                Ok(i) => i,
+                Err(r) => {
+                    tracing::warn!(%file, reason = %r, "install refused");
+                    return refused(
+                        "OfferRefused",
+                        json!({ "file": file, "reason": r.key() }),
+                    );
+                }
+            };
+            if inspected.build != build {
+                return refused("OfferChanged", json!({ "file": file }));
+            }
+            let id = inspected.manifest.applet.id.clone();
+            let staged = async {
+                write_unit(&inspected)?;
+                stage(&image, &id).await
+            };
+            if let Err(detail) = staged.await {
+                return refused(
+                    "InstallFailed",
+                    json!({ "applet": id, "detail": detail }),
+                );
+            }
+            let _ = std::fs::remove_file(&image);
+            json!({ "id": id, "version": inspected.manifest.applet.version })
+        }
+        Request::Uninstall { applet } => {
+            if registry.find(&applet).is_none_or(|e| e.builtin) {
+                return refused("NotInstalled", json!({ "applet": applet }));
+            }
+            match remove(&applet) {
+                Ok(()) => json!({}),
+                Err(detail) => refused(
+                    "InstallFailed",
+                    json!({ "applet": applet, "detail": detail }),
+                ),
+            }
+        }
+    }
+}
+
+/// `vrxhost install-helper`: read the request, write the outcome.
+pub async fn helper_main(paths: &crate::paths::VrxPaths) -> bool {
+    let dir = Path::new(HELPER_DIR);
+    let request: Request = match std::fs::read_to_string(dir.join("request.json"))
+        .map_err(|e| e.to_string())
+        .and_then(|t| serde_json::from_str(&t).map_err(|e| e.to_string()))
+    {
+        Ok(r) => r,
+        Err(err) => {
+            tracing::error!(error = %err, "install helper: no request");
+            return false;
+        }
+    };
+    let outcome = helper(paths, request).await;
+    atomic_write(&dir.join("result.json"), &outcome.to_string())
+        .map_err(|err| tracing::error!(error = %err, "install helper: no result"))
+        .is_ok()
+}
+
 /// Remove installed applet `id`: its image, drop-in, state, cache and
 /// settings. The caller stops its unit first and refreshes after.
 pub fn remove(id: &str) -> Result<(), String> {
+    // every path is tried: one that cannot go must not leave the rest
+    // (the image above all) behind; the first failure is reported
+    let mut first = None;
+    let mut note = |r: Result<(), String>| {
+        if let Err(e) = r {
+            first.get_or_insert(e);
+        }
+    };
     let gone = |p: PathBuf| match std::fs::remove_file(&p) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(format!("{}: {e}", p.display())),
     };
-    gone(Path::new(EXTENSIONS).join(format!("{id}.raw")))?;
-    gone(dropin_path(id))?;
-    gone(PathBuf::from(format!("/etc/vrx/settings/{id}.conf")))?;
+    note(gone(Path::new(EXTENSIONS).join(format!("{id}.raw"))));
+    note(gone(dropin_path(id)));
+    note(gone(PathBuf::from(format!("/etc/vrx/settings/{id}.conf"))));
     for dir in [
         format!("/var/lib/private/vrx/{id}"),
         format!("/var/cache/private/vrx/{id}"),
     ] {
-        match std::fs::remove_dir_all(&dir) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(format!("{dir}: {e}")),
-        }
+        note(match std::fs::remove_dir_all(&dir) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("{dir}: {e}")),
+        });
     }
-    Ok(())
+    first.map_or(Ok(()), Err)
 }
 
 #[cfg(test)]
@@ -702,6 +835,22 @@ mod tests {
             check_manifest(&registry, &home, dir),
             Err(Refusal::Manifest(_))
         ));
+    }
+
+    #[test]
+    fn a_helper_request_is_one_json_object_per_operation() {
+        let r = Request::Install {
+            file: "notes.raw".into(),
+            build: "ab".into(),
+        };
+        let text = serde_json::to_string(&r).unwrap();
+        assert_eq!(text, r#"{"op":"install","file":"notes.raw","build":"ab"}"#);
+        assert_eq!(serde_json::from_str::<Request>(&text).unwrap(), r);
+        assert_eq!(
+            serde_json::from_str::<Request>(r#"{"op":"offers","drive_idle":true}"#)
+                .unwrap(),
+            Request::Offers { drive_idle: true }
+        );
     }
 
     #[test]

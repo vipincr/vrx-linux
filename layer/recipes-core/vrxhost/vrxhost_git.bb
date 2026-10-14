@@ -19,6 +19,7 @@ SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master \
            file://vrxhost.service \
            file://vrxhost-tmpfiles.conf \
            file://vrx-applet@.service \
+           file://vrx-install.service \
            "
 SRCREV = "0b538a6d91bad3f695cf84bcefb5bf224bdd40e8"
 
@@ -43,6 +44,7 @@ do_install() {
     install -d ${D}${systemd_unitdir}/system
     install -m 0644 ${UNPACKDIR}/vrxhost.service ${D}${systemd_unitdir}/system/
     install -m 0644 ${UNPACKDIR}/vrx-applet@.service ${D}${systemd_unitdir}/system/
+    install -m 0644 ${UNPACKDIR}/vrx-install.service ${D}${systemd_unitdir}/system/
     install -d ${D}${nonarch_libdir}/tmpfiles.d
     install -m 0644 ${UNPACKDIR}/vrxhost-tmpfiles.conf ${D}${nonarch_libdir}/tmpfiles.d/vrxhost.conf
 }
@@ -57,6 +59,7 @@ GROUPADD_PARAM:${PN} = "-r vrx"
 
 FILES:${PN} = "${bindir}/vrxhost ${systemd_unitdir}/system/vrxhost.service \
                ${systemd_unitdir}/system/vrx-applet@.service \
+               ${systemd_unitdir}/system/vrx-install.service \
                ${nonarch_libdir}/tmpfiles.d/vrxhost.conf"
 
 SYSTEMD_SERVICE:${PN} = "vrxhost.service"

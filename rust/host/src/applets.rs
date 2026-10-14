@@ -125,6 +125,14 @@ trait Manager {
     fn stop_unit(&self, name: &str, mode: &str) -> zbus::Result<OwnedObjectPath>;
     fn reset_failed_unit(&self, name: &str) -> zbus::Result<()>;
     fn reload(&self) -> zbus::Result<()>;
+    #[zbus(signal)]
+    fn job_removed(
+        &self,
+        id: u32,
+        job: zbus::zvariant::ObjectPath<'_>,
+        unit: String,
+        result: String,
+    ) -> zbus::Result<()>;
 }
 
 #[proxy(
@@ -199,6 +207,25 @@ impl Applets {
     /// systemd reads its units again (a drop-in written or removed).
     pub async fn reload(&self) -> zbus::Result<()> {
         ManagerProxy::new(&self.conn).await?.reload().await
+    }
+
+    /// Start a oneshot unit and wait for its job to end; the job's result
+    /// ("done" when the unit's process exited cleanly).
+    pub async fn run_oneshot(&self, unit: &str) -> zbus::Result<String> {
+        let manager = ManagerProxy::new(&self.conn).await?;
+        // listening before the start, so the job's end is not missed
+        let mut removed = manager.receive_job_removed().await?;
+        let _ = manager.reset_failed_unit(unit).await;
+        let job = manager.start_unit(unit, "replace").await?;
+        while let Some(signal) = removed.next().await {
+            let args = signal.args()?;
+            if args.job.as_str() == job.as_str() {
+                return Ok(args.result);
+            }
+        }
+        Err(zbus::Error::Failure(format!(
+            "{unit}: systemd's job signals ended"
+        )))
     }
 
     /// The unit is active now.

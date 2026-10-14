@@ -219,6 +219,8 @@ pub struct Installer {
     pub applets: crate::applets::Applets,
     /// The applet ids now on the system, after an install or uninstall.
     pub added: mpsc::UnboundedSender<Vec<String>>,
+    /// One install-helper call at a time (they share its request file).
+    pub lock: std::sync::Arc<tokio::sync::Mutex<()>>,
 }
 
 /// Serve `io.vrx.Host` until the listener fails.
@@ -498,7 +500,7 @@ async fn dispatch(
         "io.vrx.Host.Applets" => Ok(json!({ "applets": tiles(&host.registry.get()) })),
         "io.vrx.Host.Offers" => {
             let installer = may_install(host, caller)?;
-            Ok(json!({ "offers": offers(host, installer).await }))
+            offers(installer).await
         }
         "io.vrx.Host.Install" => {
             let installer = may_install(host, caller)?;
@@ -674,15 +676,51 @@ fn may_install<'a>(
         .ok_or_else(|| Failure::host("Unavailable", json!({})))
 }
 
-async fn offers(host: &Host, installer: &Installer) -> Vec<crate::install::Offer> {
-    if !installer
+/// Run one request in vrx-install.service (install.rs, the privileged
+/// half) and return its outcome; an outcome naming an error is that
+/// error.
+async fn helper(
+    installer: &Installer,
+    request: crate::install::Request,
+) -> Result<Value, Failure> {
+    use crate::install::{HELPER_DIR, HELPER_UNIT};
+    let failed = |detail: String| {
+        tracing::error!(%detail, "install helper");
+        Failure::host("InstallFailed", json!({ "applet": "", "detail": detail }))
+    };
+    let _one = installer.lock.lock().await;
+    let dir = Path::new(HELPER_DIR);
+    std::fs::create_dir_all(dir).map_err(|e| failed(e.to_string()))?;
+    let _ = std::fs::remove_file(dir.join("result.json"));
+    let text = serde_json::to_string(&request).map_err(|e| failed(e.to_string()))?;
+    std::fs::write(dir.join("request.json"), text).map_err(|e| failed(e.to_string()))?;
+    let result = installer
+        .applets
+        .run_oneshot(HELPER_UNIT)
+        .await
+        .map_err(|e| failed(e.to_string()))?;
+    if result != "done" {
+        return Err(failed(format!("{HELPER_UNIT}: {result}")));
+    }
+    let outcome: Value = std::fs::read_to_string(dir.join("result.json"))
+        .map_err(|e| e.to_string())
+        .and_then(|t| serde_json::from_str(&t).map_err(|e| e.to_string()))
+        .map_err(failed)?;
+    match outcome.get("error").and_then(Value::as_str) {
+        Some(error) => Err(Failure::host(
+            error,
+            outcome.get("parameters").cloned().unwrap_or(Value::Null),
+        )),
+        None => Ok(outcome),
+    }
+}
+
+async fn offers(installer: &Installer) -> Result<Value, Failure> {
+    let drive_idle = !installer
         .applets
         .is_active(crate::install::DRIVE_UNIT)
-        .await
-    {
-        crate::install::import_drive().await;
-    }
-    crate::install::offers(&host.registry.get(), &installer.paths.system_defaults).await
+        .await;
+    helper(installer, crate::install::Request::Offers { drive_idle }).await
 }
 
 /// Scan again after an install or uninstall, and tell the session which
@@ -709,40 +747,28 @@ async fn install(
     file: &str,
     build: &str,
 ) -> Result<Value, Failure> {
-    use crate::install as inst;
-    if inst::id_of_file(file).is_none() {
-        return Err(Failure::host(
-            "OfferRefused",
-            json!({ "file": file, "reason": "name" }),
-        ));
-    }
-    let image = std::path::Path::new(inst::OFFERS).join(file);
-    let flutter = inst::system_flutter(&installer.paths.system_defaults);
-    let inspected = inst::check_offer(&host.registry.get(), &image, flutter.as_deref())
-        .await
-        .map_err(|r| {
-            tracing::warn!(%file, reason = %r, "install refused");
-            Failure::host("OfferRefused", json!({ "file": file, "reason": r.key() }))
-        })?;
-    if inspected.build != build {
-        return Err(Failure::host("OfferChanged", json!({ "file": file })));
-    }
-    let id = inspected.manifest.applet.id.clone();
+    let request = crate::install::Request::Install {
+        file: file.to_owned(),
+        build: build.to_owned(),
+    };
+    let outcome = helper(installer, request).await?;
+    let id = outcome
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
     let failed = |detail: String| {
         tracing::error!(applet = %id, %detail, "install failed");
         Failure::host("InstallFailed", json!({ "applet": id, "detail": detail }))
     };
-    inst::write_unit(&inspected).map_err(failed)?;
-    inst::stage(&image, &id).await.map_err(failed)?;
-    inst::refresh().await.map_err(failed)?;
+    crate::install::refresh().await.map_err(failed)?;
     installer
         .applets
         .reload()
         .await
         .map_err(|e| failed(e.to_string()))?;
-    let _ = std::fs::remove_file(&image);
     rescan(host, installer);
-    tracing::info!(applet = %id, version = %inspected.manifest.applet.version, %build, "installed");
+    tracing::info!(applet = %id, version = ?outcome.get("version"), %build, "installed");
     Ok(json!({ "id": id }))
 }
 
@@ -766,7 +792,12 @@ async fn uninstall(
         .stop(applet)
         .await
         .map_err(|e| failed(e.to_string()))?;
-    crate::install::remove(applet).map_err(failed)?;
+    let request = crate::install::Request::Uninstall {
+        applet: applet.to_owned(),
+    };
+    // whatever the helper could not delete, what it did delete (the
+    // image first) is merged out and forgotten
+    let removed = helper(installer, request).await;
     crate::install::refresh().await.map_err(failed)?;
     installer
         .applets
@@ -774,6 +805,7 @@ async fn uninstall(
         .await
         .map_err(|e| failed(e.to_string()))?;
     rescan(host, installer);
+    removed?;
     tracing::info!(%applet, "uninstalled");
     Ok(json!({}))
 }

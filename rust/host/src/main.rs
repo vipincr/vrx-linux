@@ -25,6 +25,14 @@ async fn main() -> ExitCode {
         .init();
 
     let paths = paths::VrxPaths::system();
+    // vrx-install.service: the privileged half of an install (install.rs)
+    if std::env::args().nth(1).as_deref() == Some("install-helper") {
+        return if vrx_host::install::helper_main(&paths).await {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
+    }
     let registry = match registry::scan(&paths) {
         Ok(registry) => registry,
         Err(err) => {
@@ -75,6 +83,7 @@ async fn main() -> ExitCode {
         paths: paths.clone(),
         applets: applets.clone(),
         added: added_tx,
+        lock: Default::default(),
     };
     let host = Host {
         registry: registry.clone(),

@@ -1,0 +1,30 @@
+# The privileged half of installing an applet (plan 0011 D16): this same
+# binary, started by vrxhost over D-Bus for one call at a time, the
+# request and its outcome in /run/vrx/install. vrxhost itself runs with
+# no capabilities and a read-only system; reading an image needs a mount
+# namespace and loop devices (systemd-dissect), and copying one in
+# writes the paths below. The merge is not done here: systemd-sysext
+# merges in the system's mount namespace through its Varlink socket,
+# which vrxhost calls after this unit ends (a refresh inside this unit's
+# private namespace would merge only there).
+[Unit]
+Description=vrx install helper (reads, checks and copies an applet's image)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/vrxhost install-helper
+UMask=0022
+# systemd-dissect: loop devices and a mount namespace (CAP_SYS_ADMIN);
+# an uninstall deletes the state and cache directories the applet's
+# dynamic user owns, mode 0700 (CAP_DAC_OVERRIDE)
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/run/vrx/install /var/lib/extensions /var/lib/vrx/offers /etc/systemd/system /etc/vrx/settings
+ReadWritePaths=-/var/lib/private/vrx -/var/cache/private/vrx
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
