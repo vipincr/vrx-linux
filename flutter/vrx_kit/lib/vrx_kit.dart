@@ -37,6 +37,7 @@ export 'src/shell.dart';
 export 'src/slider.dart';
 export 'src/store.dart';
 export 'src/symbols.dart';
+export 'src/text_input.dart';
 export 'src/system.dart';
 export 'src/theme.dart';
 export 'src/ticker.dart';

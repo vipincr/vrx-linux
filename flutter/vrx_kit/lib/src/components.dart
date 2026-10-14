@@ -236,9 +236,11 @@ class VrxRow extends StatelessWidget {
           }
 
           final lead = glyph == null ? 0.0 : VrxTypeRole.body.dp * VrxScale.of(context) + space.sm;
-          final trail = valueGlyph == null
-              ? 0.0
-              : (onValueGlyph != null ? ScaledSpacing.minInteractive(context) : glyphSize + space.xs);
+          // a tappable glyph's square: the touch minimum on a touch
+          // display, the glyph and its gap where no finger aims (no
+          // touchscreen fitted, plan 0013 D7), never less than the glyph
+          final tapGlyph = math.max(ScaledSpacing.minInteractive(context), glyphSize + space.xs);
+          final trail = valueGlyph == null ? 0.0 : (onValueGlyph != null ? tapGlyph : glyphSize + space.xs);
           final room = box.maxWidth - lead - trail;
           final valueWidth = !hasValue
               ? 0.0
@@ -252,7 +254,7 @@ class VrxRow extends StatelessWidget {
                 onTap: onValueGlyph,
                 label: label,
                 child: SizedBox.square(
-                  dimension: ScaledSpacing.minInteractive(context),
+                  dimension: tapGlyph,
                   child: Icon(valueGlyph, size: glyphSize),
                 ),
               )

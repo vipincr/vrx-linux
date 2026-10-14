@@ -19,6 +19,7 @@ import 'screen.dart';
 import 'shell.dart';
 import 'settings.dart';
 import 'store.dart';
+import 'text_input.dart';
 import 'theme.dart';
 import 'ui_standard.g.dart';
 
@@ -101,6 +102,8 @@ class AppletHost<S, A, V> extends StatefulWidget {
     required this.applet,
     this.actions,
     this.colors,
+    this.screen,
+    this.input,
   });
 
   final Applet<S, A, V> applet;
@@ -109,6 +112,14 @@ class AppletHost<S, A, V> extends StatefulWidget {
   /// The colours; the boot's ([bootColors]) when none are given (tests
   /// and shots pass their own).
   final VrxColors? colors;
+
+  /// Where the input facts and the keyboard mode are read (plan 0013 D6,
+  /// D7); the board's when null (tests pass their own).
+  final ScreenSettings? screen;
+
+  /// The input facts, given instead of read (vrx_check lays an applet out
+  /// with each display's own, plan 0013 D7); read from [screen] when null.
+  final VrxInputFacts? input;
 
   @override
   State<AppletHost<S, A, V>> createState() => _AppletHostState<S, A, V>();
@@ -120,10 +131,24 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
   late final VrxColors _boot = bootColors();
   StreamSubscription<V>? _views;
   StreamSubscription<A>? _actions;
+  late final ScreenSettings _screen = widget.screen ?? ScreenSettings();
+  StreamSubscription<VrxInputFacts>? _facts;
+  // G034 (plan 0013 D7): the touch floor is the hardware's, as the
+  // compositor says it; until it has, a touchscreen is assumed
+  VrxInputModality _modality = VrxInputModality.touch;
 
   @override
   void initState() {
     super.initState();
+    final given = widget.input;
+    if (given != null) {
+      _modality = given.touch ? VrxInputModality.touch : VrxInputModality.view;
+    } else {
+      _facts = _screen.inputFacts().listen((f) {
+        final m = f.touch ? VrxInputModality.touch : VrxInputModality.view;
+        if (mounted && m != _modality) setState(() => _modality = m);
+      }, onError: (Object _) {});
+    }
     _views = _store.views.listen((_) {
       if (mounted) setState(() {});
     });
@@ -154,6 +179,7 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
 
   @override
   void dispose() {
+    unawaited(_facts?.cancel());
     unawaited(_routes?.cancel());
     // dispose cannot wait; the cancels finish on their own
     unawaited(_actions?.cancel());
@@ -173,10 +199,15 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
       // display's, read before the strip takes its share
       builder: (context, child) => VrxScale.install(
         child: VrxInsets(
-          child: VrxInputRoot(child: _RefusalBand(child: child ?? const SizedBox.shrink())),
+          child: VrxInputRoot(
+            child: _RefusalBand(
+              child: VrxKeyboardHost(settings: _screen, child: child ?? const SizedBox.shrink()),
+            ),
+          ),
         ),
       ),
       home: VrxInput.install(
+        modality: _modality,
         child: AppletScope<A>(
           onAction: _store.dispatch,
           child: Builder(

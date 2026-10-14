@@ -14,10 +14,10 @@ import 'scale.dart';
 import 'shell.dart';
 import 'theme.dart';
 
-/// A line of text: a header, the field, and the on-screen keyboard under
-/// it. A physical keyboard types into the field directly (the on-screen
-/// one steps aside while it does); Enter or the keyboard's done key ends
-/// it with the text.
+/// A line of text: a header and the field. The field takes focus and the
+/// kit's keyboard comes up under the screen (plan 0013 D6); a physical
+/// keyboard types into it directly (the on-screen one steps aside while
+/// it does). Enter ends it with the text.
 class VrxTextEntry extends StatefulWidget {
   const VrxTextEntry({
     super.key,
@@ -97,63 +97,63 @@ class _VrxTextEntryState extends State<VrxTextEntry> {
     final view = View.of(context);
     final screen = view.physicalSize.height / view.devicePixelRatio;
     final least = VrxKeyboard.heightOf(context) + space.touch + Strokes.hairline;
-    final entry = _layout(context);
-    return screen - VrxStatusStrip.heightOf(context) < least ? VrxNoChrome(child: entry) : entry;
+    final noChrome = screen - VrxStatusStrip.heightOf(context) < least;
+    // a header, a field and the keyboard's four rows, each the touch
+    // minimum: on a panel too short for all of them (the 58mm disp28a)
+    // the field takes the header's place beside Back and the title (or an
+    // error) the line under it. Decided on the display too: the keyboard
+    // takes its share of the screen when it comes up, and the layout must
+    // not change because it did
+    final rows = 6 * (space.touch + space.xs);
+    final roomy = (noChrome ? screen : screen - VrxStatusStrip.heightOf(context)) >= rows + space.touch;
+    final entry = _layout(context, roomy: roomy);
+    return noChrome ? VrxNoChrome(child: entry) : entry;
   }
 
-  Widget _layout(BuildContext context) {
+  Widget _layout(BuildContext context, {required bool roomy}) {
     final space = ScaledSpacing.of(context);
     final colors = VrxTheme.of(context);
-    return LayoutBuilder(builder: (context, box) {
-      // a header, a field and the keyboard's four rows, each the touch
-      // minimum: on a panel too short for all of them (the 58mm
-      // disp28a) the field takes the header's place beside Back and the
-      // title (or an error) the line under it
-      final rows = 6 * (space.touch + space.xs);
-      if (box.maxHeight >= rows + space.touch) {
-        return Column(children: [
-          VrxHeader(title: widget.title, onBack: widget.onBack),
-          Expanded(
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: space.md),
-              child: Center(child: _field(context, hint: widget.hint, lines: true)),
+    if (roomy) {
+      return Column(children: [
+        VrxHeader(title: widget.title, onBack: widget.onBack),
+        Expanded(
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: space.md),
+            child: Center(child: _field(context, hint: widget.hint, lines: true)),
+          ),
+        ),
+      ]);
+    }
+    return VrxBackOffer(
+      onBack: widget.onBack,
+      child: Column(children: [
+        SizedBox(
+          height: space.touch,
+          child: Row(children: [
+            VrxIconButton(glyph: VrxSymbols.arrow_back, label: 'Back', onTap: widget.onBack),
+            SizedBox(width: space.xs),
+            Expanded(child: _field(context, hint: widget.hint ?? widget.title, lines: false)),
+            SizedBox(width: space.inset),
+          ]),
+        ),
+        Divider(height: Strokes.hairline, thickness: Strokes.hairline, color: colors.outlineFaint),
+        Expanded(
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: space.inset),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              // an error, else what the field is for
+              child: widget.error != null
+                  ? VrxFitText(
+                      widget.error!,
+                      style: TypeRole.caption(context).copyWith(color: Theme.of(context).colorScheme.error),
+                    )
+                  : VrxFitText(widget.title, style: TypeRole.caption(context)),
             ),
           ),
-          VrxKeyboard(controller: _controller, onDone: _done),
-        ]);
-      }
-      return VrxBackOffer(
-        onBack: widget.onBack,
-        child: Column(children: [
-          SizedBox(
-            height: space.touch,
-            child: Row(children: [
-              VrxIconButton(glyph: VrxSymbols.arrow_back, label: 'Back', onTap: widget.onBack),
-              SizedBox(width: space.xs),
-              Expanded(child: _field(context, hint: widget.hint ?? widget.title, lines: false)),
-              SizedBox(width: space.inset),
-            ]),
-          ),
-          Divider(height: Strokes.hairline, thickness: Strokes.hairline, color: colors.outlineFaint),
-          Expanded(
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: space.inset),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                // an error, else what the field is for
-                child: widget.error != null
-                    ? VrxFitText(
-                        widget.error!,
-                        style: TypeRole.caption(context).copyWith(color: Theme.of(context).colorScheme.error),
-                      )
-                    : VrxFitText(widget.title, style: TypeRole.caption(context)),
-              ),
-            ),
-          ),
-          VrxKeyboard(controller: _controller, onDone: _done),
-        ]),
-      );
-    });
+        ),
+      ]),
+    );
   }
 }
 

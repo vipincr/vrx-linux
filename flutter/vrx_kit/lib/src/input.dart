@@ -9,6 +9,8 @@
 /// mouse's back button goes back.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart' show MaterialScrollBehavior;
 import 'package:flutter/services.dart';
@@ -108,10 +110,14 @@ class _VrxInputRootState extends State<VrxInputRoot> {
     HardwareKeyboard.instance.addHandler(_onKey);
     // keys reach Escape's binding only from inside this tree: hold focus
     // when nothing below took it (an autofocused field or the terminal
-    // keeps its own)
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && !_node.hasFocus) _node.requestFocus();
-    });
+    // keeps its own). A microtask after the frame: a field's autofocus is
+    // applied in the focus manager's microtask, queued during the build,
+    // so it lands first; claimed straight from the frame callback, the
+    // root won and an autofocused field never had focus (no keyboard came
+    // up for it, and a physical keyboard typed into nothing)
+    WidgetsBinding.instance.addPostFrameCallback((_) => scheduleMicrotask(() {
+          if (mounted && !_node.hasFocus) _node.requestFocus();
+        }));
   }
 
   @override

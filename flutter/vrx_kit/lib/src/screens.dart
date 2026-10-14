@@ -224,9 +224,8 @@ class VrxSetupStep extends StatelessWidget {
           // room, scrolled on one without (the 58mm disp28a under the
           // shell's strip); Next stays put under them
           Expanded(
-            child: LayoutBuilder(
-              builder: (context, box) => SingleChildScrollView(
-                child: ConstrainedBox(
+            child: VrxPaged(
+              builder: (context, box) => ConstrainedBox(
                   constraints: BoxConstraints(minHeight: box.maxHeight),
                   child: IntrinsicHeight(
                     child: Column(
@@ -256,7 +255,6 @@ class VrxSetupStep extends StatelessWidget {
                   ),
                 ),
               ),
-            ),
           ),
           if (banner != null) ...[
             VrxBanner(text: banner),
@@ -274,6 +272,29 @@ class VrxSetupStep extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// A screen body that pages when it is taller than the client (plan 0013
+/// D9). The swipe chain is Flutter's gesture arena: a drag goes to the
+/// innermost scrollable that claims it (a list, a wheel), then outwards;
+/// a vertical drag nothing inside claims pages this body, a client height
+/// at a time ([PageScrollPhysics] pages by the viewport on any scroll
+/// position). A body that fits does not move. [builder] gets the client's
+/// constraints, so a body can fill it when it fits.
+class VrxPaged extends StatelessWidget {
+  const VrxPaged({super.key, required this.builder});
+
+  final Widget Function(BuildContext context, BoxConstraints client) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, box) => SingleChildScrollView(
+        physics: const PageScrollPhysics(),
+        child: builder(context, box),
       ),
     );
   }

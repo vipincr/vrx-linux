@@ -59,10 +59,11 @@ class _Target {
 
 /// Mount [applet] as the board shows it: below the shell's strip (the
 /// shell's plane covers that much of every app), unless it is the shell.
-Future<void> mountApplet<S, A, V>(WidgetTester tester, Applet<S, A, V> applet, {Stream<A>? actions}) async {
+Future<void> mountApplet<S, A, V>(WidgetTester tester, Applet<S, A, V> applet,
+    {Stream<A>? actions, bool touch = true}) async {
   VrxShell.reset();
   addTearDown(VrxShell.reset);
-  await tester.pumpWidget(AppletHost<S, A, V>(applet: applet, actions: actions));
+  await tester.pumpWidget(AppletHost<S, A, V>(applet: applet, actions: actions, input: VrxInputFacts(touch: touch)));
   if (find.byType(VrxShellRegion).evaluate().isNotEmpty) return;
   final inside = find.byType(VrxInputRoot).evaluate().first;
   VrxShell.top.value = VrxStatusStrip.heightOf(inside) * tester.view.devicePixelRatio;
@@ -93,7 +94,7 @@ Future<List<LayoutIssue>> checkApplet<S, A, V>(
   try {
     tester.view.physicalSize = Size(display.width, display.height);
     tester.view.devicePixelRatio = display.pixelRatio;
-    await mountApplet(tester, applet);
+    await mountApplet(tester, applet, touch: display.touch);
     await tester.pump(const Duration(milliseconds: 50));
     if (setUp != null) await setUp(tester);
     await tester.pump(const Duration(seconds: 1));
@@ -106,14 +107,26 @@ Future<List<LayoutIssue>> checkApplet<S, A, V>(
     // the baseline is a re-pump too, with the colour class's own colours:
     // a rebuild may settle a screen (a list following its newest line),
     // and that is not the class's doing
+    final input = VrxInputFacts(touch: display.touch);
     final classes = VrxColors.everyClass();
-    await tester.pumpWidget(AppletHost<S, A, V>(applet: applet, colors: classes.first));
+    await tester.pumpWidget(AppletHost<S, A, V>(applet: applet, colors: classes.first, input: input));
     await tester.pump(const Duration(seconds: 1));
     final base = _geometry(tester);
     for (final colors in classes.skip(1)) {
-      await tester.pumpWidget(AppletHost<S, A, V>(applet: applet, colors: colors));
+      await tester.pumpWidget(AppletHost<S, A, V>(applet: applet, colors: colors, input: input));
       await tester.pump(const Duration(seconds: 1));
       issues.addAll(_classIssues(base, _geometry(tester), colors.displayClass.name));
+    }
+    // plan 0013 D7: a touch panel's board may also have no touchscreen
+    // fitted (the compositor says touch=0): the same screen without the
+    // touch floor must still fit, though a dense control is no fault there
+    if (display.touch) {
+      await tester.pumpWidget(AppletHost<S, A, V>(applet: applet, input: const VrxInputFacts(touch: false)));
+      await tester.pump(const Duration(seconds: 1));
+      final dense = Display(display.name, display.width, display.height, display.widthMm, touch: false, turns: display.turns);
+      issues.addAll([
+        for (final i in _inspect(tester, dense)) LayoutIssue(i.rule, 'without touch: ${i.what}', i.at),
+      ]);
     }
   } finally {
     FlutterError.onError = previous;
@@ -526,7 +539,7 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
       final w = a.widget;
       if (w is VrxKeyboard) {
         keyboard = true;
-        terminalKeys = w.controller == null;
+        terminalKeys = w.input == null;
         return false;
       }
       return true;

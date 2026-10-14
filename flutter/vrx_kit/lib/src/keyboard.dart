@@ -1,7 +1,8 @@
-/// The on-screen keyboard. vrx boards have no system input method, so a
-/// screen that takes text (a Wi-Fi passphrase, a device name) shows this
-/// under its field and drives a [TextEditingController] directly; the
-/// Terminal takes keystrokes instead ([VrxKeyboard.terminal]).
+/// The on-screen keyboard. vrx boards have no system input method: any
+/// text field that takes focus brings this up through the kit's text
+/// input control ([VrxKeyboardHost], plan 0013 D6), and no screen places
+/// it. A terminal takes keystrokes rather than text, so it shows
+/// [VrxKeyboard.terminal] itself.
 ///
 /// Keys are the touch minimum tall (9mm). Across, ten keys share the
 /// screen width: on a 43mm panel that is 4.3mm, under the 9mm floor. The
@@ -18,6 +19,7 @@ import 'input.dart';
 import 'metrics.dart';
 import 'scale.dart';
 import 'symbols.dart';
+import 'text_input.dart';
 import 'theme.dart';
 
 enum _Mode { lower, upper, symbols, more }
@@ -25,10 +27,9 @@ enum _Mode { lower, upper, symbols, more }
 /// A key the terminal keyboard sends that is not text.
 enum VrxTermKey { escape, tab, backspace, enter, left, up, down, right }
 
-/// A keyboard bound to [controller]; [onDone] fires on the done key.
-
+/// The text keyboard, typing into the focused field through [input].
 class VrxKeyboard extends StatefulWidget {
-  const VrxKeyboard({super.key, required TextEditingController this.controller, this.onDone})
+  const VrxKeyboard({super.key, required VrxTextInputControl this.input})
       : onText = null,
         onKey = null,
         onHide = null,
@@ -43,11 +44,9 @@ class VrxKeyboard extends StatefulWidget {
     required void Function(VrxTermKey key) this.onKey,
     required VoidCallback this.onHide,
     required VoidCallback this.onBack,
-  })  : controller = null,
-        onDone = null;
+  }) : input = null;
 
-  final TextEditingController? controller;
-  final VoidCallback? onDone;
+  final VrxTextInputControl? input;
   final void Function(String text, {bool ctrl})? onText;
   final void Function(VrxTermKey key)? onKey;
   final VoidCallback? onHide;
@@ -71,20 +70,14 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
   // what a shell and a passphrase need that the first page lacks
   static const _more = [r'[]{}<>|\~^', '=`€£¥°•×÷', '§¶©®¿¡µ'];
 
-  bool get _terminal => widget.controller == null;
+  bool get _terminal => widget.input == null;
 
   void _type(String text) {
     if (_terminal) {
       widget.onText!(text, ctrl: _ctrl);
       if (_ctrl) setState(() => _ctrl = false);
     } else {
-      final c = widget.controller!;
-      final sel = c.selection.isValid ? c.selection : TextSelection.collapsed(offset: c.text.length);
-      final next = c.text.replaceRange(sel.start, sel.end, text);
-      c.value = TextEditingValue(
-        text: next,
-        selection: TextSelection.collapsed(offset: sel.start + text.length),
-      );
+      widget.input!.type(text);
     }
     // one shifted letter, then back to lower case
     if (_mode == _Mode.upper) setState(() => _mode = _Mode.lower);
@@ -95,17 +88,10 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
       widget.onKey!(VrxTermKey.backspace);
       return;
     }
-    final c = widget.controller!;
-    final sel = c.selection.isValid ? c.selection : TextSelection.collapsed(offset: c.text.length);
-    if (sel.isCollapsed && sel.start == 0) return;
-    final start = sel.isCollapsed ? sel.start - 1 : sel.start;
-    c.value = TextEditingValue(
-      text: c.text.replaceRange(start, sel.end, ''),
-      selection: TextSelection.collapsed(offset: start),
-    );
+    widget.input!.backspace();
   }
 
-  void _enter() => _terminal ? widget.onKey!(VrxTermKey.enter) : widget.onDone?.call();
+  void _enter() => _terminal ? widget.onKey!(VrxTermKey.enter) : widget.input!.enter();
 
   @override
   Widget build(BuildContext context) {

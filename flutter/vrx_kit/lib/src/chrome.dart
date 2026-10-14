@@ -118,12 +118,11 @@ class VrxStatusStrip extends StatelessWidget {
     final s = ScaledSpacing.of(context);
     return Container(
       height: heightOf(context),
-      // no breathing room above and below a touch-height strip: it would
-      // squeeze the Back control under the minimum again
-      padding: EdgeInsets.symmetric(
-        horizontal: s.inset,
-        vertical: ScaledSpacing.minInteractive(context) > 0 ? 0 : s.xs,
-      ),
+      // no padding above and below: the slots are sized to the strip's
+      // height (a touch-height strip would squeeze Back under the
+      // minimum; without a touchscreen, plan 0013 D7, the clock and the
+      // glyphs were cut by the 1mm a side the padding took)
+      padding: EdgeInsets.symmetric(horizontal: s.inset),
       // opaque: on the board it is the shell's, on a plane above the app
       decoration: BoxDecoration(
         color: colors.surface,

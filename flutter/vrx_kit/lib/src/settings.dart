@@ -120,7 +120,10 @@ Stream<Map<String, String>> watchSettingsFile(String dir, String name, Future<Ma
   late final StreamController<Map<String, String>> out;
   out = StreamController(
     onListen: () async {
-      out.add(await read());
+      // cancelled while the first read was out: nobody is listening
+      final first = await read();
+      if (out.isClosed) return;
+      out.add(first);
       final d = Directory(dir);
       if (!await d.exists() || out.isClosed) return;
       // the directory, not the file: a write is a new file renamed over it

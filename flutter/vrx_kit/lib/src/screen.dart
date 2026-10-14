@@ -37,7 +37,9 @@ import 'system.dart';
 /// writes here.
 const screenDir = '/etc/vrx/display';
 
-/// What the compositor says it can do: `dim=backlight|alpha|none`.
+/// What the compositor says it can do and what input is present:
+/// `dim=backlight|alpha|none`, the cascade's steps, `touch=0|1`,
+/// `keyboard=0|1` (plan 0013 D6, D7).
 const screenCapsPath = '/run/vrx-ui/screen';
 
 /// Where Linux keeps the backlights.
@@ -66,6 +68,32 @@ class VrxCascade {
   final bool wakeAlarm;
 }
 
+/// The input the board has, as the compositor says it in
+/// /run/vrx-ui/screen (plan 0013 D6, D7): a touchscreen, and a physical
+/// keyboard. Absent facts (a host test, an old compositor) read as a
+/// touchscreen and no keyboard: assuming density on a touch screen puts a
+/// finger on nothing, and a keyboard that never shows strands a field.
+@immutable
+class VrxInputFacts {
+  const VrxInputFacts({this.touch = true, this.keyboard = false});
+
+  final bool touch;
+  final bool keyboard;
+
+  static VrxInputFacts parse(Map<String, String> v) =>
+      VrxInputFacts(touch: v['touch'] != '0', keyboard: v['keyboard'] == '1');
+
+  @override
+  bool operator ==(Object other) => other is VrxInputFacts && other.touch == touch && other.keyboard == keyboard;
+
+  @override
+  int get hashCode => Object.hash(touch, keyboard);
+}
+
+/// When the on-screen keyboard comes up for a text field (plan 0013 D6):
+/// always, or only when no physical keyboard is plugged in (the default).
+enum VrxKeyboardMode { show, auto }
+
 /// The screen's settings now.
 @immutable
 class ScreenState {
@@ -74,6 +102,7 @@ class ScreenState {
     this.lightOff = ScreenSettings.defaultLightOff,
     this.sleepAfter = 0,
     this.deepAfter = 0,
+    this.keyboard = VrxKeyboardMode.auto,
   });
 
   /// The slider's position, 0 to 100 (0 is the dimmest, never dark).
@@ -88,16 +117,20 @@ class ScreenState {
   final int sleepAfter;
   final int deepAfter;
 
+  /// When the on-screen keyboard shows.
+  final VrxKeyboardMode keyboard;
+
   @override
   bool operator ==(Object other) =>
       other is ScreenState &&
       other.brightness == brightness &&
       other.lightOff == lightOff &&
       other.sleepAfter == sleepAfter &&
-      other.deepAfter == deepAfter;
+      other.deepAfter == deepAfter &&
+      other.keyboard == keyboard;
 
   @override
-  int get hashCode => Object.hash(brightness, lightOff, sleepAfter, deepAfter);
+  int get hashCode => Object.hash(brightness, lightOff, sleepAfter, deepAfter, keyboard);
 }
 
 /// The screen's settings, each in its one home: the backlight's sysfs
@@ -164,6 +197,23 @@ class ScreenSettings {
     }
   }
 
+  /// The input the board has now, and again whenever a device comes or
+  /// goes (the compositor rewrites the file).
+  Stream<VrxInputFacts> inputFacts() {
+    Future<Map<String, String>> read() async {
+      try {
+        return parseSettings(await File(capsPath).readAsString());
+      } on FileSystemException {
+        return const {};
+      }
+    }
+
+    final slash = capsPath.lastIndexOf('/');
+    return watchSettingsFile(capsPath.substring(0, slash), capsPath.substring(slash + 1), read)
+        .map(VrxInputFacts.parse)
+        .distinct();
+  }
+
   /// The first backlight Linux has (the one the compositor dims).
   Future<Directory?> _backlight() async {
     final root = Directory(backlights);
@@ -213,6 +263,7 @@ class ScreenSettings {
       lightOff: lightOff,
       sleepAfter: seconds('sleep_after'),
       deepAfter: seconds('deep_after'),
+      keyboard: raw['on_screen_keyboard'] == 'show' ? VrxKeyboardMode.show : VrxKeyboardMode.auto,
     );
   }
 
@@ -251,6 +302,9 @@ class ScreenSettings {
   /// input, 0 never.
   Future<void> setSleepAfter(int seconds) => _setConf('sleep_after', '${math.max(0, seconds)}');
   Future<void> setDeepAfter(int seconds) => _setConf('deep_after', '${math.max(0, seconds)}');
+
+  /// When the on-screen keyboard shows (plan 0013 D6).
+  Future<void> setKeyboard(VrxKeyboardMode mode) => _setConf('on_screen_keyboard', mode.name);
 
   /// Set the brightness. While a slider moves ([settled] false) at most
   /// one write in [dragInterval], the last position always written; on
