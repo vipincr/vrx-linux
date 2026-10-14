@@ -9,32 +9,41 @@ void main() {
     final harness = StoreHarness(model);
     harness.assertView((v) => v.step == SetupStep.licence);
     for (final want in [SetupStep.name, SetupStep.wifi, SetupStep.zone, SetupStep.done, SetupStep.done]) {
-      model.next();
-      harness.dispatch(SetupAction.moved);
+      harness.dispatch(SetupAction.next);
       harness.assertView((v) => v.step == want, because: 'expected $want');
     }
-    model.back();
-    harness.dispatch(SetupAction.moved);
+    harness.dispatch(SetupAction.back);
     harness.assertView((v) => v.step == SetupStep.zone);
+    harness.verify(
+      fresh: SetupModel.new,
+      probes: const [SetupAction.next, SetupAction.back, SetupName(''), SetupPickZone('Europe/London')],
+      routes: const ['again', ''],
+      openAt: SetupOpened.new,
+    );
   });
 
   test('a name is required before leaving its step', () {
-    final model = SetupModel()..name = '   ';
-    expect(model.canLeaveName, isFalse);
-    model.name = 'Kitchen';
-    expect(model.canLeaveName, isTrue);
+    final model = SetupModel();
+    final h = StoreHarness(model)
+      ..dispatch(SetupAction.next)
+      ..dispatch(const SetupName('   '));
+    h.assertView((v) => v.step == SetupStep.name && v.error == 'The device needs a name');
+    h.dispatch(const SetupName('Kitchen'));
+    h.assertView((v) => v.step == SetupStep.wifi && v.error == null);
   });
 
   // plan 0011 D5: the again route reaches the applet; any other route,
   // and an unknown one (it arrives as the root), is the first boot
   test('opened at again, the walk restarts and its end saves; anything else is the first boot', () {
-    final model = SetupModel()..step = SetupStep.zone;
-    final harness = StoreHarness(model);
-    model.openedAt('again');
-    harness.dispatch(SetupAction.again);
+    final model = SetupModel();
+    final harness = StoreHarness(model)
+      ..dispatch(SetupAction.next)
+      ..dispatch(SetupAction.next)
+      ..dispatch(SetupAction.next);
+    harness.assertView((v) => v.step == SetupStep.zone);
+    harness.dispatch(const SetupOpened('again'));
     harness.assertView((v) => v.again && v.step == SetupStep.licence);
-    model.openedAt('');
-    harness.dispatch(SetupAction.again);
+    harness.dispatch(const SetupOpened(''));
     harness.assertView((v) => !v.again);
   });
 }

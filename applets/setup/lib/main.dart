@@ -36,30 +36,19 @@ class SetupApplet extends Applet<SetupState, SetupAction, SetupView> {
   bool get followsRoutes => true;
 
   @override
-  SetupAction? onRoute(String route, Object? payload) {
-    model.openedAt(route);
-    return SetupAction.again;
-  }
-
-  void _move(void Function() change) {
-    change();
-    _events.add(SetupAction.moved);
-  }
+  SetupAction? onRoute(String route, Object? payload) => SetupOpened(route);
 
   Future<void> _finish() async {
-    _move(() => model.finishing = true);
+    _events.add(const SetupFinish(done: false));
     try {
       await VrxSystem.device.setName(model.name.trim());
       if (model.zone.isNotEmpty) await VrxSystem.time.setZone(model.zone);
       await File(_done).writeAsString('${DateTime.now().toIso8601String()}\n');
-      model.finishing = false;
+      _events.add(const SetupFinish(done: true));
       // set up again from Settings: back there; the first boot: Home
       unawaited(model.again ? Nav.pop() : Nav.home());
     } on Object catch (err) {
-      model
-        ..finishing = false
-        ..error = VrxWords.of(err, context: 'setup: finish');
-      _events.add(SetupAction.failed);
+      _events.add(SetupFinish(done: true, error: VrxWords.of(err, context: 'setup: finish')));
     }
   }
 
@@ -72,7 +61,7 @@ class SetupApplet extends Applet<SetupState, SetupAction, SetupView> {
           title: 'Welcome',
           intro: 'This device runs vrx and open source software. Their licences come with it.',
           control: VrxChip(label: 'Read the licences', onTap: () => Nav.push('docs')),
-          onNext: () => _move(model.next),
+          onNext: () => _events.add(SetupAction.next),
           nextLabel: 'Accept',
         ),
       SetupStep.name => VrxTextEntry(
@@ -81,16 +70,8 @@ class SetupApplet extends Applet<SetupState, SetupAction, SetupView> {
           hint: 'Kitchen display',
           helper: (text) => 'Network name: ${hostnameFor(text)}',
           error: view.error,
-          onBack: () => _move(model.back),
-          onDone: (text) {
-            model.name = text;
-            if (!model.canLeaveName) {
-              model.error = 'The device needs a name';
-              _events.add(SetupAction.failed);
-              return;
-            }
-            _move(model.next);
-          },
+          onBack: () => _events.add(SetupAction.back),
+          onDone: (text) => _events.add(SetupName(text)),
         ),
       SetupStep.wifi => VrxSetupStep(
           step: 3,
@@ -98,18 +79,15 @@ class SetupApplet extends Applet<SetupState, SetupAction, SetupView> {
           title: 'Network',
           intro: view.network.isEmpty ? 'Join a Wi-Fi network, or plug in a cable.' : 'Connected: ${view.network}',
           control: VrxChip(label: 'Choose a Wi-Fi network', onTap: () => Nav.push('wifi')),
-          onNext: () => _move(model.next),
+          onNext: () => _events.add(SetupAction.next),
           nextLabel: view.network.isEmpty ? 'Skip' : 'Next',
         ),
       SetupStep.zone => VrxZonePicker(
           title: 'Time zone',
           zones: view.zones,
           current: view.zone,
-          onBack: () => _move(model.back),
-          onPick: (z) => _move(() {
-            model.zone = z;
-            model.next();
-          }),
+          onBack: () => _events.add(SetupAction.back),
+          onPick: (z) => _events.add(SetupPickZone(z)),
         ),
       SetupStep.done => VrxSetupStep(
           step: 5,
@@ -131,20 +109,13 @@ Future<void> main() async {
   runApplet(SetupApplet(model), actions: _events.stream);
   VrxSystem.network.watch().listen((n) {
     final wifi = n.connected;
-    model.network = wifi != null
-        ? '${wifi.name} (${wifi.address})'
-        : (n.wired ? 'Wired (${n.ethernetAddress})' : '');
-    _events.add(SetupAction.factsChanged);
+    _events.add(SetupFacts(
+        network: wifi != null ? '${wifi.name} (${wifi.address})' : (n.wired ? 'Wired (${n.ethernetAddress})' : '')));
   }, onError: (Object _) {});
-  VrxSystem.time.watch().listen((t) {
-    if (model.zone.isEmpty) model.zone = t.zone;
-    _events.add(SetupAction.factsChanged);
-  }, onError: (Object _) {});
+  VrxSystem.time.watch().listen((t) => _events.add(SetupFacts(zone: t.zone)), onError: (Object _) {});
   try {
-    model.zones = await VrxSystem.time.zones();
-    _events.add(SetupAction.zonesLoaded);
+    _events.add(SetupFacts(zones: await VrxSystem.time.zones()));
   } on Object catch (err) {
-    model.error = VrxWords.of(err, context: 'setup: zones');
-    _events.add(SetupAction.failed);
+    _events.add(SetupFacts(error: VrxWords.of(err, context: 'setup: zones')));
   }
 }
