@@ -193,6 +193,19 @@ async fn answer(req: &http::Request, root: &Path) -> Reply {
                 output("journalctl", &["-o", "json", "-n", &n, "-q", "--no-pager"]).await;
             Reply::json(200, &api::log(&journal))
         }
+        p if p == http::UPLOAD_PATH => {
+            // what an upload may be now, for the page's update section
+            let max = env_or("VRX_MANAGE_UPLOAD_MAX", upload::MAX);
+            let dir = env_or("VRX_MANAGE_UPDATES", upload::UPDATES.to_owned());
+            let df = output("df", &["-kP", &dir]).await;
+            Reply::json(
+                200,
+                &json!({
+                    "max_bytes": max,
+                    "largest_bytes": upload::largest(max, api::df_avail_kb(&df)),
+                }),
+            )
+        }
         p if p == "/api" || p.starts_with("/api/") => Reply::refusal(404),
         p => match files::find(root, p, req.accepts_gzip) {
             files::Answer::File { path, content_type } => {

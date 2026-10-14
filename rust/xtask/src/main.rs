@@ -21,6 +21,7 @@ mod docs;
 mod fonts;
 mod glyphs;
 mod impact;
+mod manage_page;
 mod ui_standard;
 
 use std::process::{Command, ExitCode, Stdio};
@@ -36,6 +37,13 @@ fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(err) => {
                 eprintln!("glyphs: {err}");
+                ExitCode::FAILURE
+            }
+        },
+        "manage-page" => match manage_page::run(&repo_root()) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("manage-page: {err}");
                 ExitCode::FAILURE
             }
         },
@@ -58,7 +66,7 @@ fn main() -> ExitCode {
         },
         _ => {
             eprintln!(
-                "usage: cargo xtask gate [--all] | crates-inc | ui-standard | fonts"
+                "usage: cargo xtask gate [--all] | crates-inc | glyphs | ui-standard | manage-page | fonts"
             );
             ExitCode::from(64)
         }
@@ -442,6 +450,24 @@ fn gate(all: bool) -> ExitCode {
         }
         Err(err) => {
             eprintln!("gate: FAILED (G036): {err}");
+            return ExitCode::FAILURE;
+        }
+    }
+
+    // vrx's pages beside the vendored management page: each served copy
+    // unpacks to its reviewed source (manage-ui/vrx/)
+    println!("gate: vrx's management pages match their source");
+    match manage_page::stale(&repo) {
+        Ok(stale) if stale.is_empty() => {}
+        Ok(stale) => {
+            eprintln!(
+                "gate: FAILED — manage-ui/dist/{} is stale: run `cargo xtask manage-page`",
+                stale.join(", manage-ui/dist/")
+            );
+            return ExitCode::FAILURE;
+        }
+        Err(err) => {
+            eprintln!("gate: FAILED (manage pages): {err}");
             return ExitCode::FAILURE;
         }
     }

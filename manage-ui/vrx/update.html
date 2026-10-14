@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install an update</title>
+<!--
+  vrx plan 0016 D11: send a software update bundle to the device. The page
+  carries no limits of its own: GET /api/update says how large an update
+  may be and how much room the device has (rust/manage, upload.rs). The
+  upload only puts the bundle on the device; installing it waits for a
+  person at the device (Settings > Software update). Served from
+  manage-ui/dist/update/index.html.gz, written by `cargo xtask
+  manage-page` and checked by the gate. Same origin as the API, so no CORS;
+  the server's Host check refuses any other name.
+-->
+<style>
+  :root {
+    --page: #f6f6f4; --card: #ffffff; --text: #1b1b1a; --quiet: #5c5c58;
+    --line: #d9d9d4; --warn: #9a5b00; --bad: #a3231c; --good: #2f6b2f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #151514; --card: #1f1f1d; --text: #ecece8; --quiet: #a2a29b;
+      --line: #34342f; --warn: #e0a64a; --bad: #f0877f; --good: #8fcf8f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--text); font: 16px/1.45 system-ui, sans-serif; }
+  main { max-width: 56rem; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+  h1 { margin: 0; font-size: 1.6rem; }
+  h2 { margin: 0 0 .5rem; font-size: 1.05rem; }
+  .sub { margin: .15rem 0 1rem; color: var(--quiet); }
+  a { color: inherit; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .9rem 1rem; }
+  p { margin: .4rem 0; }
+  .quiet { color: var(--quiet); }
+  .actions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-top: .8rem; }
+  button { font: inherit; padding: .45rem .9rem; border-radius: 6px; border: 1px solid var(--line); background: var(--page); color: var(--text); cursor: pointer; }
+  button:disabled { cursor: default; opacity: .55; }
+  progress { width: 100%; height: .8rem; margin-top: .8rem; }
+  .said { margin-top: .8rem; padding: .6rem .8rem; border: 1px solid var(--line); border-radius: 6px; }
+  .said.good { border-color: var(--good); color: var(--good); }
+  .said.bad { border-color: var(--bad); color: var(--bad); }
+  .said.warn { border-color: var(--warn); color: var(--warn); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Install an update</h1>
+  <p class="sub"><a href="/">Back to the device's page</a></p>
+  <section>
+    <h2>Send an update to the device</h2>
+    <p id="limits" class="quiet">Asking the device how large an update can be.</p>
+    <p class="quiet">Choose the update file you were given (it ends in .raucb). It goes onto the device; you finish installing it on the device, in Settings, Software update.</p>
+    <div class="actions">
+      <input id="file" type="file" accept=".raucb">
+      <button id="send" type="button" disabled>Send it</button>
+      <button id="stop" type="button" hidden>Stop</button>
+    </div>
+    <progress id="bar" max="100" value="0" hidden></progress>
+    <p id="said" class="said" hidden></p>
+  </section>
+</main>
+<script>
+"use strict";
+(function () {
+  var file = document.getElementById("file");
+  var send = document.getElementById("send");
+  var stop = document.getElementById("stop");
+  var bar = document.getElementById("bar");
+  var said = document.getElementById("said");
+  var limits = document.getElementById("limits");
+  var largest = null;
+  var xhr = null;
+
+  function size(bytes) {
+    if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + " GB";
+    if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + " MB";
+    if (bytes >= 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return bytes + " bytes";
+  }
+
+  function say(kind, text) {
+    said.className = "said " + kind;
+    said.textContent = text;
+    said.hidden = false;
+  }
+
+  function idle() {
+    xhr = null;
+    stop.hidden = true;
+    file.disabled = false;
+    send.disabled = !file.files.length;
+  }
+
+  // the device's own limits: one home, the server
+  var ask = new XMLHttpRequest();
+  ask.open("GET", "/api/update");
+  ask.onload = function () {
+    try {
+      var r = JSON.parse(ask.responseText);
+      largest = r.largest_bytes;
+      if (largest > 0) {
+        limits.textContent = "An update can be up to " + size(r.max_bytes) +
+          ". The device has room for " + size(largest) + " now.";
+      } else {
+        limits.textContent = "The device has no room for an update now. Free some space on it first.";
+      }
+    } catch (e) {
+      limits.textContent = "The device did not say how large an update can be.";
+    }
+  };
+  ask.onerror = function () {
+    limits.textContent = "The device did not answer. Check that its Manage page is still open on the device.";
+  };
+  ask.send();
+
+  file.onchange = function () {
+    said.hidden = true;
+    bar.hidden = true;
+    var f = file.files[0];
+    if (!f) { send.disabled = true; return; }
+    if (!/\.raucb$/i.test(f.name)) {
+      say("bad", "That is not an update file. An update file's name ends in .raucb.");
+      send.disabled = true;
+      return;
+    }
+    if (largest !== null && f.size > largest) {
+      say("bad", "That file is " + size(f.size) + ", more than the device has room for (" + size(largest) + ").");
+      send.disabled = true;
+      return;
+    }
+    send.disabled = false;
+  };
+
+  send.onclick = function () {
+    var f = file.files[0];
+    if (!f) return;
+    xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/update");
+    // the header the server asks of the page (rust/manage, http.rs)
+    xhr.setRequestHeader("X-Vrx-Upload", "1");
+    xhr.upload.onprogress = function (e) {
+      if (e.lengthComputable) {
+        bar.value = Math.floor(e.loaded * 100 / e.total);
+        say("warn", "Sending: " + size(e.loaded) + " of " + size(e.total) + ". Keep this page open.");
+      }
+    };
+    xhr.onload = function () {
+      var r = {};
+      try { r = JSON.parse(xhr.responseText); } catch (e) {}
+      if (xhr.status === 200) {
+        bar.value = 100;
+        say("good", "The update is on the device (" + size(r.bytes || f.size) +
+          "). To install it, go to the device: Settings, Software update, then Install.");
+      } else {
+        say("bad", r.error || ("The device refused the update (" + xhr.status + ")."));
+      }
+      idle();
+    };
+    xhr.onerror = function () {
+      say("bad", "The connection to the device ended before the update arrived. Nothing was installed; try again.");
+      idle();
+    };
+    xhr.onabort = function () {
+      say("warn", "Stopped. Nothing was installed.");
+      idle();
+    };
+    file.disabled = true;
+    send.disabled = true;
+    stop.hidden = false;
+    bar.hidden = false;
+    bar.value = 0;
+    say("warn", "Sending. Keep this page open.");
+    xhr.send(f);
+  };
+
+  stop.onclick = function () { if (xhr) xhr.abort(); };
+})();
+</script>
+</body>
+</html>

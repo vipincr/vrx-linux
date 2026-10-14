@@ -32,9 +32,42 @@ pub fn refusal(length: u64, max: u64, avail_kb: Option<u64>) -> Option<u16> {
     }
 }
 
+/// The largest upload refusal() would take now, with `avail_kb` free:
+/// what GET /api/update tells the page, so the limit has one home (here)
+/// and the page names it before sending anything. 0: nothing fits.
+pub fn largest(max: u64, avail_kb: Option<u64>) -> u64 {
+    let room = avail_kb
+        .map(|kb| kb.saturating_mul(1024).saturating_sub(HEADROOM))
+        .unwrap_or(0);
+    room.min(max)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn largest_is_exactly_what_refusal_takes() {
+        let gib = 1u64 << 30;
+        for avail in [
+            None,
+            Some(0),
+            Some(gib / 1024),
+            Some(5 * gib / 1024),
+            Some(u64::MAX / 2048),
+        ] {
+            let n = largest(MAX, avail);
+            if n > 0 {
+                assert_eq!(refusal(n, MAX, avail), None, "largest() fits: {avail:?}");
+            }
+            assert!(
+                refusal(n + 1, MAX, avail).is_some(),
+                "one more does not: {avail:?}"
+            );
+        }
+        assert_eq!(largest(MAX, Some(u64::MAX / 2048)), MAX);
+        assert_eq!(largest(MAX, None), 0, "df unread: nothing fits");
+    }
 
     #[test]
     fn an_upload_needs_a_body_under_the_cap_and_room_to_spare() {
