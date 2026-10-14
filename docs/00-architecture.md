@@ -181,6 +181,41 @@ engine. The Assistant ships only with a chat model, stt only with a
 speech model, and the Assistant offers Speak only where stt's socket
 exists and ALSA lists a capture device.
 
+## Scripts
+
+The Scripts applet runs Python scripts from its folder
+(`/var/lib/vrx/scripts/scripts`) as its own user, in its sandbox. Two
+things go beyond a console (vrx plan 0013 D13).
+
+**A script's own screen.** The `vrx` module (`applets/scripts/python/vrx.py`,
+installed beside the applet and on `PYTHONPATH`) prints one JSON line,
+`{"screen": [items], "title": "…"}`, where an item is `{"row": label,
+"value": …, "tap": id}` or `{"text": paragraph}`; at most 50 items. The
+applet reads its output a line at a time, draws such a line with kit rows
+and puts every other line in the console. A pressed row writes
+`{"tap": "<id>"}` to the script's input; `vrx.taps()` yields the ids and
+`vrx.events()` also yields typed lines. `{"screen": null}` goes back to the
+console. There is no other channel, so a script run in a terminal shows the
+JSON and reads taps typed by hand. `samples/counter.py` is the example.
+
+**Background scripts.** A script named with letters, digits, `-` and `_`
+can run in the background as `vrx-script@<name>.service`, an instance of a
+template the layer ships with a fixed ExecStart (`python3 -u` on that file),
+the Scripts applet's user and the applet sandbox. The applet's `scripts`
+grant (group `vrx-scripting`) lets it start, stop and reset-failed those
+instances and no other unit (vrx-policy's polkit rule).
+`StartTransientUnit` is never granted: polkit cannot see a transient unit's
+properties, so granting it would hand out any command as root. systemd
+restarts a crash (`Restart=on-failure`) and stops trying after five starts
+in a minute. The applet's "In the background" screen lists the instances
+from systemd (`ListUnitsByPatterns`, refreshed on systemd's job, unit and
+property signals, never polled) and shows a unit that has restarted as
+failing and one systemd gave up on as "Stopped after failing", which a tap
+clears. Each instance is its own cgroup under
+`system.slice/system-vrx\x2dscript.slice`; the shared counters
+(`rust/host/src/counters.rs`) read only the applet slice today, so a
+background script's cost is not yet in the energy record or a profile.
+
 ## Power
 
 Efficiency is the default on every board, battery or not (plan 0012). The

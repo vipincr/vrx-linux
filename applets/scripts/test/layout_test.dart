@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vrx_check/vrx_check.dart';
+import 'package:vrx_kit/vrx_kit.dart';
 
 import 'package:scripts_applet/main.dart';
 import 'package:scripts_applet/state.dart';
@@ -41,6 +42,44 @@ void main() {
     });
     testWidgets('a new script name on ${display.name}', (tester) async {
       await expectCleanLayout(tester, ScriptsApplet(ScriptsModel()..naming = true), display: display);
+    });
+    testWidgets("a script's own screen on ${display.name}", (tester) async {
+      final model = ScriptsModel()
+        ..start('counter.py')
+        ..screen = ScriptScreen('A counter with a rather long title', [
+          const ScriptItem.text('Pressed 12 times since the script started, which is a sentence that wraps.'),
+          const ScriptItem.row('Press', tap: 'press'),
+          const ScriptItem.row('Mode', value: 'Counting up', tap: 'mode'),
+          const ScriptItem.row('Reset', tap: 'reset'),
+        ]);
+      await expectCleanLayout(tester, ScriptsApplet(model), display: display);
+    });
+    testWidgets('a script with a screen showing its output on ${display.name}', (tester) async {
+      final model = ScriptsModel()
+        ..start('counter.py')
+        ..add('starting\n')
+        ..screen = const ScriptScreen('Counter', [ScriptItem.row('Press', tap: 'press')])
+        ..output = true;
+      await expectCleanLayout(tester, ScriptsApplet(model), display: display);
+    });
+    testWidgets('in the background on ${display.name}', (tester) async {
+      final model = ScriptsModel()
+        ..showRunning = true
+        ..background = const [
+          ScriptUnit(script: 'blink.py', state: ScriptUnitState.running),
+          ScriptUnit(script: 'a_script_with_a_rather_long_name.py', state: ScriptUnitState.failing, restarts: 12),
+          ScriptUnit(script: 'gone.py', state: ScriptUnitState.failed, restarts: 5),
+        ];
+      await expectCleanLayout(tester, ScriptsApplet(model), display: display);
+    });
+    testWidgets('nothing in the background on ${display.name}', (tester) async {
+      await expectCleanLayout(tester, ScriptsApplet(ScriptsModel()..showRunning = true), display: display);
+    });
+    testWidgets('a script running in the background on ${display.name}', (tester) async {
+      final model = ScriptsModel()
+        ..selected = 'blink.py'
+        ..background = const [ScriptUnit(script: 'blink.py', state: ScriptUnitState.running)];
+      await expectCleanLayout(tester, ScriptsApplet(model), display: display);
     });
     testWidgets('an input line on ${display.name}', (tester) async {
       final model = ScriptsModel()

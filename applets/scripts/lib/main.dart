@@ -12,6 +12,10 @@ final _events = StreamController<ScriptsAction>();
 /// The scripts folder: the applet's state directory, on /data.
 String get scriptsDir => '${Platform.environment['HOME'] ?? '/var/lib/vrx/scripts'}/scripts';
 
+/// Where the recipe installs the applet's files: the samples and the
+/// `vrx` Python module a script draws its screen with (plan 0013 D13).
+const bundleDir = '/system/defaults/scripts';
+
 /// Scripts: the Python files in [scriptsDir], run with python3 as the
 /// applet's own user, their output in a console that also takes input
 /// lines; Python's own prompt (`python3 -i`); an editor that saves a
@@ -48,12 +52,19 @@ class ScriptsApplet extends Applet<ScriptsState, ScriptsAction, ScriptsView> {
     _events.add(ScriptsStarted(script));
     try {
       final args = script == replName ? ['-u', '-i', '-q'] : ['-u', '$scriptsDir/$script'];
-      final p = await Process.start('python3', args, workingDirectory: scriptsDir);
+      final p = await Process.start('python3', args,
+          workingDirectory: scriptsDir, environment: {'PYTHONPATH': '$bundleDir/python'});
       _process = p;
-      void pipe(Stream<List<int>> s) =>
-          s.transform(const Utf8Decoder(allowMalformed: true)).listen((text) => _events.add(ScriptsOutput(text)));
-      pipe(p.stdout);
-      pipe(p.stderr);
+      // a whole line at a time: a line that is a screen (the vrx module's
+      // JSON) draws it; any other line is output for the console
+      p.stdout.transform(const Utf8Decoder(allowMalformed: true)).transform(const LineSplitter()).listen((line) {
+        final drawn = ScriptScreen.parse(line);
+        _events.add(drawn != null ? ScriptsScreen(drawn.screen) : ScriptsOutput('$line\n'));
+      });
+      p.stderr
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .transform(const LineSplitter())
+          .listen((line) => _events.add(ScriptsOutput('$line\n')));
       final code = await p.exitCode;
       _process = null;
       _events.add(ScriptsEnded(exit: code));
@@ -70,6 +81,25 @@ class ScriptsApplet extends Applet<ScriptsState, ScriptsAction, ScriptsView> {
     final p = _process;
     p?.stdin.writeln(line);
     _events.add(ScriptsSent(line, echoed: p != null));
+  }
+
+  /// A row of the script's screen was pressed: its id to the script.
+  void tap(String id) => _process?.stdin.writeln(tapLine(id));
+
+  Future<void> startBackground(String script) async {
+    try {
+      await VrxSystem.scripts.start(script);
+    } on Object catch (err) {
+      _events.add(ScriptsBackground(error: VrxWords.of(err, context: 'scripts: background')));
+    }
+  }
+
+  Future<void> stopBackground(String script) async {
+    try {
+      await VrxSystem.scripts.stop(script);
+    } on Object catch (err) {
+      _events.add(ScriptsBackground(error: VrxWords.of(err, context: 'scripts: background')));
+    }
   }
 
   void _back() {
@@ -109,6 +139,15 @@ class ScriptsApplet extends Applet<ScriptsState, ScriptsAction, ScriptsView> {
     final Widget body;
     if (open != null && view.typing) {
       body = VrxTextEntry(title: 'A line for $open', hint: 'input', onBack: _back, onDone: send);
+    } else if (open != null && view.screen != null && !view.output) {
+      body = _ScriptScreenView(
+        view: view,
+        onBack: _close,
+        onTap: tap,
+        onStop: stop,
+        onAgain: () => unawaited(run(open)),
+        onOutput: () => _events.add(ScriptsAction.output),
+      );
     } else if (open != null) {
       body = _Console(
         view: view,
@@ -116,6 +155,7 @@ class ScriptsApplet extends Applet<ScriptsState, ScriptsAction, ScriptsView> {
         onStop: stop,
         onAgain: () => unawaited(run(open)),
         onType: () => _events.add(ScriptsAction.typing),
+        onScreen: view.screen == null ? null : () => _events.add(ScriptsAction.output),
       );
     } else if (view.naming) {
       body = VrxTextEntry(
@@ -137,11 +177,21 @@ class ScriptsApplet extends Applet<ScriptsState, ScriptsAction, ScriptsView> {
         onBack: _back,
         onSave: (t) => unawaited(save(selected, t)),
       );
+    } else if (view.showRunning) {
+      body = _Running(view: view, onBack: _back, onStop: (s) => unawaited(stopBackground(s)));
     } else if (selected != null) {
+      final inBackground = view.background.any((u) => u.script == selected);
       body = VrxList(children: [
         VrxHeader(title: selected, onBack: _back),
         VrxRow(glyph: VrxSymbols.play_arrow, label: 'Run', onTap: () => unawaited(run(selected))),
+        // a background script is systemd's (vrx-script@<name>): only a name
+        // that can be its instance runs there
+        if (ScriptUnit.instanceFor(selected) != null)
+          inBackground
+              ? VrxRow(label: 'In the background', value: 'Stop', onTap: () => unawaited(stopBackground(selected)))
+              : VrxRow(label: 'Run in the background', onTap: () => unawaited(startBackground(selected))),
         VrxRow(glyph: VrxSymbols.edit, label: 'Edit', onTap: () => unawaited(edit(selected))),
+        if (view.error != null) VrxBanner(text: view.error),
       ]);
     } else {
       body = _List(
@@ -149,6 +199,7 @@ class ScriptsApplet extends Applet<ScriptsState, ScriptsAction, ScriptsView> {
         onOpen: (s) => _events.add(ScriptsSelect(s)),
         onRepl: () => unawaited(run(replName)),
         onNew: () => _events.add(ScriptsAction.naming),
+        onRunning: () => _events.add(ScriptsAction.running),
         onBack: _back,
       );
     }
@@ -157,11 +208,12 @@ class ScriptsApplet extends Applet<ScriptsState, ScriptsAction, ScriptsView> {
 }
 
 class _List extends StatelessWidget {
-  const _List({required this.view, required this.onOpen, required this.onRepl, required this.onNew, required this.onBack});
+  const _List(
+      {required this.view, required this.onOpen, required this.onRepl, required this.onNew, required this.onRunning, required this.onBack});
 
   final ScriptsView view;
   final void Function(String) onOpen;
-  final VoidCallback onRepl, onNew, onBack;
+  final VoidCallback onRepl, onNew, onRunning, onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -169,6 +221,12 @@ class _List extends StatelessWidget {
       VrxHeader(title: 'Scripts', onBack: onBack),
       VrxRow(glyph: VrxSymbols.terminal, label: replName, onTap: onRepl),
       VrxRow(glyph: VrxSymbols.add, label: 'New script', onTap: onNew),
+      VrxRow(
+        label: 'In the background',
+        value: view.background.isEmpty ? 'None' : '${view.background.length}',
+        widestValue: '99',
+        onTap: onRunning,
+      ),
       Expanded(
         child: view.scripts.isEmpty
             ? Padding(
@@ -190,10 +248,14 @@ class _List extends StatelessWidget {
 }
 
 class _Console extends StatelessWidget {
-  const _Console({required this.view, required this.onBack, required this.onStop, required this.onAgain, required this.onType});
+  const _Console(
+      {required this.view, required this.onBack, required this.onStop, required this.onAgain, required this.onType, this.onScreen});
 
   final ScriptsView view;
   final VoidCallback onBack, onStop, onAgain, onType;
+
+  /// Back to the script's own screen, when it drew one.
+  final VoidCallback? onScreen;
 
   @override
   Widget build(BuildContext context) {
@@ -217,7 +279,84 @@ class _Console extends StatelessWidget {
       ),
       // a running script reads its input from here
       if (view.running) VrxRow(glyph: VrxSymbols.keyboard, label: 'Type a line', onTap: onType),
+      if (onScreen != null) VrxRow(label: 'Its screen', onTap: onScreen),
       VrxRow(label: status, value: view.running ? 'Stop' : 'Run again', onTap: view.running ? onStop : onAgain),
+    ]);
+  }
+}
+
+/// The screen a running script drew (the vrx module): its rows, each
+/// sending its id to the script when pressed, its paragraphs, then the
+/// run's state and the way to its printed output.
+class _ScriptScreenView extends StatelessWidget {
+  const _ScriptScreenView(
+      {required this.view, required this.onBack, required this.onTap, required this.onStop, required this.onAgain, required this.onOutput});
+
+  final ScriptsView view;
+  final VoidCallback onBack, onStop, onAgain, onOutput;
+  final void Function(String id) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final screen = view.screen!;
+    final space = ScaledSpacing.of(context);
+    final status = view.error ?? (view.running ? 'Running…' : 'Ended (exit ${view.exit})');
+    return Column(children: [
+      VrxHeader(title: screen.title.isEmpty ? (view.open ?? '') : screen.title, onBack: onBack),
+      Expanded(
+        child: ListView(children: [
+          for (final item in screen.items)
+            if (item.text != null)
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: space.inset, vertical: space.sm),
+                child: Text(item.text!, style: TypeRole.body(context)),
+              )
+            else
+              VrxRow(
+                label: item.label,
+                value: item.value,
+                onTap: item.tap == null || !view.running ? null : () => onTap(item.tap!),
+              ),
+        ]),
+      ),
+      VrxRow(label: 'Its output', onTap: onOutput),
+      VrxRow(label: status, value: view.running ? 'Stop' : 'Run again', onTap: view.running ? onStop : onAgain),
+    ]);
+  }
+}
+
+/// What runs in the background (systemd's vrx-script@ units): a tap
+/// stops one, or clears one systemd stopped after it kept failing.
+class _Running extends StatelessWidget {
+  const _Running({required this.view, required this.onBack, required this.onStop});
+
+  final ScriptsView view;
+  final VoidCallback onBack;
+  final void Function(String script) onStop;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+      VrxHeader(title: 'In the background', onBack: onBack),
+      Expanded(
+        child: view.background.isEmpty
+            ? Padding(
+                padding: EdgeInsets.all(ScaledSpacing.of(context).md),
+                child: Text('Nothing runs in the background. Open a script and choose Run in the background.',
+                    style: TypeRole.body(context)),
+              )
+            : ListView(children: [
+                for (final u in view.background)
+                  VrxRow(
+                    glyph: u.state == ScriptUnitState.running ? null : VrxSymbols.warning,
+                    label: u.script,
+                    detail: unitWords(u),
+                    value: u.state == ScriptUnitState.failed ? 'Clear' : 'Stop',
+                    onTap: () => onStop(u.script),
+                  ),
+              ]),
+      ),
+      if (view.error != null) VrxBanner(text: view.error),
     ]);
   }
 }
@@ -392,9 +531,14 @@ Future<List<String>> listScripts() async {
 Future<void> main() async {
   final model = ScriptsModel();
   runApplet(ScriptsApplet(model), actions: _events.stream);
+  // what runs in the background, from systemd's unit and job signals
+  VrxSystem.scripts.watch().listen(
+        (units) => _events.add(ScriptsBackground(units: units)),
+        onError: (Object err) => _events.add(ScriptsBackground(error: VrxWords.of(err, context: 'scripts: background'))),
+      );
   try {
     // the recipe installs the samples beside the bundle's manifest
-    await seedSamples(Directory('/system/defaults/scripts/samples'));
+    await seedSamples(Directory('$bundleDir/samples'));
     _events.add(ScriptsListed(scripts: await listScripts()));
   } on Object catch (err) {
     _events.add(ScriptsListed(error: VrxWords.of(err, context: 'scripts: list')));

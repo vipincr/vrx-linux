@@ -20,6 +20,8 @@ import 'host.dart';
 import 'locale.dart';
 import 'power_supply.dart';
 
+part 'script_units.dart';
+
 /// A system call the service refused or could not do: its error name
 /// (`org.freedesktop.DBus.Error.AccessDenied`, ...) and message.
 class SystemError implements Exception {
@@ -551,6 +553,7 @@ abstract final class VrxSystem {
   static LocaleService? _locale;
   static PowerSupplyService? _supply;
   static BluetoothService? _bluetooth;
+  static ScriptUnitsService? _scripts;
 
   static DBusClient get _system => _bus ??= DBusClient.system();
 
@@ -563,6 +566,7 @@ abstract final class VrxSystem {
   static LocaleService get locale => _locale ??= LocaledLocaleService(_system);
   static PowerSupplyService get powerSupply => _supply ??= PowerSupplyService();
   static BluetoothService get bluetooth => _bluetooth ??= LinuxBluetoothService(_system);
+  static ScriptUnitsService get scripts => _scripts ??= SystemdScriptUnits(_system);
 
   /// Replace any of the services (tests, a desktop `flutter run`).
   static void install({
@@ -575,7 +579,9 @@ abstract final class VrxSystem {
     LocaleService? locale,
     PowerSupplyService? powerSupply,
     BluetoothService? bluetooth,
+    ScriptUnitsService? scripts,
   }) {
+    _scripts = scripts ?? _scripts;
     _bluetooth = bluetooth ?? _bluetooth;
     _locale = locale ?? _locale;
     _supply = powerSupply ?? _supply;
