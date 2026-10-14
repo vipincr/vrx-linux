@@ -40,6 +40,7 @@ final class SettingsFacts implements SettingsAction {
     this.updateOffers,
     this.updateInstalling,
     this.updateInstalled,
+    this.usbHost,
     this.timeLocales,
     this.timeLocale,
     this.declared,
@@ -77,6 +78,9 @@ final class SettingsFacts implements SettingsAction {
   final List<UpdateOffer>? updateOffers;
   final Change<String?>? updateInstalling;
   final String? updateInstalled;
+
+  /// The board's USB host ports and what is plugged in (plan 0019 D11).
+  final UsbHostState? usbHost;
   final List<TimeLocale>? timeLocales;
   final String? timeLocale;
   final List<AppletSettingsDecl>? declared;
@@ -104,6 +108,7 @@ final class SettingsGo implements SettingsAction {
     this.showingUse,
     this.showingAwake,
     this.showingUpdate,
+    this.showingUsb,
     this.pickingScheme,
     this.pickingTimeFormat,
     this.settingTime,
@@ -117,6 +122,7 @@ final class SettingsGo implements SettingsAction {
   final bool? showingUse;
   final bool? showingAwake;
   final bool? showingUpdate;
+  final bool? showingUsb;
   final bool? pickingScheme;
   final bool? pickingTimeFormat;
   final SettingTime? settingTime;
@@ -330,6 +336,18 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
           _ => updateStatus?.running ?? '',
         };
 
+  /// The board's USB host ports (plan 0019 D11): what is plugged in, the
+  /// policy, what the image declared; the screen open.
+  UsbHostState usbHost = const UsbHostState();
+  bool showingUsb = false;
+
+  /// Device's USB devices row value: hubs are plumbing, not devices.
+  String get usbSummary {
+    if (usbHost.policy == UsbPolicy.failed) return 'Policy failed';
+    final n = usbHost.devices.where((d) => d.cls != UsbClass.hub).length;
+    return switch (n) { 0 => 'None', 1 => '1 device', _ => '$n devices' };
+  }
+
   /// The installed locales and the one LC_TIME is now (plan 0011 D7).
   List<TimeLocale> timeLocales = const [];
   String timeLocale = '';
@@ -386,6 +404,9 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         updateOffers = f.updateOffers ?? updateOffers;
         if (f.updateInstalling != null) updateInstalling = f.updateInstalling!.value;
         updateInstalled = f.updateInstalled ?? updateInstalled;
+        usbHost = f.usbHost ?? usbHost;
+        // the ports went (a restarted vrxhost on another image): no screen
+        if (!usbHost.present) showingUsb = false;
         timeLocales = f.timeLocales ?? timeLocales;
         timeLocale = f.timeLocale ?? timeLocale;
         declared = f.declared ?? declared;
@@ -407,6 +428,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         showingUse = g.showingUse ?? showingUse;
         showingAwake = g.showingAwake ?? showingAwake;
         showingUpdate = g.showingUpdate ?? showingUpdate;
+        showingUsb = (g.showingUsb ?? showingUsb) && usbHost.present;
         pickingScheme = g.pickingScheme ?? pickingScheme;
         pickingTimeFormat = g.pickingTimeFormat ?? pickingTimeFormat;
         settingTime = g.settingTime ?? settingTime;
@@ -711,6 +733,8 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
           if (bluetooth?.present ?? false)
             SettingRow(key: 'devicelink', label: 'Device Link', value: linkValue(bluetooth!), kind: RowKind.open),
           if (usbPresent) const SettingRow(key: 'usbport', label: 'USB', value: '', kind: RowKind.open),
+          // what is plugged into the board's host ports (plan 0019 D11)
+          if (usbHost.present) SettingRow(key: 'usb_devices', label: 'USB devices', value: usbSummary, kind: RowKind.open),
           // when the on-screen keyboard comes up for a text field (plan
           // 0013 D6): only without a physical keyboard, or always
           SettingRow(
@@ -801,6 +825,8 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
       editingSetting = null;
     } else if (showingUpdate) {
       showingUpdate = false;
+    } else if (showingUsb) {
+      showingUsb = false;
     } else if (showingUse) {
       showingUse = false;
     } else if (showingAwake) {
@@ -841,6 +867,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         editingSetting,
         pairing,
         showingUpdate,
+        showingUsb,
         showingUse,
         showingAwake,
         pickingScheme,
@@ -856,6 +883,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         editingSetting != null ||
         pairing ||
         showingUpdate ||
+        showingUsb ||
         showingUse ||
         showingAwake ||
         pickingScheme ||
@@ -872,7 +900,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         usbPresent, bluetooth?.on, supplyLow, battery?.percent, energyAvailable, energy == null, awake == null,
         updatesAvailable, updateStatus?.running, updateStatus?.last, updateStatus?.trial,
         [for (final o in updateOffers ?? const <UpdateOffer>[]) o.file], updateOffers == null, updateInstalling,
-        updateInstalled, showingUpdate,
+        updateInstalled, showingUpdate, usbHost, showingUsb,
         [for (final l in timeLocales) l.name], timeLocale, [for (final d in declared) d.id], values, zones,
         runningScheme, runningDark, matter, [for (final a in matterApplets) a.id], matterPayload?.manual, pairing,
         error, open, renaming, editingSetting?.$1, editingSetting?.$2, showingUse,

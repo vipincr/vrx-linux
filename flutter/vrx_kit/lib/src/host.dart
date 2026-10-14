@@ -12,6 +12,7 @@ import 'dart:io';
 import 'intent.dart';
 import 'nav.dart';
 import 'settings.dart';
+import 'usb_host.dart';
 import 'words.dart';
 
 /// One tile's worth of registry: an applet the launcher shows.
@@ -107,6 +108,7 @@ class SystemFacts {
     this.nextWake = 0,
     this.profiling = false,
     this.advertising = '',
+    this.usbHost = const UsbHostState(),
   });
 
   factory SystemFacts.fromJson(Map<String, dynamic> j) => SystemFacts(
@@ -118,6 +120,7 @@ class SystemFacts {
         nextWake: (j['next_wake'] as num?)?.toInt() ?? 0,
         profiling: j['profiling'] == true,
         advertising: '${j['advertising'] ?? ''}',
+        usbHost: UsbHostState.fromJson(j),
       );
 
   /// The UDC's state ("configured" with a computer on the cable); '' on a
@@ -150,6 +153,10 @@ class SystemFacts {
   /// D4): '', 'device-link' (its pairing window) or 'matter' (a home app
   /// pairing over Bluetooth, which pauses Device Link's window).
   final String advertising;
+
+  /// The board's USB host ports, what is plugged in and the policy (plan
+  /// 0019 D7); empty on a board with none.
+  final UsbHostState usbHost;
 }
 
 /// The applet OS's own service: navigation, the registry, intents.

@@ -97,6 +97,26 @@ void main() {
       ..open = SettingsCategory.device
       ..showingUpdate = true
       ..updateInstalling = '0.1.0081',
+    // plan 0019 D11: the longest rows USB devices holds, on a board with an
+    // allow-list, an unswitched port and a low supply
+    'usb devices': () => model()
+      ..open = SettingsCategory.device
+      ..showingUsb = true
+      ..usbHost = _usb,
+    'usb devices, empty': () => model()
+      ..open = SettingsCategory.device
+      ..showingUsb = true
+      ..usbHost = const UsbHostState(ports: ['USB-A'], vbus: 'switched', overcurrent: 'none', policy: UsbPolicy.open),
+    'usb devices, policy failed': () => model()
+      ..open = SettingsCategory.device
+      ..showingUsb = true
+      ..usbHost = const UsbHostState(ports: ['USB-A'], vbus: 'unknown', overcurrent: 'reported', policy: UsbPolicy.failed, devices: [
+        UsbDevice(port: '1-1.4', cls: UsbClass.other, id: '0bda:8153', authorized: false, blocked: true),
+      ]),
+    'device with usb devices': () => model()
+      ..open = SettingsCategory.device
+      ..usbPresent = true
+      ..usbHost = _usb,
     'rename': () => model()
       ..open = SettingsCategory.device
       ..renaming = true,
@@ -186,6 +206,16 @@ void main() {
     });
   }
 }
+
+const _usb = UsbHostState(ports: ['USB-A'], vbus: 'unswitched', overcurrent: 'none', policy: UsbPolicy.allowlist, allowNew: false, devices: [
+  UsbDevice(port: '1-1', name: 'USB2.0 Hub', cls: UsbClass.hub, id: '05e3:0610', speed: '480'),
+  UsbDevice(port: '1-1.2', name: 'Logitech USB Receiver for a Wireless Keyboard', cls: UsbClass.hid, id: '046d:c534', speed: '12'),
+  UsbDevice(port: '1-1.3', name: 'SanDisk Cruzer Blade Ultra Flair', cls: UsbClass.storage, id: '0781:5567', speed: '480', mounts: [
+    '/run/vrx/usb/1-1.3-p1',
+  ]),
+  UsbDevice(port: '1-1.4', name: 'Seagate Expansion Desk', cls: UsbClass.storage, id: '0bc2:3312', speed: '480'),
+  UsbDevice(port: '1-1.5', name: 'Realtek USB 10/100/1000 LAN', cls: UsbClass.other, id: '0bda:8153', authorized: false, blocked: true),
+]);
 
 const _report = EnergyReport(calibrated: true, measured: '2026-10-14 with fnb58', hours: 24, rows: [
   EnergyRow(key: 'system:floor', name: 'Idle floor', system: true, millijoules: 98000000, cpuMs: 0, gpuMs: 0, wakeups: 0, frontSeconds: 0, over: false),

@@ -7,6 +7,7 @@ import 'package:vrx_kit/vrx_kit.dart';
 import 'energy.dart';
 import 'state.dart';
 import 'update.dart';
+import 'usb_devices.dart';
 
 /// Facts from the system services, for the applet's whole life.
 final _facts = StreamController<SettingsAction>();
@@ -112,6 +113,14 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
         onRestart: () => unawaited(
             restartIntoUpdate(context, model.updateInstalled ?? '', model.updateStatus?.running ?? '', _facts.add)),
         onBack: () => _go(context, const SettingsGo(showingUpdate: false)),
+      );
+    } else if (model.showingUsb) {
+      body = UsbDevicesScreen(
+        state: model.usbHost,
+        supplyLow: model.supplyLow,
+        onEject: (d) => unawaited(_ask(context, () => VrxUsbHost.service.eject(d))),
+        onAllowNew: (on) => unawaited(_ask(context, () => VrxUsbHost.service.allowNew(on))),
+        onBack: () => _go(context, const SettingsGo(showingUsb: false)),
       );
     } else if (model.showingUse) {
       body = BatteryUseScreen(report: model.energy, onBack: () => _go(context, const SettingsGo(showingUse: false)));
@@ -271,6 +280,8 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
           );
           if (yes && context.mounted) unawaited(_ask(context, () async => VrxMatter.service?.forget()));
         }());
+      case 'usb_devices':
+        _go(context, const SettingsGo(showingUsb: true));
       case 'software_update':
         _go(context, const SettingsGo(showingUpdate: true));
         unawaited(refreshUpdates(_facts.add));
@@ -464,6 +475,8 @@ Future<void> main() async {
   unawaited(_screen.cascade().then((c) => fact(SettingsFacts(cascade: c))));
   VrxSystem.power.watchSupplyLow().listen((low) => fact(SettingsFacts(supplyLow: low)), onError: failed);
   VrxSystem.usb.watch().listen((u) => fact(SettingsFacts(usbPresent: u.present)), onError: failed);
+  // what is plugged into the board's host ports (plan 0019 D11): vrxhost's facts
+  VrxUsbHost.service.watch().listen((u) => fact(SettingsFacts(usbHost: u)), onError: failed);
   VrxSystem.bluetooth.watch().listen((b) => fact(SettingsFacts(bluetooth: b)), onError: failed);
   VrxSystem.powerSupply.watch().listen((b) => fact(SettingsFacts(battery: Change(b))), onError: failed);
   unawaited(deviceUsage().then((u) => fact(SettingsFacts(usage: u))));
