@@ -1,0 +1,87 @@
+# Home, then every tile and back (plan 0014 Part E): each applet's first
+# frames after a tap, and the launcher's return. Labels are the tiles'
+# names (the launcher shows each applet's manifest name).
+name = "home-tiles"
+about = "Home, every tile in turn, and back"
+
+[setup]
+restart = ["launcher"]
+capture = "frames"
+
+[[prepare]]
+action = "home"
+expect = { front = "launcher" }
+
+[[prepare]]
+action = "shot"
+name = "home"
+
+[[step]]
+action = "tap"
+label = "Assistant"
+in = "launcher"
+expect = { front = "assistant" }
+
+[[step]]
+action = "back"
+expect = { front = "launcher" }
+
+[[step]]
+action = "tap"
+label = "Clock"
+in = "launcher"
+expect = { front = "clock" }
+
+[[step]]
+action = "back"
+expect = { front = "launcher" }
+
+[[step]]
+action = "tap"
+label = "Recorder"
+in = "launcher"
+expect = { front = "recorder" }
+
+[[step]]
+action = "back"
+expect = { front = "launcher" }
+
+[[step]]
+action = "tap"
+label = "Scripts"
+in = "launcher"
+expect = { front = "scripts" }
+
+[[step]]
+action = "back"
+expect = { front = "launcher" }
+
+[[step]]
+action = "tap"
+label = "Settings"
+in = "launcher"
+expect = { front = "settings" }
+
+[[step]]
+action = "back"
+expect = { front = "launcher" }
+
+[[step]]
+action = "tap"
+label = "Terminal"
+in = "launcher"
+expect = { front = "terminal" }
+
+[[step]]
+action = "back"
+expect = { front = "launcher" }
+
+[[step]]
+action = "tap"
+label = "Web requests"
+in = "launcher"
+expect = { front = "web" }
+
+[[step]]
+action = "back"
+expect = { front = "launcher" }

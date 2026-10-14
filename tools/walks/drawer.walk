@@ -1,0 +1,40 @@
+# The drawer: pull it down from the status strip, slide the brightness,
+# close it (plan 0014 Part E). The shell's overlay plane and the dimming
+# path are both on screen. The slide ends where it began, so the
+# brightness is left as found.
+name = "drawer"
+about = "Open the drawer, slide the brightness, close it"
+repeat = 3
+
+[setup]
+capture = "frames"
+
+[[prepare]]
+action = "home"
+
+[[step]]
+action = "swipe"
+xy = [240, 2]
+by = [0, 360]
+ms = 250
+expect = { label = "Close the drawer" }
+
+[[step]]
+action = "swipe"
+label = "Brightness"
+in = "shell"
+by = [-120, 0]
+ms = 400
+
+[[step]]
+action = "swipe"
+label = "Brightness"
+in = "shell"
+by = [120, 0]
+ms = 400
+
+[[step]]
+action = "tap"
+label = "Close the drawer"
+in = "shell"
+expect = { gone = "Close the drawer" }

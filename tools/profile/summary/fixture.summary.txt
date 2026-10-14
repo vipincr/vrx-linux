@@ -1,0 +1,184 @@
+metric_bundles {
+  row {
+    dimension {
+      string_value: "clock"
+    }
+    dimension {
+      string_value: "cpu_ms"
+    }
+    dimension {
+      string_value: ""
+    }
+    values {
+      double_value: 42.000000
+    }
+  }
+  row {
+    dimension {
+      string_value: "clock"
+    }
+    dimension {
+      string_value: "cpu_ms_per_min"
+    }
+    dimension {
+      string_value: ""
+    }
+    values {
+      double_value: 840.000000
+    }
+  }
+  row {
+    dimension {
+      string_value: "clock"
+    }
+    dimension {
+      string_value: "peak_mb"
+    }
+    dimension {
+      string_value: ""
+    }
+    values {
+      double_value: 44.000000
+    }
+  }
+  row {
+    dimension {
+      string_value: "clock"
+    }
+    dimension {
+      string_value: "frames"
+    }
+    dimension {
+      string_value: ""
+    }
+    values {
+      double_value: 280.000000
+    }
+  }
+  row {
+    dimension {
+      string_value: "clock"
+    }
+    dimension {
+      string_value: "build_p95_ms"
+    }
+    dimension {
+      string_value: ""
+    }
+    values {
+      double_value: 9.000000
+    }
+  }
+  row {
+    dimension {
+      string_value: "clock"
+    }
+    dimension {
+      string_value: "dropped"
+    }
+    dimension {
+      string_value: ""
+    }
+    values {
+      double_value: 2.000000
+    }
+  }
+  row {
+    dimension {
+      string_value: "clock"
+    }
+    dimension {
+      string_value: "dropped_per_min"
+    }
+    dimension {
+      string_value: ""
+    }
+    values {
+      double_value: 40.000000
+    }
+  }
+  row {
+    dimension {
+      string_value: "clock"
+    }
+    dimension {
+      string_value: "dropped"
+    }
+    dimension {
+      string_value: "step 1 tap \"Settings\""
+    }
+    values {
+      double_value: 1.000000
+    }
+  }
+  row {
+    dimension {
+      string_value: "system"
+    }
+    dimension {
+      string_value: "dropped_app_late"
+    }
+    dimension {
+      string_value: ""
+    }
+    values {
+      double_value: 2.000000
+    }
+  }
+  row {
+    dimension {
+      string_value: "system"
+    }
+    dimension {
+      string_value: "input_to_screen_p50_ms"
+    }
+    dimension {
+      string_value: ""
+    }
+    values {
+      double_value: 30.000000
+    }
+  }
+  row {
+    dimension {
+      string_value: "system"
+    }
+    dimension {
+      string_value: "input_to_screen_p95_ms"
+    }
+    dimension {
+      string_value: ""
+    }
+    values {
+      double_value: 80.000000
+    }
+  }
+  row {
+    dimension {
+      string_value: "system"
+    }
+    dimension {
+      string_value: "input_samples"
+    }
+    dimension {
+      string_value: ""
+    }
+    values {
+      double_value: 3.000000
+    }
+  }
+  row {
+    dimension {
+      string_value: "system"
+    }
+    dimension {
+      string_value: "minutes"
+    }
+    dimension {
+      string_value: ""
+    }
+    values {
+      double_value: 0.050000
+    }
+  }
+}

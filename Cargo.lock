@@ -898,6 +898,9 @@ dependencies = [
 name = "vrx-cli"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
  "vrx-protocol",
 ]
 
@@ -948,6 +951,18 @@ dependencies = [
  "serde_json",
  "thiserror",
  "toml",
+]
+
+[[package]]
+name = "vrx-walk"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "vrx-protocol",
 ]
 
 [[package]]

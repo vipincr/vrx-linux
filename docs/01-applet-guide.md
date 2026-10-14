@@ -58,6 +58,7 @@ do. The parser refuses an unknown key by name (`rust/protocol/src/manifest.rs`).
 | `[applet.channels]` | `offers`, `opens` (`<applet>.<channel>`) |
 | `[applet.routes]` | named screens; route 0 is the root and is never declared |
 | `[[applet.settings]]` | key, label, category, type, default, options |
+| `[applet.budgets]` | what a walk holds it to: `p95_frame_ms`, `dropped_per_min`, `cpu_ms_per_min`, `peak_mb` (plan 0014 D11); unset ones fall back to the board's `walk-budget` lines |
 
 A grant is a group membership and nothing else (G017): `network`
 (connman), `bluetooth` (BlueZ), `time`, `hostname`, `display`, `power`,
@@ -82,6 +83,7 @@ a dynamic user and may not declare `background`, `fs` or a `sys.` emit
 | The screen's light and power are the compositor's: no `/sys/class/backlight`, `bl_power` or `dpms` outside the kit | a person can never be left with a dark screen | the scan (G019) |
 | An applet sends only the intents it `emits`, and pushes only applets and routes that exist | a signal into the void is a silent bug | the gate and `vrx build` (G022); vrxhost refuses at the socket |
 | `stdout` is not a log: `debugPrint` | the journal gets it with the applet's name | the scan |
+| Every control says what it does in words: a glyph-only `VrxIconButton` takes a `label`, `VrxPress` a `label` where its child has no text | a screen reader and a walk find controls by those words | the layout test (G038, rule `label`) |
 | Every screen is in the layout test, on every display | text cut, overlapping or off the glass is found on the Mac | `test/layout_test.dart` with `expectCleanLayout`; the gate refuses a Flutter applet without one |
 | A person reads full sentences, never an exception: `VrxWords` | one table of what went wrong, in their words | none (review) |
 | Each applet has its own icon | the launcher is icon-led | none yet (plan 0013 D5, G033) |
@@ -151,3 +153,16 @@ vrx build                    # the scan, analyze, the tests, then compile
 ```
 
 The gate runs only the checks whose inputs changed since they last passed.
+
+On a board with the profiling layer, a walk measures the applet in use
+(plan 0014): `tools/walks/*.walk` is a path through the UI by control
+labels, and
+
+```bash
+vrx walk run tools/walks/clock-alarm.walk --host 10.10.10.8
+```
+
+plays it on the device, captures a Perfetto trace around it, summarises
+frames, drops, CPU, memory and I/O per applet with trace_processor, and
+fails a metric over the applet's `[applet.budgets]`, naming the step where
+it was worst. `vrx profile` is the same capture without a walk.

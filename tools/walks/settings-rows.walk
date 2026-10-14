@@ -1,0 +1,63 @@
+# Settings, every category and back (plan 0014 Part E). Rows are opened
+# by their labels; nothing is changed (no toggle is tapped), so a walk
+# leaves the device as it found it. Power is left out: it shows only on a
+# board with a battery or a supply alarm.
+name = "settings-rows"
+about = "Settings: open each category and come back"
+
+[setup]
+restart = ["settings"]
+capture = "frames"
+
+[[prepare]]
+action = "open"
+applet = "settings"
+expect = { label = "Display" }
+
+[[step]]
+action = "tap"
+label = "Display"
+in = "settings"
+expect = { label = "Brightness" }
+
+[[step]]
+action = "tap"
+label = "Back"
+in = "settings"
+expect = { label = "Display" }
+
+[[step]]
+action = "tap"
+label = "Time"
+in = "settings"
+expect = { label = "Time zone" }
+
+[[step]]
+action = "tap"
+label = "Back"
+in = "settings"
+expect = { label = "Display" }
+
+[[step]]
+action = "tap"
+label = "Network"
+in = "settings"
+expect = { label = "Back" }
+
+[[step]]
+action = "tap"
+label = "Back"
+in = "settings"
+expect = { label = "Display" }
+
+[[step]]
+action = "tap"
+label = "Device"
+in = "settings"
+expect = { label = "Back" }
+
+[[step]]
+action = "tap"
+label = "Back"
+in = "settings"
+expect = { label = "Display" }

@@ -244,6 +244,10 @@ pub struct AppletSection {
     pub command: Option<CommandSection>,
     #[serde(default)]
     pub settings: Vec<SettingDecl>,
+    /// What a walk holds this applet to (plan 0014 D11): unset limits
+    /// fall back to the board's power profile (`walk-budget`).
+    #[serde(default)]
+    pub budgets: Option<crate::walk::Budgets>,
 }
 
 /// Launcher presentation. Absent means: not a tile.

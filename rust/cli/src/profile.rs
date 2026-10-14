@@ -9,11 +9,13 @@
 //   vrx profile capture <frames|cpu|memory|io|full> [--for <seconds>] --host <board>
 //   vrx profile stats --host <board>
 //   vrx profile pull --host <board> [--out <dir>]
+//   vrx profile summary <trace>        trace_processor and the summary spec
+//   vrx profile open <trace>           the Perfetto UI on a local trace
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
-const SSH_OPTS: &[&str] = &[
+pub const SSH_OPTS: &[&str] = &[
     "-o",
     "StrictHostKeyChecking=no",
     "-o",
@@ -23,7 +25,11 @@ const SSH_OPTS: &[&str] = &[
     "-o",
     "ConnectTimeout=8",
 ];
-const CONFIGS: &[&str] = &["frames", "cpu", "memory", "io", "full"];
+use vrx_protocol::walk::{Summary, CAPTURE_CONFIGS as CONFIGS};
+
+/// The summary spec (plan 0014 D11), built in so the CLI needs no
+/// checkout to find it.
+const SPEC: &str = include_str!("../../../tools/profile/summary/vrx.pbtx");
 
 /// The value after `flag`, if given.
 pub fn flag<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
@@ -76,36 +82,135 @@ pub fn parse_list(text: &str) -> Vec<(String, u64)> {
         .filter_map(|l| {
             let (name, kb) = l.split_once(' ')?;
             let kb = kb.trim().parse().ok()?;
-            (name.ends_with(".pftrace")).then(|| (name.to_owned(), kb))
+            [".pftrace", ".json", ".png"]
+                .iter()
+                .any(|ext| name.ends_with(ext))
+                .then(|| (name.to_owned(), kb))
         })
         .collect()
 }
 
-fn pull(host: &str, out: &Path) -> Result<Vec<PathBuf>, String> {
+/// Copy one file off the store into `out`; `take` deletes it on the
+/// device only after a whole copy (the owner, 2026-10-14).
+pub fn take(host: &str, name: &str, out: &Path) -> Result<PathBuf, String> {
     std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
-    let mut got = Vec::new();
-    for (name, _) in parse_list(&on_board(host, "vrx-profile list")?) {
-        let dest = out.join(&name);
-        let file = std::fs::File::create(&dest)
-            .map_err(|e| format!("{}: {e}", dest.display()))?;
-        // `take` prints the trace and deletes it only after a whole copy
-        let status = Command::new("ssh")
-            .args(SSH_OPTS)
-            .arg(format!("root@{host}"))
-            .arg(format!("vrx-profile take {name}"))
-            .stdout(file)
-            .status()
-            .map_err(|e| format!("ssh: {e}"))?;
-        if !status.success() {
-            let _ = std::fs::remove_file(&dest);
-            return Err(format!("taking {name} failed; it stays on the device"));
-        }
-        got.push(dest);
+    let dest = out.join(name);
+    let file =
+        std::fs::File::create(&dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    let status = Command::new("ssh")
+        .args(SSH_OPTS)
+        .arg(format!("root@{host}"))
+        .arg(format!("vrx-profile take {name}"))
+        .stdout(file)
+        .status()
+        .map_err(|e| format!("ssh: {e}"))?;
+    if !status.success() {
+        let _ = std::fs::remove_file(&dest);
+        return Err(format!("taking {name} failed; it stays on the device"));
     }
-    Ok(got)
+    Ok(dest)
+}
+
+fn pull(host: &str, out: &Path) -> Result<Vec<PathBuf>, String> {
+    parse_list(&on_board(host, "vrx-profile list")?)
+        .into_iter()
+        .map(|(name, _)| take(host, &name, out))
+        .collect()
+}
+
+/// trace_processor_shell: $VRX_TRACE_PROCESSOR, else on the PATH (the
+/// prebuilt from Perfetto's release, mac-arm64.zip or linux-*.zip).
+fn trace_processor() -> String {
+    std::env::var("VRX_TRACE_PROCESSOR")
+        .unwrap_or_else(|_| "trace_processor_shell".to_owned())
+}
+
+/// A trace's summary through the spec (trace_processor 51.2's flags).
+pub fn summarize(trace: &Path) -> Result<Summary, String> {
+    let spec =
+        std::env::temp_dir().join(format!("vrx-summary-{}.pbtx", std::process::id()));
+    std::fs::write(&spec, SPEC).map_err(|e| format!("{}: {e}", spec.display()))?;
+    let out = Command::new(trace_processor())
+        .arg("--summary")
+        .arg("--summary-spec")
+        .arg(&spec)
+        .args(["--summary-metrics-v2", "all", "--summary-format", "text"])
+        .arg(trace)
+        .stderr(Stdio::piped())
+        .output();
+    let _ = std::fs::remove_file(&spec);
+    let out = out.map_err(|e| {
+        format!(
+            "{}: {e} (get trace_processor_shell from Perfetto's release, or set VRX_TRACE_PROCESSOR)",
+            trace_processor()
+        )
+    })?;
+    if !out.status.success() {
+        return Err(format!(
+            "trace_processor failed on {}: {}",
+            trace.display(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Summary::from_textproto(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// A summary as lines: the walk-wide rows, then the per-step ones.
+pub fn summary_lines(s: &Summary) -> String {
+    let mut rows: Vec<_> = s.rows.iter().collect();
+    rows.sort_by_key(|r| (!r.step.is_empty(), r.applet.clone(), r.metric.clone()));
+    rows.iter()
+        .map(|r| {
+            let at = if r.step.is_empty() {
+                String::new()
+            } else {
+                format!(" at {}", r.step)
+            };
+            format!("{} {}{at}: {:.1}\n", r.applet, r.metric, r.value)
+        })
+        .collect()
+}
+
+/// Open a local trace in the Perfetto UI: trace_processor serves it on
+/// 127.0.0.1:9001 and ui.perfetto.dev (a static page) loads it from there,
+/// so the trace never leaves this machine. Perfetto's releases ship no UI
+/// bundle to serve ourselves.
+fn open(trace: &Path) -> Result<String, String> {
+    let mut server = Command::new(trace_processor())
+        .arg("--httpd")
+        .arg(trace)
+        .spawn()
+        .map_err(|e| format!("{}: {e}", trace_processor()))?;
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    let _ = Command::new(opener).arg("https://ui.perfetto.dev").status();
+    eprintln!(
+        "vrx profile: serving {} on 127.0.0.1:9001 for the UI; Ctrl-C ends it",
+        trace.display()
+    );
+    server.wait().map_err(|e| e.to_string())?;
+    Ok(String::new())
 }
 
 pub fn run(args: &[String]) -> ExitCode {
+    match args.first().map(String::as_str) {
+        Some("summary") | Some("open") => {
+            let Some(trace) = args.get(1).map(PathBuf::from) else {
+                eprintln!("vrx profile: summary|open <trace>");
+                return ExitCode::from(64);
+            };
+            let result = if args[0] == "open" {
+                open(&trace)
+            } else {
+                summarize(&trace).map(|s| summary_lines(&s))
+            };
+            return finish(result);
+        }
+        _ => {}
+    }
     let Some(host) = flag(args, "--host") else {
         eprintln!("vrx profile: --host <board> is needed");
         return ExitCode::from(64);
@@ -137,8 +242,12 @@ pub fn run(args: &[String]) -> ExitCode {
                     .collect::<String>()
             })
         }
-        _ => Err("on|off|status|stats|capture <config> [--for s]|pull [--out dir], with --host <board>".to_owned()),
+        _ => Err("on|off|status|stats|capture <config> [--for s]|pull [--out dir], with --host <board>; summary|open <trace>".to_owned()),
     };
+    finish(result)
+}
+
+fn finish(result: Result<String, String>) -> ExitCode {
     match result {
         Ok(text) => {
             print!("{text}");
@@ -175,13 +284,13 @@ mod tests {
     }
 
     #[test]
-    fn only_traces_are_pulled() {
-        let listed = "20261014T100000Z-frames.pftrace 2048\nquota-note 1\n20261014T100100Z-cpu.pftrace 30000\n";
+    fn only_the_stores_files_are_pulled() {
+        let listed = "20261014T100000Z-frames.pftrace 2048\nquota-note 1\n20261014T100100Z-walk-drawer.json 4\n";
         assert_eq!(
             parse_list(listed),
             vec![
                 ("20261014T100000Z-frames.pftrace".to_owned(), 2048),
-                ("20261014T100100Z-cpu.pftrace".to_owned(), 30000)
+                ("20261014T100100Z-walk-drawer.json".to_owned(), 4)
             ]
         );
     }

@@ -1,0 +1,41 @@
+# Clock: a new alarm's editor, its rows, and back without saving (plan
+# 0014 Part E). Back discards the draft, so no alarm is left behind.
+name = "clock-alarm"
+about = "Clock: open a new alarm, touch its rows, leave it unsaved"
+
+[setup]
+restart = ["clock"]
+capture = "frames"
+
+[[prepare]]
+action = "open"
+applet = "clock"
+expect = { label = "Alarms" }
+
+[[step]]
+action = "tap"
+label = "Alarms"
+in = "clock"
+expect = { label = "Add an alarm" }
+
+[[step]]
+action = "tap"
+label = "Add an alarm"
+in = "clock"
+expect = { label = "Save" }
+
+[[step]]
+action = "tap"
+label = "Snooze"
+in = "clock"
+
+[[step]]
+action = "tap"
+label = "Snooze"
+in = "clock"
+
+[[step]]
+action = "tap"
+label = "Back"
+in = "clock"
+expect = { label = "Add an alarm" }

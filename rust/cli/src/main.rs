@@ -1,4 +1,4 @@
-// The vrx command-line tool: new / build / pack / unit / test / profile. A CLI's
+// The vrx command-line tool: new / build / pack / unit / test / profile / walk. A CLI's
 // job is stdout; the applet print lints do not apply here (they bind
 // the SDK, not the tools).
 
@@ -12,6 +12,7 @@ mod power_profile;
 mod profile;
 mod test_cmd;
 mod unit;
+mod walk;
 
 use std::process::ExitCode;
 
@@ -34,8 +35,15 @@ usage:
   vrx profile on|off|status|stats --host <board>
   vrx profile capture <frames|cpu|memory|io|full> [--for <s>] --host <board>
   vrx profile pull --host <board> [--out <dir>]
+  vrx profile summary|open <trace>
                                       the profiler (plan 0014): the switch, a
-                                      Perfetto capture, traces off the device
+                                      Perfetto capture, traces off the device,
+                                      a summary, the Perfetto UI
+  vrx walk plan <file.walk>
+  vrx walk run <file.walk> --host <board> [--out <dir>] [--scanout <f>]
+  vrx walk summary|check <run-dir>
+                                      walks (plan 0014): a scripted path played
+                                      on the board, measured, held to budgets
 ";
 
 fn main() -> ExitCode {
@@ -48,6 +56,7 @@ fn main() -> ExitCode {
         Some("unit") => unit::run(&args[1..]),
         Some("test") => test_cmd::run(&args[1..]),
         Some("profile") => profile::run(&args[1..]),
+        Some("walk") => walk::run_cli(&args[1..]),
         _ => {
             print!("{USAGE}");
             ExitCode::SUCCESS

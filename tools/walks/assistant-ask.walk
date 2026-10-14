@@ -1,0 +1,40 @@
+# Assistant: type a question and watch the answer stream (plan 0014
+# Part E): text layout under a growing reply, and the model's CPU next to
+# the UI's frames. Needs the on-device model the image ships.
+name = "assistant-ask"
+about = "Assistant: ask a typed question and wait for the whole answer"
+
+[setup]
+restart = ["assistant"]
+capture = "cpu"
+
+[[prepare]]
+action = "open"
+applet = "assistant"
+expect = { label = "Type a question" }
+
+[[step]]
+action = "tap"
+label = "Type a question"
+in = "assistant"
+
+[[step]]
+action = "type"
+text = "what can you do"
+
+[[step]]
+action = "key"
+key = "ENTER"
+expect = { label = "Stop the answer" }
+timeout_s = 10
+
+[[step]]
+action = "wait"
+secs = 1
+expect = { gone = "Stop the answer" }
+timeout_s = 60
+
+[[step]]
+action = "tap"
+label = "Clear the conversation"
+in = "assistant"

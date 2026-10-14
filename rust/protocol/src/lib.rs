@@ -19,6 +19,7 @@ pub mod registry;
 pub mod scan;
 pub mod sysext;
 pub mod unit;
+pub mod walk;
 
 pub use intent::{Intent, IntentPayload, Verdict};
 pub use manifest::{HandleDecl, Manifest, SystemGrant};

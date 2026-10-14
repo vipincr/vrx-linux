@@ -1,0 +1,32 @@
+# tracer: nop
+#
+# A hand-written trace in systrace text form for checking vrx.pbtx:
+#   trace_processor_shell --summary --summary-spec vrx.pbtx \
+#     --summary-metrics-v2 all --summary-format text fixture.systrace
+# Expected: clock cpu_ms 42, cpu_ms_per_min 840, peak_mb 44, frames 280,
+# build_p95_ms 9, dropped 2 (1 at step 1), system dropped_app_late 2,
+# input_to_screen_p50_ms 30, input_to_screen_p95_ms 80; no gpu row.
+#
+#           TASK-PID     CPU#  ||||   TIMESTAMP  FUNCTION
+#              | |         |   ||||      |         |
+         vrxhost-300   [000] ....   99.000000: tracing_mark_write: C|300|vrx.clock.cpu_ms_per_s|50
+          vrx-ui-200   [002] ....   99.500000: tracing_mark_write: C|200|vrx.dropped.app_late|3
+        vrx-walk-500   [001] ....  100.000000: tracing_mark_write: B|500|walk:drawer
+         vrxhost-300   [000] ....  100.500000: tracing_mark_write: C|300|vrx.clock.cpu_ms_per_s|12
+         vrxhost-300   [000] ....  100.600000: tracing_mark_write: C|300|vrx.clock.mem_mb|40
+        vrx-walk-500   [001] ....  101.000000: tracing_mark_write: B|500|step 1 tap "Settings"
+          vrx-ui-200   [002] ....  101.050000: tracing_mark_write: C|200|vrx.flip.seq_delta|1
+          vrx-ui-200   [002] ....  101.100000: tracing_mark_write: C|200|vrx.input_to_screen_us|30000
+          vrx-ui-200   [002] ....  101.150000: tracing_mark_write: C|200|vrx.clock.dropped|1
+          vrx-ui-200   [002] ....  101.150001: tracing_mark_write: C|200|vrx.dropped.app_late|4
+        vrx-walk-500   [001] ....  101.200000: tracing_mark_write: E|500
+         vrxhost-300   [000] ....  101.500000: tracing_mark_write: C|300|vrx.clock.cpu_ms_per_s|30
+         vrxhost-300   [000] ....  101.600000: tracing_mark_write: C|300|vrx.clock.mem_mb|44
+          vrx-ui-200   [002] ....  101.650000: tracing_mark_write: C|200|vrx.input_to_screen_us|20000
+          vrx-ui-200   [002] ....  101.700000: tracing_mark_write: C|200|vrx.clock.dropped|1
+          vrx-ui-200   [002] ....  101.700001: tracing_mark_write: C|200|vrx.dropped.app_late|5
+          vrx-ui-200   [002] ....  101.800000: tracing_mark_write: C|200|vrx.input_to_screen_us|80000
+         vrxhost-300   [000] ....  102.000000: tracing_mark_write: C|300|vrx.clock.build_p95_us|9000
+         vrxhost-300   [000] ....  102.000001: tracing_mark_write: C|300|vrx.clock.frames|280
+        vrx-walk-500   [001] ....  103.000000: tracing_mark_write: E|500
+         vrxhost-300   [000] ....  104.000000: tracing_mark_write: C|300|vrx.clock.cpu_ms_per_s|99

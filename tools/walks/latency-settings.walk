@@ -1,0 +1,35 @@
+# Input to screen (plan 0014 D7): twenty taps on something that redraws,
+# the compositor's input-to-screen counter summarised as p50 and p95.
+# This replaces tools/bench/latency.sh; the budget is the one that script
+# held (50 ms at the 95th percentile).
+name = "latency-settings"
+about = "Twenty taps on a Settings category and back, input to screen"
+repeat = 20
+
+[setup]
+restart = ["settings"]
+capture = "frames"
+
+[budgets]
+input_to_screen_p95_ms = 50
+
+[[prepare]]
+action = "open"
+applet = "settings"
+expect = { label = "Display" }
+
+[[step]]
+action = "tap"
+label = "Display"
+in = "settings"
+expect = { label = "Brightness" }
+
+[[step]]
+action = "tap"
+label = "Back"
+in = "settings"
+expect = { label = "Display" }
+
+[[step]]
+action = "wait"
+secs = 0.6

@@ -9,6 +9,7 @@
 //
 //   model <part> [<step>] <mW> measured=<YYYY-MM-DD> meter=<name> [method=<text>]
 //   budget background|front <percent> <minutes>
+//   walk-budget <metric> <value>
 //
 // Parts: `floor` (the board idle, screen off, radios off), `cpu <kHz>`
 // (one core fully busy at that frequency, above the floor), `gpu` (the
@@ -16,7 +17,8 @@
 // `display-dim` (lit at the brightness floor), `wifi-idle`,
 // `wifi-active`, `bt`. A number without its measurement is refused:
 // a model line must say when and with what it was measured. Budgets are
-// thresholds, chosen, not measured.
+// thresholds, chosen, not measured; so are walk budgets (plan 0014 D11),
+// the defaults a walk holds every applet to where its manifest sets none.
 
 use std::collections::BTreeMap;
 
@@ -60,6 +62,8 @@ pub struct PowerProfile {
     pub measured: Option<Measurement>,
     pub background: Budget,
     pub front: Budget,
+    /// The walk budgets every applet is held to by default.
+    pub walk: crate::walk::Budgets,
 }
 
 /// D11's starting thresholds, until a board's file sets its own.
@@ -80,6 +84,7 @@ impl Default for PowerProfile {
             measured: None,
             background: BACKGROUND_DEFAULT,
             front: FRONT_DEFAULT,
+            walk: crate::walk::Budgets::default(),
         }
     }
 }
@@ -255,6 +260,22 @@ impl PowerProfile {
                         }
                     }
                 }
+                Some("walk-budget") => {
+                    let rest: Vec<&str> = words.collect();
+                    let [metric, value] = rest.as_slice() else {
+                        return Err(err("walk-budget <metric> <value>".into()));
+                    };
+                    let value =
+                        value.parse::<f64>().ok().filter(|v| *v > 0.0).ok_or_else(
+                            || err(format!("{value:?}: a positive number")),
+                        )?;
+                    if !self.walk.set(metric, value) {
+                        return Err(err(format!(
+                            "walk-budget {metric:?}: one of {}",
+                            crate::walk::BUDGET_METRICS.join(", ")
+                        )));
+                    }
+                }
                 // tuning lines (D3), battery thresholds (D10) and anything a
                 // later reader owns
                 _ => {}
@@ -313,6 +334,22 @@ budget background 4 15
             let e = PowerProfile::parse("p", bad).unwrap_err();
             assert_eq!(e.line, 1, "{bad}: {e}");
         }
+    }
+
+    #[test]
+    fn walk_budgets_are_board_defaults_and_named() {
+        let p = PowerProfile::parse(
+            "b.power",
+            "walk-budget p95_frame_ms 16.7\nwalk-budget dropped_per_min 6\n",
+        )
+        .unwrap();
+        assert_eq!(
+            p.walk.limits(),
+            vec![("p95_frame_ms", 16.7), ("dropped_per_min", 6.0)]
+        );
+        let e = PowerProfile::parse("b.power", "walk-budget fps 60\n").unwrap_err();
+        assert!(e.reason.contains("one of"), "{e}");
+        assert!(PowerProfile::parse("b.power", "walk-budget peak_mb -1\n").is_err());
     }
 
     #[test]

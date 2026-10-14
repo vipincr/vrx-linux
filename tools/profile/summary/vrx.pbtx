@@ -1,0 +1,32 @@
+# The walk and capture summary (plan 0014 D11): one Perfetto TraceSummary
+# metric, computed on the workstation by trace_processor_shell (`vrx walk
+# summary`, `vrx profile summary`). Each row is an applet's metric over
+# the measured section (the `walk:*` slice vrx-walk writes; the whole
+# trace when there is none), or over one step (`step` non-empty). The
+# rows come from the counter tracks vrxhost and the compositor write on
+# trace_marker while profiling is on (vrx.<applet>.<metric>,
+# vrx.dropped.<cause>, vrx.input_to_screen_us). A source the board did not
+# write has no row (G040): there is no default zero, and dropped frames
+# count as zero only when the compositor's flip record was on.
+#
+# Frame summaries arrive in 5 s windows, so frame rows take the windows
+# that end up to 5.5 s after the section; the rates are 1 s samples, so a
+# sum of ms-per-second is milliseconds.
+#
+# The SQL is one line: Perfetto's textproto reader takes one literal.
+metric_spec {
+  id: "vrx_walk"
+  dimensions: "applet"
+  dimensions: "metric"
+  dimensions: "step"
+  value: "value"
+  query: {
+    sql: {
+      sql: "WITH win AS ( SELECT COALESCE((SELECT MIN(ts) FROM slice WHERE name GLOB 'walk:*'), (SELECT start_ts FROM trace_bounds)) AS s, COALESCE((SELECT MAX(ts + dur) FROM slice WHERE name GLOB 'walk:*'), (SELECT end_ts FROM trace_bounds)) AS e ), minutes AS (SELECT MAX((e - s) / 60e9, 1e-9) AS m FROM win), names(metric, frame_window) AS (VALUES ('cpu_ms_per_s', 0), ('gpu_ms_per_s', 0), ('wakeups_per_s', 0), ('mem_mb', 0), ('read_kb_per_s', 0), ('write_kb_per_s', 0), ('cpu_stall_ms_per_s', 0), ('mem_stall_ms_per_s', 0), ('io_stall_ms_per_s', 0), ('dropped', 0), ('frames', 1), ('build_p95_us', 1), ('raster_p95_us', 1), ('over_build', 1), ('over_raster', 1)), v AS ( SELECT substr(t.name, 5, length(t.name) - 5 - length(n.metric)) AS applet, n.metric AS metric, c.ts AS ts, c.value AS value FROM counter c JOIN counter_track t ON c.track_id = t.id JOIN names n ON t.name GLOB 'vrx.*.' || n.metric JOIN win WHERE t.name NOT GLOB 'vrx.dropped.*' AND t.name NOT GLOB 'vrx.flip.*' AND c.ts >= win.s AND c.ts <= win.e + n.frame_window * 5500000000 ), flips AS (SELECT EXISTS (SELECT 1 FROM counter_track WHERE name = 'vrx.flip.seq_delta') AS on_), drawing AS (SELECT DISTINCT applet FROM v WHERE metric IN ('frames', 'dropped')), steps AS (SELECT name, ts, dur FROM slice WHERE name GLOB 'step *'), latency AS ( SELECT c.value / 1000.0 AS ms, ROW_NUMBER() OVER (ORDER BY c.value) AS rn, COUNT(*) OVER () AS n FROM counter c JOIN counter_track t ON c.track_id = t.id JOIN win WHERE t.name = 'vrx.input_to_screen_us' AND c.ts >= win.s AND c.ts <= win.e ), causes AS ( SELECT substr(t.name, 13) AS cause, t.id AS track FROM counter_track t WHERE t.name GLOB 'vrx.dropped.*' ), rows AS ( SELECT applet, 'cpu_ms' AS metric, '' AS step, SUM(value) AS value FROM v WHERE metric = 'cpu_ms_per_s' GROUP BY applet UNION ALL SELECT applet, 'cpu_ms_per_min', '', SUM(value) / (SELECT m FROM minutes) FROM v WHERE metric = 'cpu_ms_per_s' GROUP BY applet UNION ALL SELECT applet, 'gpu_ms', '', SUM(value) FROM v WHERE metric = 'gpu_ms_per_s' GROUP BY applet UNION ALL SELECT applet, 'wakeups', '', SUM(value) FROM v WHERE metric = 'wakeups_per_s' GROUP BY applet UNION ALL SELECT applet, 'peak_mb', '', MAX(value) FROM v WHERE metric = 'mem_mb' GROUP BY applet UNION ALL SELECT applet, 'read_kb', '', SUM(value) FROM v WHERE metric = 'read_kb_per_s' GROUP BY applet UNION ALL SELECT applet, 'write_kb', '', SUM(value) FROM v WHERE metric = 'write_kb_per_s' GROUP BY applet UNION ALL SELECT applet, 'cpu_stall_ms', '', SUM(value) FROM v WHERE metric = 'cpu_stall_ms_per_s' GROUP BY applet UNION ALL SELECT applet, 'mem_stall_ms', '', SUM(value) FROM v WHERE metric = 'mem_stall_ms_per_s' GROUP BY applet UNION ALL SELECT applet, 'io_stall_ms', '', SUM(value) FROM v WHERE metric = 'io_stall_ms_per_s' GROUP BY applet UNION ALL SELECT applet, 'frames', '', SUM(value) FROM v WHERE metric = 'frames' GROUP BY applet UNION ALL SELECT applet, 'build_p95_ms', '', MAX(value) / 1000.0 FROM v WHERE metric = 'build_p95_us' GROUP BY applet UNION ALL SELECT applet, 'raster_p95_ms', '', MAX(value) / 1000.0 FROM v WHERE metric = 'raster_p95_us' GROUP BY applet UNION ALL SELECT applet, 'over_build', '', SUM(value) FROM v WHERE metric = 'over_build' GROUP BY applet UNION ALL SELECT applet, 'over_raster', '', SUM(value) FROM v WHERE metric = 'over_raster' GROUP BY applet UNION ALL SELECT d.applet, 'dropped', '', COALESCE((SELECT SUM(value) FROM v WHERE metric = 'dropped' AND v.applet = d.applet), 0) FROM drawing d, flips WHERE flips.on_ UNION ALL SELECT d.applet, 'dropped_per_min', '', COALESCE((SELECT SUM(value) FROM v WHERE metric = 'dropped' AND v.applet = d.applet), 0) / (SELECT m FROM minutes) FROM drawing d, flips WHERE flips.on_ UNION ALL SELECT v.applet, 'dropped', st.name, SUM(v.value) FROM v JOIN steps st ON v.ts >= st.ts AND v.ts <= st.ts + st.dur WHERE v.metric = 'dropped' GROUP BY v.applet, st.name UNION ALL SELECT 'system', 'dropped_' || c.cause, '', COALESCE((SELECT MAX(value) FROM counter, win WHERE track_id = c.track AND ts >= win.s AND ts <= win.e), 0) - COALESCE((SELECT MAX(value) FROM counter, win WHERE track_id = c.track AND ts < win.s), 0) FROM causes c, flips WHERE flips.on_ UNION ALL SELECT 'system', 'input_to_screen_p50_ms', '', ms FROM latency WHERE rn = (n + 1) / 2 UNION ALL SELECT 'system', 'input_to_screen_p95_ms', '', ms FROM latency WHERE rn = (n * 95 + 99) / 100 UNION ALL SELECT 'system', 'input_samples', '', COUNT(*) FROM latency HAVING COUNT(*) > 0 UNION ALL SELECT 'system', 'minutes', '', m FROM minutes ) SELECT applet, metric, step, value FROM rows WHERE value IS NOT NULL"
+      column_names: "applet"
+      column_names: "metric"
+      column_names: "step"
+      column_names: "value"
+    }
+  }
+}
