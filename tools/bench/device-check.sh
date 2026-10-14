@@ -74,14 +74,17 @@ for manifest in sorted(glob.glob("/system/defaults/*/manifest.toml")):
         print(f"  skip  {applet}: DevicePolicy=auto (the debug terminal)")
         continue
     extra = have - want
-    if base is None:
+    # a service (kind = "service", plan 0011 D18) has no screen, so no DRM
+    service = re.search(r'^kind = "service"', text, re.M) is not None
+    if base is None and not service:
         base = extra
+    expect = (base or set()) - {"char-drm"} if service else base
     missing = want - have
-    if policy != "closed" or missing or extra != base:
-        print(f"  FAIL  {applet}: policy {policy}, missing {sorted(missing)}, beyond the base {sorted(extra - base)}")
+    if policy != "closed" or missing or extra != expect:
+        print(f"  FAIL  {applet}: policy {policy}, missing {sorted(missing)}, beyond the base {sorted(extra - expect)}")
         bad += 1
     else:
-        print(f"  ok    {applet}: closed, {sorted(want) or 'no device grant'} beyond the base {sorted(base)}")
+        print(f"  ok    {applet}: closed, {sorted(want) or 'no device grant'} beyond the base {sorted(expect)}{' (a service)' if service else ''}")
 sys.exit(1 if bad else 0)
 EOF3
 

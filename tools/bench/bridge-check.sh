@@ -59,6 +59,10 @@ open(p, "w").write(s)
 P
 systemctl restart vrxhost
 sleep 8
+# the clients join these two applets' cgroups, which exist only while
+# they run (a fresh boot is in Setup with neither started)
+systemctl start vrx-applet@scripts vrx-applet@web
+sleep 3
 
 cat > /tmp/bridge.py <<'P'
 # A Varlink client with SCM_RIGHTS, placed in an applet's cgroup.

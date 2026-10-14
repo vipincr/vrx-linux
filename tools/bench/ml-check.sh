@@ -55,8 +55,8 @@ for role in chat speech; do
     case $role in chat) u=vrx-llm.socket; f=$CHAT; s=llm.sock ;; speech) u=vrx-stt.socket; f=$SPEECH; s=stt.sock ;; esac
     if [ -e "$f" ]; then
         [ "$(systemctl is-active $u)" = active ] && ok "$u listening" || bad "$u is $(systemctl is-active $u)"
-        ls -l /run/vrx-ml/ | grep -q "srw-rw---- .* root vrx-ml .* $s" \
-            && ok "/run/vrx-ml/$s is root:vrx-ml 0660" || bad "$s owner or mode: $(ls -l /run/vrx-ml/)"
+        [ "$(stat -c '%A %U %G' /run/vrx-ml/$s)" = "srw-rw---- root vrx-ml" ] \
+            && ok "/run/vrx-ml/$s is root:vrx-ml 0660" || bad "$s owner or mode: $(stat -c '%A %U %G' /run/vrx-ml/$s)"
     else
         systemctl cat $u >/dev/null 2>&1 && bad "$u ships without a $role model" || ok "no $role model, no $u"
     fi
@@ -64,7 +64,7 @@ done
 
 echo "== G024: the model APIs exist only behind the sockets"
 if [ -e $CHAT ]; then
-    free -m | awk 'NR==2 { print "        memory before: " $3 " MB used, " $7 " MB available" }'
+    free | awk 'NR==2 { print "        memory before: " $3 " KiB used, " $7 " KiB available" }'
     T0=$(date +%s)
     R=$(curl -s --max-time 180 --unix-socket /run/vrx-ml/llm.sock http://x/v1/chat/completions \
         -H 'Content-Type: application/json' \
@@ -72,7 +72,7 @@ if [ -e $CHAT ]; then
     T1=$(date +%s)
     echo "$R" | grep -q '"content"' && ok "a question through llm.sock answered in $((T1 - T0)) s (cold start included)" || bad "no answer: $R"
     echo "$R" | python3 -c 'import json,sys; t=json.load(sys.stdin).get("timings",{}); print("        prompt %.1f tok/s, generation %.1f tok/s" % (t.get("prompt_per_second",0), t.get("predicted_per_second",0)))' 2>/dev/null
-    free -m | awk 'NR==2 { print "        memory with the model: " $3 " MB used, " $7 " MB available" }'
+    free | awk 'NR==2 { print "        memory with the model: " $3 " KiB used, " $7 " KiB available" }'
     [ "$(systemctl is-active vrx-llm-server)" = active ] && ok "the socket started llama-server" || bad "llama-server is $(systemctl is-active vrx-llm-server)"
     curl -s --max-time 2 http://127.0.0.1:8081/health >/dev/null && bad "127.0.0.1:8081 answers on the host" || ok "127.0.0.1:8081 is closed on the host while the server runs"
     echo "== an applet without the ml grant cannot reach it"
@@ -98,7 +98,7 @@ if [ -e $CHAT ]; then
     echo "== idle: the server stops and its memory comes back"
     for i in $(seq 1 150); do [ "$(systemctl is-active vrx-llm-server)" = active ] || break; sleep 1; done
     [ "$(systemctl is-active vrx-llm-server)" != active ] && ok "llama-server stopped ${i} s after the last request" || bad "still running after 150 s idle"
-    free -m | awk 'NR==2 { print "        memory after: " $3 " MB used, " $7 " MB available" }'
+    free | awk 'NR==2 { print "        memory after: " $3 " KiB used, " $7 " KiB available" }'
 else
     skip "this image has no chat model"
 fi
@@ -139,7 +139,6 @@ def read(s):
 lis = call("io.vrx.Host.Listen", {}, more=True)
 time.sleep(0.5)
 print("listen sent:", read(call("io.vrx.Host.Intent", {"name": "sys.stt.listen"})), flush=True)
-subprocess.Popen(["sh", "-c", "sleep 0.6; aplay -q -D plughw:Loopback,0,0 /tmp/vrx-ml-q.wav"])
 lis.settimeout(60)
 while True:
     r = read(lis)
@@ -151,6 +150,10 @@ while True:
 P
     systemctl start vrx-applet@assistant
     sleep 3
+    # the player starts from here, outside the assistant's cgroup: the
+    # assistant holds no audio device, and a child of the client would
+    # inherit its device policy (bench, 2026-10-14)
+    (sleep 1.5; aplay -q -D plughw:Loopback,0,0 /tmp/vrx-ml-q.wav) &
     python3 /tmp/vrx-ml-stt.py 2>&1 | sed 's/^/        /' | tee /tmp/vrx-ml-stt.log
     grep -qi 'heard: .*mountain' /tmp/vrx-ml-stt.log && ok "sys.stt.listen → recorded, detected, transcribed → sys.stt.heard" || bad "stt end to end"
     rm -f /etc/asound.conf

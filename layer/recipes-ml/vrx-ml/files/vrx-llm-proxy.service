@@ -4,7 +4,12 @@
 # is systemd-socket-proxyd(8)'s own example.
 [Unit]
 Description=vrx local chat model (proxy)
-Requires=vrx-llm.socket vrx-llm-server.service
+Requires=vrx-llm.socket
+# bound to its server: a server that dies (killed, OOM) takes the proxy
+# with it, so the next connection on the socket starts both again; with
+# Requires= the proxy lived on and refused every question (bench,
+# 2026-10-14)
+BindsTo=vrx-llm-server.service
 After=vrx-llm.socket vrx-llm-server.service
 JoinsNamespaceOf=vrx-llm-server.service
 
