@@ -1,0 +1,20 @@
+# Full CPU speed for exactly as long as a local model server runs (plan
+# 0012 D1). The image's governor is schedutil on every board; a model
+# server pulls this unit in (Wants=), and StopWhenUnneeded stops it when
+# the last server that wants it has stopped, so systemd's own reference
+# counting covers both servers running at once.
+#
+# The hold is the cpufreq policies' scaling_min_freq raised to the
+# maximum, which the kernel turns into a frequency QoS request; the
+# release puts it back to the hardware minimum. The plan named a PM QoS
+# hold on /dev/cpu_dma_latency, but that bounds cpuidle exit latency and
+# never raises a frequency (and the CM4 has no cpuidle states at all).
+[Unit]
+Description=vrx local models: full CPU speed while a model server runs
+StopWhenUnneeded=yes
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/vrx/vrx-ml-speed hold
+ExecStop=/usr/libexec/vrx/vrx-ml-speed release

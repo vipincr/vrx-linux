@@ -1,0 +1,16 @@
+#!/bin/sh
+# vrx-ml-speed hold|release (plan 0012 D1): raise every cpufreq policy's
+# minimum to its maximum while a model server runs, and put it back to the
+# hardware minimum after. Run by vrx-ml-speed.service only.
+set -u
+case "${1:-}" in
+    hold) want=cpuinfo_max_freq ;;
+    release) want=cpuinfo_min_freq ;;
+    *) echo "usage: vrx-ml-speed hold|release" >&2; exit 2 ;;
+esac
+for p in /sys/devices/system/cpu/cpufreq/policy*; do
+    [ -r "$p/$want" ] || continue
+    cat "$p/$want" > "$p/scaling_min_freq" || echo "vrx-ml-speed: $p: cannot set the minimum" >&2
+done
+echo "vrx-ml-speed: $1 ($(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_min_freq 2>/dev/null) kHz minimum)"
+exit 0

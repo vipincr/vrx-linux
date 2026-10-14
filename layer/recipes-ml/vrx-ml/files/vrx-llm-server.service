@@ -8,6 +8,9 @@
 [Unit]
 Description=vrx local chat model (llama-server)
 StopWhenUnneeded=yes
+# full CPU speed for exactly this server's lifetime (plan 0012 D1)
+Wants=vrx-ml-speed.service
+After=vrx-ml-speed.service
 # the chat model's recipe installs this link (meta-vrx, VRX_ML_MODELS); an
 # image without a chat model ships no unit, and a missing file never starts
 ConditionPathExists=/usr/share/vrx-ml/chat.gguf

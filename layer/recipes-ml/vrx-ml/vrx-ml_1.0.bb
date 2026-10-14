@@ -20,7 +20,7 @@ LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda
 
 SRC_URI = "file://vrx-llm.socket file://vrx-llm-proxy.service file://vrx-llm-server.service \
            file://vrx-stt.socket file://vrx-stt-proxy.service file://vrx-stt-server.service \
-           file://vrx-ml-ready"
+           file://vrx-ml-ready file://vrx-ml-speed file://vrx-ml-speed.service"
 S = "${UNPACKDIR}"
 
 inherit allarch systemd
@@ -33,10 +33,14 @@ do_install() {
         install -D -m 0644 ${UNPACKDIR}/$u ${D}${systemd_system_unitdir}/$u
     done
     install -D -m 0755 ${UNPACKDIR}/vrx-ml-ready ${D}${libexecdir}/vrx/vrx-ml-ready
+    install -D -m 0755 ${UNPACKDIR}/vrx-ml-speed ${D}${libexecdir}/vrx/vrx-ml-speed
+    install -D -m 0644 ${UNPACKDIR}/vrx-ml-speed.service ${D}${systemd_system_unitdir}/vrx-ml-speed.service
 }
 
 PACKAGES = "${PN}-chat ${PN}-speech ${PN}"
-FILES:${PN} = "${libexecdir}/vrx/vrx-ml-ready"
+# the speed hold is shared by both roles (plan 0012 D1)
+FILES:${PN} = "${libexecdir}/vrx/vrx-ml-ready ${libexecdir}/vrx/vrx-ml-speed \
+               ${systemd_system_unitdir}/vrx-ml-speed.service"
 FILES:${PN}-chat = "${systemd_system_unitdir}/vrx-llm.socket ${systemd_system_unitdir}/vrx-llm-proxy.service \
                     ${systemd_system_unitdir}/vrx-llm-server.service"
 FILES:${PN}-speech = "${systemd_system_unitdir}/vrx-stt.socket ${systemd_system_unitdir}/vrx-stt-proxy.service \
