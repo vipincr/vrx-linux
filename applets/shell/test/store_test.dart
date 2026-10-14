@@ -42,4 +42,21 @@ void main() {
     h.dispatch(ShellAction.factsChanged);
     h.assertView((v) => v.brightness == 30);
   });
+
+  test('an open power alert is shown until it is answered (plan 0012 D11)', () {
+    final model = ShellModel();
+    final h = StoreHarness(model);
+    h.assertView((v) => v.alert == null, because: 'no alert');
+    model.alerts = const [
+      PowerAlert(applet: 'web', name: 'Web requests', background: true, percent: 12, answer: 'later'),
+      PowerAlert(applet: 'scripts', name: 'Scripts', background: true, percent: 9),
+    ];
+    h.dispatch(ShellAction.factsChanged);
+    h.assertView((v) => v.alert?.applet == 'scripts', because: 'the first one still waiting for the person');
+    h.assertView((v) => v.alert!.sentence == 'Scripts is using a lot of power in the background.',
+        because: 'in words, naming it');
+    model.alerts = const [PowerAlert(applet: 'scripts', name: 'Scripts', background: true, percent: 9, answer: 'frozen')];
+    h.dispatch(ShellAction.factsChanged);
+    h.assertView((v) => v.alert == null, because: 'answered (or frozen): the band goes');
+  });
 }

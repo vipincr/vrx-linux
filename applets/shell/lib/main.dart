@@ -34,6 +34,9 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
 
   void _toggle() => _events.add(ShellAction.drawerToggled);
 
+  void _answer(PowerAlert alert, {required bool stop}) => unawaited(
+      VrxEnergy.service.answer(alert.applet, stop: stop).catchError((Object err) => debugPrint('shell: power alert: $err')));
+
   void _power(Future<void> Function() act) {
     _events.add(ShellAction.powerDismissed);
     unawaited(act().catchError((Object _) {}));
@@ -65,13 +68,20 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
     // down from the strip and a slide up (or a tap outside it) away; a
     // tap on the strip is only ever its Back (the owner: a tap meant for
     // Back opened the drawer)
+    // an applet over its power budget (plan 0012 D11): a band under the
+    // strip, inside the shell's region (so its input is the shell's and
+    // the app below moves down), until the person answers
+    final alert = view.drawer || view.askingPower ? null : view.alert;
     final strip = VrxShellRegion(
       full: view.drawer || view.askingPower,
-      child: VrxSwipe(
-        onDown: view.drawer || view.askingPower ? null : _toggle,
-        onUp: view.drawer ? _toggle : null,
-        child: VrxStatusStrip(facts: facts),
-      ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        VrxSwipe(
+          onDown: view.drawer || view.askingPower ? null : _toggle,
+          onUp: view.drawer ? _toggle : null,
+          child: VrxStatusStrip(facts: facts),
+        ),
+        if (alert != null) PowerAlertBand(alert: alert, onAnswer: _answer),
+      ]),
     );
     // the drawer is an overlay of its own (a scrim and a panel) over the
     // strip and the screen below it. Below the strip the shell is clear:
@@ -134,6 +144,35 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
   }
 }
 
+/// The band: what is using power, in a sentence, and the two answers
+/// (the act last and filled, as a confirm's; "Not now" leaves the
+/// applet alone).
+class PowerAlertBand extends StatelessWidget {
+  const PowerAlertBand({super.key, required this.alert, required this.onAnswer});
+
+  final PowerAlert alert;
+  final void Function(PowerAlert alert, {required bool stop}) onAnswer;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = ScaledSpacing.of(context);
+    return ColoredBox(
+      color: VrxTheme.of(context).page,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        VrxBanner(text: alert.sentence, signal: VrxSignal.warning),
+        Padding(
+          padding: EdgeInsets.fromLTRB(s.inset, s.xs, s.inset, s.sm),
+          child: Row(children: [
+            Expanded(child: VrxChip(label: 'Not now', fit: true, onTap: () => onAnswer(alert, stop: false))),
+            SizedBox(width: s.sm),
+            Expanded(child: VrxChip(label: 'Stop', fit: true, filled: true, onTap: () => onAnswer(alert, stop: true))),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
 Future<void> main() async {
   final model = ShellModel();
   runApplet(ShellApplet(model), actions: _events.stream);
@@ -182,6 +221,10 @@ Future<void> main() async {
     });
   }, onError: (Object _) {});
   VrxSystem.powerSupply.watch().listen((b) => fact(() => model.battery = b), onError: (Object _) {});
+  // applets over their power budget (plan 0012 D11), from vrxhost
+  if (AppletsService.installed != null) {
+    VrxEnergy.service.alerts().listen((a) => fact(() => model.alerts = a), onError: (Object _) {});
+  }
   // 12 or 24 hours: the system's locale, followed as it changes
   final format = VrxTimeFormat.changes;
   void follow() => fact(() => model.h24 = format.value);

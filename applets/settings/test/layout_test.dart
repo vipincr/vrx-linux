@@ -78,6 +78,35 @@ void main() {
     'set the time': () => model()
       ..open = SettingsCategory.time
       ..settingTime = SettingTime.time,
+    // plan 0012 D12: the longest names and values a ranking holds
+    'battery use': () => model()
+      ..energyAvailable = true
+      ..open = SettingsCategory.power
+      ..showingUse = true
+      ..energy = _report,
+    'battery use, not calibrated': () => model()
+      ..energyAvailable = true
+      ..open = SettingsCategory.power
+      ..showingUse = true
+      ..energy = const EnergyReport(calibrated: false, hours: 24, rows: [
+        EnergyRow(key: 'assistant', name: 'Assistant', system: false, millijoules: null, cpuMs: 4800000, gpuMs: 600000, wakeups: 900, frontSeconds: 0, over: true),
+      ]),
+    'why it is awake': () => model()
+      ..energyAvailable = true
+      ..open = SettingsCategory.power
+      ..showingAwake = true
+      ..energy = _report
+      ..awake = const AwakeReport(
+        inhibitors: [AwakeInhibitor(what: 'idle', who: 'clock', why: 'an alarm or timer is ringing', mode: 'block', applet: 'clock')],
+        running: ['clock', 'launcher', 'settings', 'shell', 'stt'],
+        frozen: ['assistant', 'recorder', 'scripts', 'terminal', 'web'],
+        wakeups: [('mmc1', 120), ('Goodix Capacitive TouchScreen', 42)],
+        governor: 'schedutil',
+        khz: 1500000,
+        tempMilliC: 51200,
+        supplyLow: true,
+        screenOn: true,
+      ),
   };
   // every setting every repo applet declares, as Settings > Applets shows
   // it: a new applet's labels are measured with no new test
@@ -100,3 +129,10 @@ void main() {
     }
   }
 }
+
+const _report = EnergyReport(calibrated: true, measured: '2026-10-14 with fnb58', hours: 24, rows: [
+  EnergyRow(key: 'system:floor', name: 'Idle floor', system: true, millijoules: 98000000, cpuMs: 0, gpuMs: 0, wakeups: 0, frontSeconds: 0, over: false),
+  EnergyRow(key: 'system:screen', name: 'Screen', system: true, millijoules: 31000000, cpuMs: 0, gpuMs: 0, wakeups: 0, frontSeconds: 0, over: false),
+  EnergyRow(key: 'web', name: 'Web requests', system: false, millijoules: 2400000, cpuMs: 340000, gpuMs: 60000, wakeups: 7000, frontSeconds: 4800, over: true),
+  EnergyRow(key: 'assistant', name: 'Assistant', system: false, millijoules: 1200, cpuMs: 1200, gpuMs: 0, wakeups: 12, frontSeconds: 0, over: false),
+]);

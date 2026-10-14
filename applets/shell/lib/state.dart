@@ -12,6 +12,7 @@ class ShellView {
     required this.wifiUp,
     this.bleUp = false,
     required this.canGoBack,
+    this.alert,
   });
 
   /// The drawer is open (the shell asks for the whole screen).
@@ -30,6 +31,10 @@ class ShellView {
   /// The Bluetooth radio is on (connman).
   final bool bleUp;
   final bool canGoBack;
+
+  /// An applet over its power budget, waiting for the person (plan 0012
+  /// D11): a band under the strip with Not now and Stop.
+  final PowerAlert? alert;
 }
 
 /// The shell's model: facts from the services, the drawer's state.
@@ -61,6 +66,10 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
 
   /// 12 or 24 hours: the system's locale (plan 0011 D7).
   bool h24 = true;
+
+  /// The power alerts vrxhost raised (plan 0012 D11); the first open one
+  /// is shown.
+  List<PowerAlert> alerts = const [];
 
   String get clockText {
     if (!clockValid) return '--:--';
@@ -116,6 +125,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
       wifiUp: wifiUp,
       bleUp: bleUp,
       canGoBack: depth > 1,
+      alert: alerts.where((a) => a.open).firstOrNull,
     );
   }
 

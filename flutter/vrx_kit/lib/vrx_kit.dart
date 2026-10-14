@@ -13,6 +13,7 @@ export 'src/channel.dart';
 export 'src/chat.dart';
 export 'src/chrome.dart';
 export 'src/components.dart';
+export 'src/energy.dart';
 export 'src/entry.dart';
 export 'src/file.dart';
 export 'src/host.dart';

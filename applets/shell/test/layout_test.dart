@@ -28,5 +28,12 @@ void main() {
     testWidgets('shell power question on ${display.name}', (tester) async {
       await expectCleanLayout(tester, ShellApplet(model(power: true)), display: display);
     });
+    // an applet over its power budget (plan 0012 D11): the longest name
+    // a built-in has, behind the screen
+    testWidgets('shell power alert on ${display.name}', (tester) async {
+      final m = model()
+        ..alerts = const [PowerAlert(applet: 'web', name: 'Web requests', background: true, percent: 41.5)];
+      await expectCleanLayout(tester, ShellApplet(m), display: display);
+    });
   }
 }

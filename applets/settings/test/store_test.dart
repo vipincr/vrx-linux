@@ -182,4 +182,18 @@ void main() {
     h.assertView((v) => v.rows.firstWhere((r) => r.key == 'battery').value == '41 %, charging');
     h.assertView((v) => v.categories.firstWhere((c) => c.category == SettingsCategory.power).summary == '41 %');
   });
+
+  test('Battery use and Why it is awake: offered where vrxhost estimates (plan 0012 D12)', () {
+    final model = SettingsModel();
+    final h = StoreHarness(model);
+    h.assertView((v) => v.categories.every((c) => c.category != SettingsCategory.power),
+        because: 'off-device, with no power off and no battery, there is no Power');
+    model.energyAvailable = true;
+    h.dispatch(SettingsAction.factsChanged);
+    h.assertView((v) => v.categories.any((c) => c.category == SettingsCategory.power), because: 'the estimate is a Power row');
+    model.open = SettingsCategory.power;
+    h.dispatch(SettingsAction.navigated);
+    h.assertView((v) => v.rows.map((r) => r.key).toList().join(',') == 'battery_use,why_awake',
+        because: 'both open their screens; nothing else on this device');
+  });
 }

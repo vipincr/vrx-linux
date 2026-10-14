@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart' hide Intent; // vrx's Intent
 import 'package:vrx_kit/vrx_kit.dart';
 
+import 'energy.dart';
 import 'state.dart';
 
 /// Facts from the system services, for the applet's whole life.
@@ -98,6 +99,14 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
           _go(context, () => model.editingSetting = null);
           unawaited(_setSetting(applet, key, text.trim()));
         },
+      );
+    } else if (model.showingUse) {
+      body = BatteryUseScreen(report: model.energy, onBack: () => _go(context, () => model.showingUse = false));
+    } else if (model.showingAwake) {
+      body = WhyAwakeScreen(
+        awake: model.awake,
+        names: {for (final r in model.energy?.rows ?? const <EnergyRow>[]) r.key: r.name},
+        onBack: () => _go(context, () => model.showingAwake = false),
       );
     } else if (model.pickingScheme) {
       body = VrxSchemePicker(
@@ -226,6 +235,24 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
         unawaited(Nav.push('docs', route: 'licences'));
       case 'name':
         _go(context, () => model.renaming = true);
+      case 'battery_use':
+        _go(context, () => model
+          ..showingUse = true
+          ..energy = null);
+        unawaited(_ask(context, () async {
+          model.energy = await VrxEnergy.service.energy();
+          _facts.add(SettingsAction.factsChanged);
+        }));
+      case 'why_awake':
+        _go(context, () => model
+          ..showingAwake = true
+          ..awake = null);
+        unawaited(_ask(context, () async {
+          model
+            ..awake = await VrxEnergy.service.awake()
+            ..energy ??= await VrxEnergy.service.energy(hours: 1);
+          _facts.add(SettingsAction.factsChanged);
+        }));
       case 'light_off':
         unawaited(_ask(context, () => _screen.setLightOff(model.nextLightOff)));
       case 'scheme':
@@ -370,6 +397,8 @@ Future<void> main() async {
   VrxSystem.bluetooth.watch().listen((b) => fact(() => model.bluetooth = b), onError: failed);
   VrxSystem.powerSupply.watch().listen((b) => fact(() => model.battery = b), onError: failed);
   unawaited(deviceUsage().then((u) => fact(() => model.usage = u)));
+  // vrxhost's energy estimate (plan 0012 D12): on a device with vrxhost
+  if (AppletsService.installed != null) fact(() => model.energyAvailable = true);
   // the locales a time format can come from, and LC_TIME now (localed)
   unawaited(() async {
     try {

@@ -160,6 +160,14 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
   /// Free memory and space (About).
   DeviceUsage usage = const DeviceUsage();
 
+  /// What applets cost and why the device is awake (plan 0012 D12): the
+  /// screens open, and what vrxhost said (null while it loads).
+  bool energyAvailable = false;
+  bool showingUse = false;
+  bool showingAwake = false;
+  EnergyReport? energy;
+  AwakeReport? awake;
+
   /// The installed locales and the one LC_TIME is now (plan 0011 D7).
   List<TimeLocale> timeLocales = const [];
   String timeLocale = '';
@@ -215,7 +223,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
 
   List<CategoryRow> _categories() => [
         CategoryRow(SettingsCategory.display, 'Display', 'brightness_6', _screenOffText),
-        if (canPowerOff || supplyLow != null || battery != null)
+        if (canPowerOff || supplyLow != null || battery != null || energyAvailable)
           CategoryRow(SettingsCategory.power, 'Power', 'power_settings_new',
               supplyLow == true ? 'Supply too low' : (battery?.percent != null ? '${battery!.percent} %' : '')),
         CategoryRow(SettingsCategory.time, 'Time', 'schedule', time?.zone ?? ''),
@@ -339,6 +347,11 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
               value: supplyLow! ? 'Too low: use a 5 V 3 A supply' : 'OK',
               kind: RowKind.info,
             ),
+          // what each applet used, and what keeps the device awake
+          if (energyAvailable) ...const [
+            SettingRow(key: 'battery_use', label: 'Battery use', value: '', kind: RowKind.open),
+            SettingRow(key: 'why_awake', label: 'Why it is awake', value: '', kind: RowKind.open),
+          ],
           if (canPowerOff) ...const [
             SettingRow(key: 'restart', label: 'Restart', value: '', kind: RowKind.confirm),
             SettingRow(key: 'power_off', label: 'Power off', value: '', kind: RowKind.confirm),
