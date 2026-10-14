@@ -18,8 +18,7 @@ void main() {
         net('cafe', 60),
         net('far', 10),
       ],
-      ethernet: 'ready',
-      ethernetAddress: '10.10.10.8',
+      ethernet: const WiredLink(state: 'ready', interface: 'eth0', address: '10.10.10.8'),
     )));
     harness.assertView((v) => v.connected?.name == 'home' && v.nearby.map((n) => n.name).join(',') == 'cafe,far');
     // the Wi-Fi link's own address, never the cable's (the bench bug)
@@ -40,7 +39,7 @@ void main() {
     final model = WifiModel();
     final harness = StoreHarness(model);
     harness.dispatch(const WifiFacts(error: Change('invalid key')));
-    harness.dispatch(const WifiFacts(network: NetworkState(wifiPresent: true, wifiOn: true, networks: [], ethernet: 'idle', ethernetAddress: '')));
+    harness.dispatch(const WifiFacts(network: NetworkState(wifiPresent: true, wifiOn: true, networks: [], ethernet: WiredLink(state: 'idle', interface: 'eth0'))));
     harness.assertView((v) => v.error == 'invalid key');
     harness.dispatch(const WifiAsk(null));
     harness.assertView((v) => v.error == null);
@@ -66,7 +65,7 @@ void main() {
     final model = WifiModel();
     final harness = StoreHarness(model);
     NetworkState state(List<WifiNetwork> networks) =>
-        NetworkState(wifiPresent: true, wifiOn: true, networks: networks, ethernet: 'idle', ethernetAddress: '');
+        NetworkState(wifiPresent: true, wifiOn: true, networks: networks, ethernet: const WiredLink(state: 'idle', interface: 'eth0'));
     harness.dispatch(WifiFacts(network: state([net('home', 70, state: 'online', saved: true)])));
     harness.dispatch(const WifiShow('/net/connman/service/home'));
     harness.assertView((v) => v.showing?.connected == true);

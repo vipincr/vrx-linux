@@ -24,6 +24,47 @@ void main() {
     expect(find.byIcon(VrxSymbols.bluetooth), findsOneWidget);
   });
 
+  testWidgets('the network glyph says how the device is connected', (tester) async {
+    // nothing joined, no cable: Wi-Fi's own off glyph
+    await pumpFacts(tester, const VrxStatusFacts());
+    expect(find.byIcon(VrxSymbols.wifi_off), findsOneWidget);
+    expect(find.byIcon(VrxSymbols.lan), findsNothing);
+    // a cable up and Wi-Fi off: the wired glyph alone (wifi_off would read
+    // as offline)
+    await pumpFacts(tester, const VrxStatusFacts(wiredUp: true));
+    expect(find.byIcon(VrxSymbols.lan), findsOneWidget);
+    expect(find.byIcon(VrxSymbols.wifi_off), findsNothing);
+    // both up: both glyphs
+    await pumpFacts(tester, const VrxStatusFacts(wiredUp: true, wifiUp: true));
+    expect(find.byIcon(VrxSymbols.lan), findsOneWidget);
+    expect(find.byIcon(VrxSymbols.wifi), findsOneWidget);
+  });
+
+  testWidgets('a narrow strip drops the percent, then Bluetooth, never the camera or the links', (tester) async {
+    tester.view.physicalSize = const Size(300, 60);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pumpFacts(
+      tester,
+      const VrxStatusFacts(
+          clockText: '23:59', cameraOn: true, wiredUp: true, wifiUp: true, bleUp: true, batteryLevel: 100),
+    );
+    expect(tester.takeException(), isNull);
+    expect(find.text('100%'), findsNothing);
+    expect(find.byIcon(VrxSymbols.photo_camera), findsOneWidget);
+    expect(find.byIcon(VrxSymbols.lan), findsOneWidget);
+    expect(find.byIcon(VrxSymbols.wifi), findsOneWidget);
+    // with room, everything shows
+    tester.view.physicalSize = const Size(1000, 60);
+    await pumpFacts(
+      tester,
+      const VrxStatusFacts(
+          clockText: '23:59', cameraOn: true, wiredUp: true, wifiUp: true, bleUp: true, batteryLevel: 100),
+    );
+    expect(find.text('100%'), findsOneWidget);
+    expect(find.byIcon(VrxSymbols.bluetooth), findsOneWidget);
+  });
+
   testWidgets('the clock reads --:-- when unset', (tester) async {
     await pumpFacts(tester, const VrxStatusFacts());
     expect(find.text('--:--'), findsOneWidget);

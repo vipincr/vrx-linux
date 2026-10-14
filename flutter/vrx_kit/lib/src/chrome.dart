@@ -9,10 +9,12 @@
 /// Left to right: back (offered, not asserted; its slot is kept when it
 /// is not offered, so the clock never moves), the clock and the day (all
 /// the width the rest leaves; a notice takes the day's place), then at
-/// the end wifi (its own glyph when down: a state is never colour alone),
-/// ble (hidden when down: an always-present glyph says nothing) and the
-/// battery cell (glyph and percent, `~` while estimated). Hairline under;
-/// edge insets; the height is heightOf's.
+/// the end the camera mark, the wired link (hidden without a cable), wifi
+/// (its own glyph when down: a state is never colour alone), ble (hidden
+/// when down: an always-present glyph says nothing) and the battery cell
+/// (glyph and percent, `~` while estimated; the percent is dropped where
+/// it does not fit). Hairline under; edge insets; the height is
+/// heightOf's.
 library;
 
 import 'package:flutter/material.dart';
@@ -67,6 +69,7 @@ class VrxStatusFacts {
     this.clockText,
     this.dateText,
     this.wifiUp = false,
+    this.wiredUp = false,
     this.bleUp = false,
     this.batteryLevel,
     this.batteryCharging = false,
@@ -87,6 +90,9 @@ class VrxStatusFacts {
   final String? dateText;
 
   final bool wifiUp;
+
+  /// A cable is in and the wired link has an address.
+  final bool wiredUp;
   final bool bleUp;
 
   /// 0-100; null = unknown.
@@ -135,7 +141,7 @@ class VrxStatusStrip extends StatelessWidget {
           bottom: BorderSide(color: colors.outlineFaint, width: Strokes.hairline),
         ),
       ),
-      child: Row(
+      child: LayoutBuilder(builder: (context, box) => Row(
         children: [
           // back (offered, not asserted): its own slot, the strip's
           // full height and half again the touch minimum wide, so a
@@ -173,51 +179,78 @@ class VrxStatusStrip extends StatelessWidget {
               ],
             ]),
           ),
-          // the camera is on (plan 0018 D11): in the error ink, hidden when
-          // off like ble, never a dead glyph
-          if (facts.cameraOn)
-            Padding(
-              padding: EdgeInsets.only(right: s.xs),
-              child: Semantics(
-                label: 'Camera on',
-                child: Icon(VrxSymbols.photo_camera, size: Chrome.statusButton, color: colors.error),
-              ),
-            ),
-          // slot 3: wifi, a glyph for each state, never a fainter ink
-          Icon(
-            facts.wifiUp ? VrxSymbols.wifi : VrxSymbols.wifi_off,
-            size: Chrome.statusButton,
-            color: colors.text,
-          ),
-          // slot 4: ble — hidden when down, never a dead glyph
-          if (facts.bleUp)
-            Padding(
-              padding: EdgeInsets.only(left: s.xs),
-              child: Icon(
-                VrxSymbols.bluetooth,
-                size: Chrome.statusButton,
-                color: colors.text,
-              ),
-            ),
-          // the battery cell
-          if (facts.batteryLevel != null) ...[
-            SizedBox(width: s.sm),
-            Icon(
-              facts.batteryCharging
-                  ? VrxSymbols.bolt
-                  : _batteryGlyph(facts.batteryLevel!),
-              size: Chrome.statusButton,
-              color: colors.text,
-            ),
-            SizedBox(width: s.xs),
-            Text(
-              '${facts.batteryEstimated ? '~' : ''}${facts.batteryLevel}%',
-              style: TypeRole.of(context, VrxTypeRole.value),
-            ),
-          ],
+          // the glyphs at the end, fitted to what is left: see _glyphs
+          ..._glyphs(context, box.maxWidth),
         ],
-      ),
+      )),
     );
+  }
+
+  /// The glyphs at the strip's end, in their fixed order, keeping only
+  /// those that fit beside Back's slot and the clock. When they do not all
+  /// fit, the least needed go first: the battery's percent (the glyph's
+  /// bars already say the level), then Bluetooth, then the battery glyph.
+  /// The camera mark and the network glyph are never dropped (the 2.8"
+  /// panel has room for Back, the clock, the camera mark and both links).
+  ///
+  /// The network glyph says how the device is connected: the wired link
+  /// while a cable is up, Wi-Fi while a network is joined, both when both
+  /// are, and Wi-Fi's own off glyph only when neither is (with a cable up
+  /// it would read as offline).
+  List<Widget> _glyphs(BuildContext context, double width) {
+    final colors = VrxTheme.of(context);
+    final s = ScaledSpacing.of(context);
+    final style = TypeRole.of(context, VrxTypeRole.value);
+    final scaler = MediaQuery.textScalerOf(context);
+    double textWidth(String text) {
+      final tp = TextPainter(text: TextSpan(text: text, style: style), textDirection: TextDirection.ltr, textScaler: scaler, maxLines: 1)
+        ..layout();
+      final w = tp.width;
+      tp.dispose();
+      return w;
+    }
+
+    Widget glyph(IconData icon, {Color? color, String? label}) {
+      final i = Icon(icon, size: Chrome.statusButton, color: color ?? colors.text);
+      return label == null ? i : Semantics(label: label, child: i);
+    }
+
+    const g = Chrome.statusButton;
+    final percent = '${facts.batteryEstimated ? '~' : ''}${facts.batteryLevel}%';
+    // (priority: lower drops first; order is the list's)
+    final all = <(int, double, Widget)>[
+      // the camera is on (plan 0018 D11): in the error ink, hidden when off
+      if (facts.cameraOn)
+        (9, g + s.xs, Padding(padding: EdgeInsets.only(right: s.xs), child: glyph(VrxSymbols.photo_camera, color: colors.error, label: 'Camera on'))),
+      if (facts.wiredUp)
+        (9, g + s.xs, Padding(padding: EdgeInsets.only(right: s.xs), child: glyph(VrxSymbols.lan, label: 'Wired network connected'))),
+      // Wi-Fi: its own glyph for each state, never a fainter ink
+      if (facts.wifiUp)
+        (9, g, glyph(VrxSymbols.wifi))
+      else if (!facts.wiredUp)
+        (9, g, glyph(VrxSymbols.wifi_off)),
+      // ble: hidden when down, never a dead glyph
+      if (facts.bleUp) (2, s.xs + g, Padding(padding: EdgeInsets.only(left: s.xs), child: glyph(VrxSymbols.bluetooth))),
+      if (facts.batteryLevel != null) ...[
+        (3, s.sm + g, Padding(
+          padding: EdgeInsets.only(left: s.sm),
+          child: glyph(facts.batteryCharging ? VrxSymbols.bolt : _batteryGlyph(facts.batteryLevel!)),
+        )),
+        (1, s.xs + textWidth(percent), Padding(padding: EdgeInsets.only(left: s.xs), child: Text(percent, style: style))),
+      ],
+    ];
+    final budget = width - _backWidth(context) - textWidth(facts.clockText ?? '--:--');
+    final kept = List<bool>.filled(all.length, true);
+    var used = all.fold<double>(0, (sum, e) => sum + e.$2);
+    for (final level in [1, 2, 3]) {
+      for (var i = 0; i < all.length && used > budget; i++) {
+        if (kept[i] && all[i].$1 == level) {
+          kept[i] = false;
+          used -= all[i].$2;
+        }
+      }
+    }
+    return [for (var i = 0; i < all.length; i++) if (kept[i]) all[i].$3];
   }
 
   /// Back's slot: the strip's full height and half again the touch

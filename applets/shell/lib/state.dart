@@ -23,6 +23,7 @@ final class ShellFacts implements ShellAction {
   const ShellFacts({
     this.clockValid,
     this.wifiUp,
+    this.wiredUp,
     this.bleUp,
     this.brightness,
     this.dimming,
@@ -41,6 +42,9 @@ final class ShellFacts implements ShellAction {
 
   final bool? clockValid;
   final bool? wifiUp;
+
+  /// A cable is in and the wired link has an address (connman).
+  final bool? wiredUp;
   final bool? bleUp;
   final int? brightness;
   final VrxDimming? dimming;
@@ -114,6 +118,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
   bool drawer = false;
   bool askingPower = false;
   bool wifiUp = false;
+  bool wiredUp = false;
   bool bleUp = false;
 
   /// A camera is running now, whoever started it: the strip's mark
@@ -212,6 +217,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
       case ShellFacts f:
         clockValid = f.clockValid ?? clockValid;
         wifiUp = f.wifiUp ?? wifiUp;
+        wiredUp = f.wiredUp ?? wiredUp;
         bleUp = f.bleUp ?? bleUp;
         brightness = f.brightness ?? brightness;
         dimming = f.dimming ?? dimming;
@@ -237,6 +243,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
         clockText: clockText,
         dateText: dateText,
         wifiUp: wifiUp,
+        wiredUp: wiredUp,
         bleUp: bleUp,
         notice: notice,
         batteryLevel: battery?.percent,
@@ -277,7 +284,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
   int get depth => 0;
 
   @override
-  Object? get fingerprint => [drawer, askingPower, wifiUp, bleUp, dimming, brightness, clockValid, version, trailDepth,
+  Object? get fingerprint => [drawer, askingPower, wifiUp, wiredUp, bleUp, dimming, brightness, clockValid, version, trailDepth,
       battery?.percent, notice, h24, [for (final a in alerts) '${a.applet}/${a.answer}'], batteryZone, batteryShown,
       nextWake, wakeAlarm, cameraOn];
 }

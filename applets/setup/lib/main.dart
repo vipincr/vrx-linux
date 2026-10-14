@@ -110,7 +110,7 @@ Future<void> main() async {
   VrxSystem.network.watch().listen((n) {
     final wifi = n.connected;
     _events.add(SetupFacts(
-        network: wifi != null ? '${wifi.name} (${wifi.address})' : (n.wired ? 'Wired (${n.ethernetAddress})' : '')));
+        network: wifi != null ? '${wifi.name} (${wifi.address})' : (n.wired ? 'Ethernet (${n.ethernet!.address})' : '')));
   }, onError: (Object _) {});
   VrxSystem.time.watch().listen((t) => _events.add(SetupFacts(zone: t.zone)), onError: (Object _) {});
   try {

@@ -113,10 +113,57 @@ void main() {
     final harness = StoreHarness(SettingsModel())
       ..dispatch(const SettingsGo(open: Change(SettingsCategory.network)))
       ..dispatch(const SettingsFacts(
-          network: NetworkState(wifiPresent: false, wifiOn: false, networks: [], ethernet: 'online', ethernetAddress: '10.10.10.8')));
+          network: NetworkState(
+              wifiPresent: false,
+              wifiOn: false,
+              networks: [],
+              ethernet: WiredLink(state: 'online', interface: 'eth0', address: '10.10.10.8', gateway: '10.10.10.1'))));
     final keys = harness.view.rows.map((r) => r.key).toList();
     expect(keys, ['ethernet']);
-    expect(harness.view.rows.first.value, '10.10.10.8');
+    expect(harness.view.rows.first.label, 'Ethernet');
+    expect(harness.view.rows.first.value, 'Connected · 10.10.10.8');
+  });
+
+  test('Ethernet says why it is down, and is absent without an interface', () {
+    final harness = StoreHarness(SettingsModel())..dispatch(const SettingsGo(open: Change(SettingsCategory.network)));
+    String? ethernet() => harness.view.rows.where((r) => r.key == 'ethernet').firstOrNull?.value;
+    // the interface with no cable: connman has the technology, no service
+    harness.dispatch(const SettingsFacts(
+        network: NetworkState(wifiPresent: true, wifiOn: false, networks: [], ethernet: WiredLink())));
+    expect(ethernet(), 'No cable');
+    // a cable in, no address yet
+    harness.dispatch(const SettingsFacts(
+        network: NetworkState(wifiPresent: true, wifiOn: false, networks: [], ethernet: WiredLink(state: 'configuration', interface: 'eth0'))));
+    expect(ethernet(), 'Connecting…');
+    harness.dispatch(const SettingsFacts(
+        network: NetworkState(wifiPresent: true, wifiOn: false, networks: [], ethernet: WiredLink(state: 'failure', interface: 'eth0'))));
+    expect(ethernet(), 'Not connected');
+    // a board with no Ethernet at all: no row, never a placeholder
+    harness.dispatch(const SettingsFacts(network: NetworkState(wifiPresent: true, wifiOn: true, networks: [])));
+    expect(ethernet(), isNull);
+    expect(harness.view.rows.map((r) => r.key), ['wifi']);
+  });
+
+  test('Wi-Fi and Ethernet up together: each row carries its own address', () {
+    final harness = StoreHarness(SettingsModel())
+      ..dispatch(const SettingsGo(open: Change(SettingsCategory.network)))
+      ..dispatch(const SettingsFacts(
+          network: NetworkState(
+              wifiPresent: true,
+              wifiOn: true,
+              networks: [
+                WifiNetwork(id: '/h', name: 'home', strength: 80, secured: true, state: 'online', saved: true, address: '192.168.1.42'),
+              ],
+              ethernet: WiredLink(state: 'ready', interface: 'eth0', address: '10.10.10.8'))));
+    final rows = {for (final r in harness.view.rows) r.key: r.value};
+    expect(rows, {'wifi': 'home · 192.168.1.42', 'ethernet': 'Connected · 10.10.10.8'});
+  });
+
+  test('the Network category names the wired link when no Wi-Fi is joined', () {
+    final harness = StoreHarness(SettingsModel())
+      ..dispatch(const SettingsFacts(
+          network: NetworkState(wifiPresent: true, wifiOn: false, networks: [], ethernet: WiredLink(state: 'online', address: '10.10.10.8'))));
+    expect(harness.view.categories.firstWhere((c) => c.category == SettingsCategory.network).summary, 'Ethernet');
   });
 
   test('Device lists only what the device reports, no placeholders', () {

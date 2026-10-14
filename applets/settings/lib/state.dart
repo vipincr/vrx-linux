@@ -225,6 +225,16 @@ class SettingsView {
   final String? error;
 }
 
+/// How the wired link reads in Settings: its address while it is up, else
+/// why it is not ("No cable" while connman has no service for it, which is
+/// a link without a carrier).
+String ethernetValue(WiredLink e) {
+  if (e.connected) return e.address.isEmpty ? 'Connected' : 'Connected · ${e.address}';
+  if (e.connecting) return 'Connecting…';
+  if (e.state.isEmpty) return 'No cable';
+  return 'Not connected';
+}
+
 /// How the on-screen keyboard's mode reads (plan 0013 D6).
 String keyboardModeLabel(VrxKeyboardMode mode) => switch (mode) {
       VrxKeyboardMode.auto => 'Only without a keyboard',
@@ -477,7 +487,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
           CategoryRow(SettingsCategory.power, 'Power', 'power_settings_new',
               supplyLow == true ? 'Supply too low' : (battery?.percent != null ? '${battery!.percent} %' : '')),
         CategoryRow(SettingsCategory.time, 'Time', 'schedule', time?.zone ?? ''),
-        CategoryRow(SettingsCategory.network, 'Network', 'wifi', network?.connected?.name ?? (network?.ethernet == 'online' || network?.ethernet == 'ready' ? 'Wired' : '')),
+        CategoryRow(SettingsCategory.network, 'Network', 'wifi', network?.connected?.name ?? ((network?.wired ?? false) ? 'Ethernet' : '')),
         CategoryRow(SettingsCategory.device, 'Device', 'developer_board', device?.name ?? ''),
         // pairing with a home app (plan 0015), where the image has Matter
         if (matter != null)
@@ -689,12 +699,15 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
               value: wifi != null ? '${wifi.name} · ${wifi.address}' : (n?.wifiOn == true ? 'Not connected' : 'Off'),
               kind: RowKind.open,
             ),
-          SettingRow(
-            key: 'ethernet',
-            label: 'Wired',
-            value: n != null && n.wired ? n.ethernetAddress : 'Not connected',
-            kind: RowKind.info,
-          ),
+          // the wired link, on a board that has one: its state and its own
+          // address, the way the Wi-Fi row says the joined network's
+          if (n?.ethernet case final e?)
+            SettingRow(
+              key: 'ethernet',
+              label: 'Ethernet',
+              value: ethernetValue(e),
+              kind: RowKind.info,
+            ),
         ];
       case SettingsCategory.device:
         // one screen of what the device is: its name (renamed here; the
@@ -895,7 +908,7 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
 
   @override
   Object? get fingerprint => [
-        time?.zone, time?.automatic, time?.synced, network?.ethernetAddress, device?.name, display.lightOff,
+        time?.zone, time?.automatic, time?.synced, network?.ethernet?.state, network?.ethernet?.address, device?.name, display.lightOff,
         display.brightness, display.sleepAfter, display.deepAfter, dimming, cascade.sleep, cascade.deep, canPowerOff,
         usbPresent, bluetooth?.on, supplyLow, battery?.percent, energyAvailable, energy == null, awake == null,
         updatesAvailable, updateStatus?.running, updateStatus?.last, updateStatus?.trial,

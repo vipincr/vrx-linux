@@ -229,14 +229,46 @@ class WifiNetwork {
   bool get connecting => state == 'association' || state == 'configuration';
 }
 
+/// The wired (Ethernet) link as connman sees it: present whenever the
+/// device has an Ethernet interface, with or without a cable in it.
+class WiredLink {
+  const WiredLink({
+    this.state = '',
+    this.interface = '',
+    this.address = '',
+    this.netmask = '',
+    this.gateway = '',
+    this.nameservers = const [],
+  });
+
+  /// connman's service state (idle, configuration, ready, online,
+  /// failure), or '' while no cable is in: connman keeps an Ethernet
+  /// service only while the link has a carrier.
+  final String state;
+
+  /// The kernel's interface name (eth0).
+  final String interface;
+
+  /// The link's own IPv4 address, netmask and gateway while it is up,
+  /// else ''.
+  final String address;
+  final String netmask;
+  final String gateway;
+
+  /// The DNS servers connman uses on this link, while it is up.
+  final List<String> nameservers;
+
+  bool get connected => state == 'ready' || state == 'online';
+  bool get connecting => state == 'association' || state == 'configuration';
+}
+
 /// The network as connman sees it.
 class NetworkState {
   const NetworkState({
     required this.wifiPresent,
     required this.wifiOn,
     required this.networks,
-    required this.ethernet,
-    this.ethernetAddress = '',
+    this.ethernet,
   });
 
   /// The device has Wi-Fi at all (plan 0008 D12).
@@ -246,16 +278,14 @@ class NetworkState {
   /// Wi-Fi networks, strongest first; the connected one first of all.
   final List<WifiNetwork> networks;
 
-  /// The wired link's state ('' when there is no wired link).
-  final String ethernet;
-
-  /// The wired link's own IPv4 address while it is up, else ''. Each link
-  /// carries its own address: with a cable and Wi-Fi both up there is no
-  /// single "the address" (the bench showed the wired one on the Wi-Fi
+  /// The wired link; null when the device has no Ethernet interface. Each
+  /// link carries its own address: with a cable and Wi-Fi both up there is
+  /// no single "the address" (the bench showed the wired one on the Wi-Fi
   /// screen).
-  final String ethernetAddress;
+  final WiredLink? ethernet;
 
-  bool get wired => ethernet == 'ready' || ethernet == 'online';
+  /// A cable is in and the wired link has an address.
+  bool get wired => ethernet?.connected ?? false;
 
   WifiNetwork? get connected {
     for (final n in networks) {
@@ -263,6 +293,72 @@ class NetworkState {
     }
     return null;
   }
+}
+
+/// connman's two replies, Manager.GetTechnologies and Manager.GetServices
+/// (each `a(oa{sv})`), as a [NetworkState]. Kept apart from the bus so it is
+/// tested on any host.
+NetworkState networkFromConnman(List<DBusValue> technologies, List<DBusValue> services) {
+  var wifiPresent = false, wifiOn = false, ethernetPresent = false;
+  for (final t in technologies) {
+    final props = t.asStruct()[1].asStringVariantDict();
+    switch (props['Type']?.asString()) {
+      case 'wifi':
+        wifiPresent = true;
+        wifiOn = props['Powered']?.asBoolean() ?? false;
+      case 'ethernet':
+        ethernetPresent = true;
+    }
+  }
+  final networks = <WifiNetwork>[];
+  WiredLink? wired;
+  for (final entry in services) {
+    final fields = entry.asStruct();
+    final path = fields[0].asObjectPath().value;
+    final p = fields[1].asStringVariantDict();
+    final state = p['State']?.asString() ?? 'idle';
+    final up = state == 'ready' || state == 'online';
+    final ipv4 = up ? (p['IPv4']?.asStringVariantDict() ?? const <String, DBusValue>{}) : const <String, DBusValue>{};
+    final address = ipv4['Address']?.asString() ?? '';
+    switch (p['Type']?.asString()) {
+      case 'ethernet':
+        // a second wired link (a USB adapter beside the board's own)
+        // replaces the first only when the first is down
+        if (wired != null && wired.connected) continue;
+        wired = WiredLink(
+          state: state,
+          interface: p['Ethernet']?.asStringVariantDict()['Interface']?.asString() ?? '',
+          address: address,
+          netmask: ipv4['Netmask']?.asString() ?? '',
+          gateway: ipv4['Gateway']?.asString() ?? '',
+          nameservers: up ? (p['Nameservers']?.asStringArray().toList() ?? const []) : const [],
+        );
+      case 'wifi':
+        final name = p['Name']?.asString() ?? '';
+        if (name.isEmpty) continue; // a hidden network: not listed
+        final security = p['Security']?.asStringArray().toList() ?? const [];
+        networks.add(WifiNetwork(
+          id: path,
+          name: name,
+          strength: (p['Strength']?.toNative() as int?) ?? 0,
+          secured: security.any((s) => s != 'none'),
+          state: state,
+          saved: p['Favorite']?.asBoolean() ?? false,
+          address: address,
+        ));
+    }
+  }
+  networks.sort((a, b) {
+    if (a.connected != b.connected) return a.connected ? -1 : 1;
+    return b.strength.compareTo(a.strength);
+  });
+  return NetworkState(
+    wifiPresent: wifiPresent,
+    wifiOn: wifiOn,
+    networks: networks,
+    // the interface without a cable has a technology and no service
+    ethernet: wired ?? (ethernetPresent ? const WiredLink() : null),
+  );
 }
 
 /// Wi-Fi and the wired link. Needs the `network` grant.
@@ -305,55 +401,9 @@ class ConnmanNetworkService implements NetworkService {
   Future<NetworkState> _read() async {
     final techs = await _manager.callMethod(_mgr, 'GetTechnologies', const [],
         replySignature: DBusSignature('a(oa{sv})'));
-    var wifiPresent = false, wifiOn = false;
-    for (final t in techs.returnValues.first.asArray()) {
-      final props = t.asStruct()[1].asStringVariantDict();
-      if (props['Type']?.asString() == 'wifi') {
-        wifiPresent = true;
-        wifiOn = props['Powered']?.asBoolean() ?? false;
-      }
-    }
     final services = await _manager.callMethod(_mgr, 'GetServices', const [],
         replySignature: DBusSignature('a(oa{sv})'));
-    final networks = <WifiNetwork>[];
-    var ethernet = '', ethernetAddress = '';
-    for (final entry in services.returnValues.first.asArray()) {
-      final fields = entry.asStruct();
-      final path = fields[0].asObjectPath().value;
-      final p = fields[1].asStringVariantDict();
-      final state = p['State']?.asString() ?? 'idle';
-      final up = state == 'ready' || state == 'online';
-      final address = up ? (p['IPv4']?.asStringVariantDict()['Address']?.asString() ?? '') : '';
-      switch (p['Type']?.asString()) {
-        case 'ethernet':
-          ethernet = state;
-          ethernetAddress = address;
-        case 'wifi':
-          final name = p['Name']?.asString() ?? '';
-          if (name.isEmpty) continue; // a hidden network: not listed
-          final security = p['Security']?.asStringArray().toList() ?? const [];
-          networks.add(WifiNetwork(
-            id: path,
-            name: name,
-            strength: (p['Strength']?.toNative() as int?) ?? 0,
-            secured: security.any((s) => s != 'none'),
-            state: state,
-            saved: p['Favorite']?.asBoolean() ?? false,
-            address: address,
-          ));
-      }
-    }
-    networks.sort((a, b) {
-      if (a.connected != b.connected) return a.connected ? -1 : 1;
-      return b.strength.compareTo(a.strength);
-    });
-    return NetworkState(
-      wifiPresent: wifiPresent,
-      wifiOn: wifiOn,
-      networks: networks,
-      ethernet: ethernet,
-      ethernetAddress: ethernetAddress,
-    );
+    return networkFromConnman(techs.returnValues.first.asArray().toList(), services.returnValues.first.asArray().toList());
   }
 
   @override

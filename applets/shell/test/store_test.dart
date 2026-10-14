@@ -21,6 +21,11 @@ void main() {
     h.assertView((v) => !v.bleUp && !v.facts.bleUp, because: 'the radio is off until connman says on');
     h.dispatch(const ShellFacts(bleUp: true));
     h.assertView((v) => v.bleUp && v.facts.bleUp, because: 'the strip and the drawer both say the radio is on');
+    h.assertView((v) => !v.facts.wiredUp, because: 'no wired glyph until connman says a cable is up');
+    h.dispatch(const ShellFacts(wiredUp: true));
+    h.assertView((v) => v.facts.wiredUp && v.facts.wifiUp, because: 'the wired glyph sits beside Wi-Fi, each its own fact');
+    h.dispatch(const ShellFacts(wiredUp: false));
+    h.assertView((v) => !v.facts.wiredUp, because: 'the cable out: the glyph goes');
     h.dispatch(const ShellFacts(depth: 2));
     h.assertView((v) => v.canGoBack, because: 'an applet above Home');
     h.assertView((v) => !v.facts.cameraOn, because: 'no camera runs until camerad says so');

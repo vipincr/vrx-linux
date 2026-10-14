@@ -59,10 +59,19 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
           unawaited(VrxShell.back());
         }
       },
+      // every other fact is the model's (view.facts): a field left out
+      // here never reached the strip (the camera mark and the battery
+      // were dropped this way until the wired link's glyph found it)
       clockText: view.facts.clockText,
       dateText: view.facts.dateText,
-      wifiUp: view.wifiUp,
-      bleUp: view.bleUp,
+      wifiUp: view.facts.wifiUp,
+      wiredUp: view.facts.wiredUp,
+      bleUp: view.facts.bleUp,
+      batteryLevel: view.facts.batteryLevel,
+      batteryCharging: view.facts.batteryCharging,
+      batteryEstimated: view.facts.batteryEstimated,
+      notice: view.facts.notice,
+      cameraOn: view.facts.cameraOn,
     );
     // the compositor routes input by the strip's height, and gives the shell
     // all of it while the drawer is open, and while a finger or the motion has
@@ -179,7 +188,7 @@ Future<void> main() async {
   VrxSystem.time
       .watch()
       .listen((t) => fact(ShellFacts(clockValid: t.synced || DateTime.now().year >= 2025)), onError: (Object _) {});
-  VrxSystem.network.watch().listen((n) => fact(ShellFacts(wifiUp: n.connected != null)), onError: (Object _) {});
+  VrxSystem.network.watch().listen((n) => fact(ShellFacts(wifiUp: n.connected != null, wiredUp: n.wired)), onError: (Object _) {});
   // the radio's switch is connman's (the network grant); the shell does not
   // reach BlueZ, so on or off is all it says
   VrxSystem.bluetooth.watch().listen((b) => fact(ShellFacts(bleUp: b.on)), onError: (Object _) {});

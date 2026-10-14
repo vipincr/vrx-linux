@@ -169,6 +169,11 @@ from the right, shallower from the left, an equal depth cross-fades.
 | `VrxStatusStrip`, `VrxQuickDrawer`, `VrxPull` | the shell's strip, the drawer's panel, and the drawer's mechanics |
 
 The strip has fixed slots, so the clock does not move when Back appears.
+At its end it shows the camera mark, the network glyph (the wired link
+while a cable is up, Wi-Fi while a network is joined, both when both are,
+Wi-Fi's off glyph only when neither is), Bluetooth and the battery. Where
+they do not all fit, the battery's percent goes first, then Bluetooth, then
+the battery glyph; the camera mark and the network glyph always stay.
 A modal belongs to the client area and the strip stays visible above it.
 
 ## Layout

@@ -22,8 +22,7 @@ void main() {
     ..network = const NetworkState(
       wifiPresent: true,
       wifiOn: true,
-      ethernet: 'online',
-      ethernetAddress: '10.10.10.8',
+      ethernet: WiredLink(state: 'online', interface: 'eth0', address: '192.168.100.200', gateway: '192.168.100.1', nameservers: ['1.1.1.1']),
       networks: [
         WifiNetwork(id: 'a', name: 'Bench network 5GHz', strength: 80, secured: true, state: 'online', saved: true, address: '192.168.1.42'),
       ],
@@ -64,6 +63,13 @@ void main() {
   final screens = <String, SettingsModel Function()>{
     'categories': model,
     for (final c in SettingsCategory.values) c.name: () => model()..open = c,
+    // the wired link's other states, beside Wi-Fi off
+    'network, no cable': () => model()
+      ..open = SettingsCategory.network
+      ..network = const NetworkState(wifiPresent: true, wifiOn: false, networks: [], ethernet: WiredLink()),
+    'network, ethernet connecting': () => model()
+      ..open = SettingsCategory.network
+      ..network = const NetworkState(wifiPresent: true, wifiOn: false, networks: [], ethernet: WiredLink(state: 'configuration', interface: 'eth0')),
     'setting entry': () => model()
       ..open = SettingsCategory.applets
       ..editingSetting = ('recorder', 'sample_rate'),

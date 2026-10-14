@@ -201,6 +201,9 @@ domains = ["signal"]
 [glyph.wifi_off]
 purpose = "Wi-Fi off or not connected"
 domains = ["signal", "action"]
+[glyph.lan]
+purpose = "A wired (Ethernet) network connected"
+domains = ["signal"]
 [glyph.network_wifi_1_bar]
 purpose = "A weak Wi-Fi signal"
 domains = ["signal"]

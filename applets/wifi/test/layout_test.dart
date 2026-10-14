@@ -13,7 +13,7 @@ void main() {
     WifiNetwork(id: 'c', name: 'Cafe', strength: 20, secured: false, state: 'idle', saved: false),
   ];
   WifiModel model() => WifiModel()
-    ..network = const NetworkState(wifiPresent: true, wifiOn: true, ethernet: 'online', ethernetAddress: '10.10.10.8', networks: nets);
+    ..network = const NetworkState(wifiPresent: true, wifiOn: true, ethernet: WiredLink(state: 'online', interface: 'eth0', address: '10.10.10.8'), networks: nets);
   for (final display in allDisplays) {
     testWidgets('wifi list on ${display.name}', (tester) async {
       await expectCleanLayout(tester, WifiApplet(model()), display: display);

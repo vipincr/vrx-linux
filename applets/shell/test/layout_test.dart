@@ -22,6 +22,15 @@ void main() {
     testWidgets('shell strip on ${display.name}', (tester) async {
       await expectCleanLayout(tester, ShellApplet(model()), display: display);
     });
+    // every glyph the strip can hold at once: the wired link beside Wi-Fi,
+    // Bluetooth, the camera mark and a battery
+    testWidgets('shell strip with every glyph on ${display.name}', (tester) async {
+      final m = model()
+        ..wiredUp = true
+        ..cameraOn = true
+        ..battery = const Battery(name: 'BAT0', percent: 100, charging: false, volts: 4.1);
+      await expectCleanLayout(tester, ShellApplet(m), display: display);
+    });
     testWidgets('shell drawer on ${display.name}', (tester) async {
       await expectCleanLayout(tester, ShellApplet(model(drawer: true)), display: display);
     });

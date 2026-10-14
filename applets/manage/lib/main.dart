@@ -130,7 +130,7 @@ void main() {
   VrxSystem.manage.watch().listen((on) => _events.add(ManageFacts(serving: on)), onError: failed);
   VrxSystem.device.watch().listen((d) => _events.add(ManageFacts(hostname: d.hostname)), onError: failed);
   VrxSystem.network.watch().listen(
-      (n) => _events.add(ManageFacts(ips: [if (n.wired) n.ethernetAddress, if (n.connected != null) n.connected!.address])),
+      (n) => _events.add(ManageFacts(ips: [if (n.wired) n.ethernet!.address, if (n.connected != null) n.connected!.address])),
       onError: failed);
   // opening serves the page; leaving (Back, Home, another applet in
   // front) stops it, and the hosted network with it

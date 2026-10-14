@@ -4,7 +4,7 @@
 
 // ignore_for_file: constant_identifier_names, non_constant_identifier_names
 
-/// vrx's glyphs (79): the ones the purpose table lists, each for
+/// vrx's glyphs (80): the ones the purpose table lists, each for
 /// what its row says. The font is the whole Material Symbols set,
 /// installed system-wide (ttf-material-symbols); only these are named.
 /// A manifest's display.icon is one with the applet-icon domain.
@@ -149,6 +149,9 @@ abstract final class VrxSymbols {
 
   /// The keyboard's Enter (action).
   static const IconData keyboard_return = IconData(0xe31b, fontFamily: _family);
+
+  /// A wired (Ethernet) network connected (signal).
+  static const IconData lan = IconData(0xeb2f, fontFamily: _family);
 
   /// The device's page in a browser: the Manage applet (applet-icon).
   static const IconData language = IconData(0xea07, fontFamily: _family);
@@ -300,6 +303,7 @@ abstract final class VrxSymbols {
     'keyboard_capslock': keyboard_capslock,
     'keyboard_hide': keyboard_hide,
     'keyboard_return': keyboard_return,
+    'lan': lan,
     'language': language,
     'light_mode': light_mode,
     'list': list,
