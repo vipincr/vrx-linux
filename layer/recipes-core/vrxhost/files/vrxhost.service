@@ -18,10 +18,17 @@ UMask=0007
 # Plan 0008 D1: applets are systemd units, so vrxhost needs no
 # capability at all. It asks systemd (as root, which systemd's own
 # authorization accepts) to start units and reads their state.
-CapabilityBoundingSet=
+# CAP_SYS_PTRACE, and nothing else: reading another user's
+# /proc/<pid>/fd and fdinfo needs it (ptrace read access). The energy
+# sampler reads each applet's GPU client there (plan 0012 D8) and the
+# freezer the channel ends an applet holds (D2); without it both read
+# nothing, silently.
+CapabilityBoundingSet=CAP_SYS_PTRACE
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/run/vrx
+# /data/vrx/energy: the hourly energy summaries (plan 0012 D9); absent
+# on a board with no /data
+ReadWritePaths=/run/vrx -/data/vrx/energy
 ProtectHome=yes
 PrivateTmp=yes
 ProtectKernelTunables=yes

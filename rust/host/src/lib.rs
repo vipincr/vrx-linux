@@ -13,6 +13,7 @@
 pub mod applets;
 pub mod bridge;
 pub mod compositor;
+pub mod energy;
 pub mod facts;
 pub mod freeze;
 pub mod install;

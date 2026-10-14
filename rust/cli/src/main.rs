@@ -8,6 +8,7 @@
 mod build;
 mod new;
 mod pack;
+mod power_profile;
 mod test_cmd;
 mod unit;
 
@@ -23,6 +24,8 @@ usage:
   vrx unit --manifest <f> --dir <d> --dropin <out> [--bundle <d>]
            [--grants <f>] [--settings <out>]
                                       the applet's systemd drop-in (the build)
+  vrx power-profile [--measured] <file>...
+                                      check a board's power profile (G028)
   vrx test                            run the store tests on the host
 ";
 
@@ -32,6 +35,7 @@ fn main() -> ExitCode {
         Some("new") => new::run(&args[1..]),
         Some("build") => build::run(&args[1..]),
         Some("pack") => pack::run(&args[1..]),
+        Some("power-profile") => power_profile::run(&args[1..]),
         Some("unit") => unit::run(&args[1..]),
         Some("test") => test_cmd::run(&args[1..]),
         _ => {

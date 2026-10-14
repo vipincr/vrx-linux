@@ -110,6 +110,33 @@ method Watch() -> (front: string, depth: int, stopped: ?string)
 # With \"more\", again on every change.
 method Facts() -> (usb: string, supply_low: bool, backlight: int)
 
+# What each applet and the system's parts cost over the last hours (1-24,
+# default 24; plan 0012 D8, D12), most first. mj is millijoules, absent
+# on a board whose power profile has no measured numbers (calibrated
+# false): time is still counted then. over marks an applet over its
+# budget. For callers holding the power-stats grant.
+type EnergyRow (key: string, name: string, kind: string, mj: ?int, cpu_ms: int, gpu_ms: int, wakeups: int, front_s: int, over: bool)
+method Energy(hours: ?int) -> (calibrated: bool, measured: ?string, problem: ?string, hours: int, rows: []EnergyRow)
+
+# Why the device is awake (plan 0012 D12): logind's inhibitors (and the
+# applet holding each), the applets running and frozen, the wakeup
+# sources by event count, the CPU's governor and frequency, the
+# temperature, the supply alarm, the screen. For the power-stats grant.
+type Inhibitor (what: string, who: string, why: string, mode: string, applet: ?string)
+type WakeupSource (name: string, events: int)
+method Awake() -> (inhibitors: []Inhibitor, running: []string, frozen: []string, wakeups: []WakeupSource, governor: string, khz: int, temp_mc: ?int, supply_low: bool, screen_on: bool)
+
+# Applets over their power budget (plan 0012 D11): the shell's banner.
+# answer is \"\" until the person answers (later, stop), or frozen when
+# vrxhost froze it ten minutes after an unanswered alert. With \"more\",
+# again on every change. For the shell.
+type PowerAlert (applet: string, name: string, budget: string, percent: float, since: int, answer: string)
+method PowerAlerts() -> (alerts: []PowerAlert)
+
+# The person's answer to a power alert: later (nothing is done to the
+# applet) or stop (its unit stops). For the shell.
+method PowerAlertAnswer(applet: string, answer: string) -> ()
+
 error NoSuchApplet (applet: string)
 error NotOpenable (applet: string)
 error Disabled (applet: string)
@@ -216,6 +243,8 @@ pub struct Host {
     pub nav: mpsc::UnboundedSender<NavRequest>,
     pub front: watch::Receiver<Front>,
     pub bridge: Bridge,
+    /// What applets cost (plan 0012 D8); None where it is not sampled.
+    pub energy: Option<crate::energy::Energy>,
 }
 
 /// What installing needs: where the applets live, systemd, and the way
@@ -277,6 +306,22 @@ async fn handle(mut conn: zlink::tokio::unix::Connection, host: Host) {
         }
         if method == format!("{INTERFACE}.Facts") && call.more() {
             watch_facts(&mut conn, crate::facts::subscribe()).await;
+            return;
+        }
+        if method == format!("{INTERFACE}.PowerAlerts") && call.more() {
+            match (&host.energy, is_shell(&host, applet.as_deref())) {
+                (Some(energy), true) => watch_alerts(&mut conn, energy.alerts()).await,
+                (None, true) => {
+                    let _ = conn
+                        .send_error(&Failure::host("Unavailable", json!({})), Vec::new())
+                        .await;
+                }
+                (_, false) => {
+                    let _ = conn
+                        .send_error(&Failure::host("NotPermitted", json!({})), Vec::new())
+                        .await;
+                }
+            }
             return;
         }
         if method == format!("{INTERFACE}.Listen") && call.more() {
@@ -460,6 +505,51 @@ async fn watch_facts(
     }
 }
 
+async fn watch_alerts(
+    conn: &mut zlink::tokio::unix::Connection,
+    mut alerts: watch::Receiver<Vec<crate::energy::Alert>>,
+) {
+    loop {
+        let now = alerts.borrow_and_update().clone();
+        let reply = Reply::new(Some(json!({ "alerts": now }))).set_continues(Some(true));
+        if conn.send_reply(&reply, Vec::new()).await.is_err() {
+            return;
+        }
+        if alerts.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
+/// The caller holds `grant` (a built-in's manifest says so), or is not an
+/// applet at all (the system, a root diagnostic).
+fn holds(host: &Host, caller: Option<&str>, grant: vrx_protocol::SystemGrant) -> bool {
+    caller.is_none_or(|applet| {
+        host.registry.get().find(applet).is_some_and(|e| {
+            e.builtin && e.manifest.applet.permissions.system.contains(&grant)
+        })
+    })
+}
+
+/// The caller is the shell (the role), or not an applet at all.
+fn is_shell(host: &Host, caller: Option<&str>) -> bool {
+    caller.is_none_or(|applet| {
+        host.registry
+            .get()
+            .find(applet)
+            .is_some_and(|e| e.builtin && e.manifest.applet.roles.shell)
+    })
+}
+
+fn energy_of(host: &Host, allowed: bool) -> Result<&crate::energy::Energy, Failure> {
+    if !allowed {
+        return Err(Failure::host("NotPermitted", json!({})));
+    }
+    host.energy
+        .as_ref()
+        .ok_or_else(|| Failure::host("Unavailable", json!({})))
+}
+
 async fn dispatch(
     host: &Host,
     caller: Option<&str>,
@@ -545,6 +635,41 @@ async fn dispatch(
         }
         "io.vrx.Host.Watch" => {
             Ok(serde_json::to_value(host.front.borrow().clone()).unwrap_or(Value::Null))
+        }
+        "io.vrx.Host.Energy" => {
+            let energy = energy_of(
+                host,
+                holds(host, caller, vrx_protocol::SystemGrant::PowerStats),
+            )?;
+            let hours = params
+                .get("hours")
+                .and_then(Value::as_u64)
+                .map_or(24, |h| u32::try_from(h).unwrap_or(24));
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            Ok(serde_json::to_value(energy.report(hours, now)).unwrap_or(Value::Null))
+        }
+        "io.vrx.Host.Awake" => {
+            let energy = energy_of(
+                host,
+                holds(host, caller, vrx_protocol::SystemGrant::PowerStats),
+            )?;
+            Ok(serde_json::to_value(energy.awake().await).unwrap_or(Value::Null))
+        }
+        "io.vrx.Host.PowerAlerts" => {
+            let energy = energy_of(host, is_shell(host, caller))?;
+            Ok(json!({ "alerts": *energy.alerts().borrow() }))
+        }
+        "io.vrx.Host.PowerAlertAnswer" => {
+            let energy = energy_of(host, is_shell(host, caller))?;
+            let applet = str_param("applet").ok_or_else(|| Failure::invalid("applet"))?;
+            let answer = str_param("answer").ok_or_else(|| Failure::invalid("answer"))?;
+            energy
+                .answer(applet, answer)
+                .await
+                .map(|()| json!({}))
+                .map_err(|_| Failure::invalid("answer"))
         }
         "io.vrx.Host.Facts" => Ok(serde_json::to_value(
             crate::facts::subscribe().borrow().clone(),
@@ -968,6 +1093,7 @@ mod tests {
             nav: nav_tx,
             front: front_rx,
             bridge: Bridge::default(),
+            energy: None,
         };
         let bound = socket.clone();
         tokio::spawn(async move { serve(&bound, host).await });
@@ -1044,6 +1170,18 @@ mod tests {
 
         let r = call(&mut s, json!({"method": "io.vrx.Host.Teleport"})).await;
         assert_eq!(r[0]["error"], "org.varlink.service.MethodNotFound", "{r:?}");
+
+        // the energy methods (plan 0012 D12): a caller that is not an
+        // applet may ask; nothing is sampled in this host
+        for m in ["Energy", "Awake", "PowerAlerts"] {
+            let r = call(&mut s, json!({"method": format!("io.vrx.Host.{m}")})).await;
+            assert_eq!(r[0]["error"], "io.vrx.Host.Unavailable", "{m}: {r:?}");
+        }
+        let r = call(&mut s, json!({"method": "org.varlink.service.GetInterfaceDescription", "parameters": {"interface": "io.vrx.Host"}})).await;
+        let idl = r[0]["parameters"]["description"].as_str().unwrap();
+        assert!(
+            idl.contains("method Energy(") && idl.contains("method PowerAlertAnswer(")
+        );
     }
 
     #[tokio::test]

@@ -95,6 +95,8 @@ async fn main() -> ExitCode {
         tracing::info!("no home applet: headless, no compositor link");
         drop(link_tx);
     }
+    let applets_for_energy = applets.clone();
+    let front_for_energy = front_rx.clone();
     let installer = varlink::Installer {
         paths: paths.clone(),
         applets: applets.clone(),
@@ -120,6 +122,22 @@ async fn main() -> ExitCode {
         added_rx,
     ));
 
+    // what each applet costs (plan 0012 D8, D11): sampled from Linux's
+    // counters, priced with the board's measured profile
+    let energy = vrx_host::energy::Energy::new(
+        vrx_host::energy::Roots::system(),
+        registry
+            .get()
+            .iter()
+            .map(|e| (e.manifest.applet.id.clone(), e.manifest.applet.name.clone()))
+            .collect(),
+        std::sync::Arc::new(vrx_host::energy::LinuxActions {
+            freezer: freezer.clone(),
+            applets: applets_for_energy,
+        }),
+    );
+    tokio::spawn(energy.clone().run(front_for_energy));
+
     let socket = paths.host_socket();
     let host = varlink::Host {
         registry,
@@ -130,6 +148,7 @@ async fn main() -> ExitCode {
             vrx_host::bridge::Bridge::default,
             vrx_host::bridge::Bridge::with_freezer,
         ),
+        energy: Some(energy),
     };
     // a computer on the USB device port (plan 0008 D11), on boards with one
     if let Some(state) = usb::state_file(std::path::Path::new(usb::UDC_ROOT)) {

@@ -83,6 +83,10 @@ pub enum SystemGrant {
     /// The system's locale, which the time format follows (systemd-localed's
     /// SetLocale, plan 0011 D7).
     Locale,
+    /// Read what each applet costs and why the device is awake (plan 0012
+    /// D12: io.vrx.Host.Energy and Awake).
+    #[serde(rename = "power-stats")]
+    PowerStats,
 }
 
 impl SystemGrant {
@@ -109,11 +113,12 @@ impl SystemGrant {
             SystemGrant::Settings => "settings",
             SystemGrant::Ml => "ml",
             SystemGrant::Locale => "locale",
+            SystemGrant::PowerStats => "power-stats",
         }
     }
 
     /// Every grant, for table checks.
-    pub const ALL: [SystemGrant; 20] = [
+    pub const ALL: [SystemGrant; 21] = [
         SystemGrant::Network,
         SystemGrant::Bluetooth,
         SystemGrant::Time,
@@ -134,6 +139,7 @@ impl SystemGrant {
         SystemGrant::Settings,
         SystemGrant::Ml,
         SystemGrant::Locale,
+        SystemGrant::PowerStats,
     ];
 }
 
