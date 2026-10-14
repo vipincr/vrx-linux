@@ -194,6 +194,36 @@ taller than the client wraps it in `VrxPaged`: a vertical drag nothing
 inside claims then pages the body a client height at a time, and a body
 that fits does not move. Check: `flutter/vrx_kit/test/paged_test.dart`.
 
+## Motion
+
+An applet never animates. It says which screen it is on and the kit moves
+(plan 0017). `StoreModel.screen` is the screen's identity (anything that
+compares deeply: an enum, or a list of the flags that name the screen) and
+`depth` how deep it is, 0 at the root. Both default to the root and one level
+over it (`atRoot`); an applet whose chain has more screens overrides them, as
+Settings, Scripts, Clock, Wi-Fi, Device Link, Docs and Setup do. When `screen`
+changes, `AppletHost` slides the new screen in from the right (deeper), the
+left (shallower) or fades it (equal depth). A Back never raises `depth`, and
+`depth` is never negative: the store harness checks both.
+
+```dart
+@override
+Object get screen => [open, editing];       // what makes this a different screen
+@override
+int get depth => open == null ? 0 : (editing ? 2 : 1);
+```
+
+Do not write an `AnimationController`, `Curves`, an `Animated*` widget, a
+`Duration` for a scroll animation or a `ScrollPhysics`: the scan refuses them
+(G050), the kit's components already move from the standard's table, and a
+list scrolls with the one bounce physics. An applet's own drawing (the clock
+face, the recorder's meter) is its own; a live meter is never eased. Two
+things reduce what moves: the build's tier and Settings > Display > Reduce
+motion (G053); an applet reads neither. A screen change must not change the
+layout: `vrx_check` judges every screen settled, and fails a control sitting
+behind an `IgnorePointer` or an `AbsorbPointer`, since input lands at every
+moment of a motion (D1).
+
 ## Testing
 
 ```bash

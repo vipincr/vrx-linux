@@ -27,6 +27,7 @@ PACKAGE_ARCH = "${MACHINE_ARCH}"
 VRX_DISPLAY_CLASS ??= "lcd_colour"
 VRX_UI_SCHEME ??= "12"
 VRX_UI_POLARITY ??= "dark"
+VRX_UI_MOTION ??= ""
 
 python () {
     cls = d.getVar('VRX_DISPLAY_CLASS')
@@ -37,6 +38,20 @@ python () {
         bb.fatal("VRX_UI_SCHEME = '%s': must be 1 to 20 (the vrx UI standard's schemes)" % scheme)
     if d.getVar('VRX_UI_POLARITY') not in ('dark', 'light'):
         bb.fatal("VRX_UI_POLARITY = '%s': must be dark or light" % d.getVar('VRX_UI_POLARITY'))
+    # the motion tier (plan 0017 D5, G053): one of four values, and the class's
+    # own when empty, read from the overlay the kit's tables are generated from
+    motion = d.getVar('VRX_UI_MOTION')
+    if motion not in ('', 'still', 'light', 'full'):
+        bb.fatal("VRX_UI_MOTION = '%s': must be empty (the display class's tier), still, light or full" % motion)
+    if not motion:
+        import os, tomllib
+        overlay = os.path.join(d.getVar('VRX_LINUX_LAYERDIR'), '..', 'flutter', 'vrx_kit', 'standard', 'vrx-motion.toml')
+        bb.parse.mark_dependency(d, overlay)
+        with open(overlay, 'rb') as f:
+            motion = tomllib.load(f)['tier_of_class'].get(cls)
+        if motion not in ('still', 'light', 'full'):
+            bb.fatal("vrx-motion.toml [tier_of_class] has no tier for the display class %s" % cls)
+    d.setVar('VRX_MOTION_TIER', motion)
 }
 
 SYSTEMD_SERVICE:${PN} = "vrx-theme.service"
@@ -46,10 +61,11 @@ do_compile[noexec] = "1"
 do_install() {
     install -d ${D}${nonarch_libdir}/vrx
     echo "${VRX_DISPLAY_CLASS}" > ${D}${nonarch_libdir}/vrx/display-class
+    echo "${VRX_MOTION_TIER}" > ${D}${nonarch_libdir}/vrx/motion-tier
     printf 'scheme=%s\npolarity=%s\n' "${VRX_UI_SCHEME}" "${VRX_UI_POLARITY}" > ${D}${nonarch_libdir}/vrx/theme-default.conf
     install -D -m 0755 ${UNPACKDIR}/vrx-theme-snapshot ${D}${libexecdir}/vrx/vrx-theme-snapshot
     install -D -m 0644 ${UNPACKDIR}/vrx-theme.service ${D}${systemd_system_unitdir}/vrx-theme.service
 }
 
-FILES:${PN} = "${nonarch_libdir}/vrx/display-class ${nonarch_libdir}/vrx/theme-default.conf \
+FILES:${PN} = "${nonarch_libdir}/vrx/display-class ${nonarch_libdir}/vrx/motion-tier ${nonarch_libdir}/vrx/theme-default.conf \
                ${libexecdir}/vrx/vrx-theme-snapshot ${systemd_system_unitdir}/vrx-theme.service"

@@ -74,13 +74,80 @@ Wi-Fi off has its own glyph, a chosen segment fills.
 
 ## Motion
 
-Six springs (`MotionTokens`, Material 3's values in Flutter's spring
-physics): `spatialFast`, `spatial`, `spatialSlow` may overshoot and move
-position or size; `effectsFast`, `effects`, `effectsSlow` are critically
-damped and change colour or opacity. A colour never rides a spatial spring.
-`Motion.push` slides a screen in from the right; a modal fades over a
-dimmed field. A press is instant: it sinks to 0.97 on `spatialFast` and acts
-on release.
+Every spring in vrx runs through one engine, `VrxMotion` in
+`flutter/vrx_kit/lib/src/motion.dart`, over the UI standard's springs and
+micro rows (plan 0017). A component names a micro row (`VrxMicro.press`,
+`.drawerOpen`, `.screen`); the kit owns the numbers, and the scan (G050)
+refuses an `AnimationController`, a `Curve`, an `Animated*` widget, a hand
+duration or a `ScrollPhysics` anywhere else.
+
+The vocabulary is two files. The vendored `standard/vrx-ui-standard.toml`
+holds the springs (stiffness and damping ratio at mass 1) and the `[micro.*]`
+rows; `standard/vrx-motion.toml` is vrx's own overlay and adds what vrx needs
+beside it: which spring set each row reads, the rows `drawer_open`,
+`drawer_close`, `applet` and `overscroll`, the class-to-tier map, the tolerance,
+the ceilings and the touch sampling offset. The overlay may add and never
+redefine a key of the vendored file (G018 pins both by hash). `cargo xtask
+ui-standard` writes `ui_standard.g.dart` from them.
+
+**Two spring sets.** Things that travel across the screen use the expressive
+set and bounce: the drawer opening, a dialog growing in, a screen slide, an
+applet's entrance, the end of a list. Controls that change in place use the
+standard set, whose overshoot (0.15 %) cannot be seen: press, selection, the
+slider handle, a key. A closing drawer stays standard, since an overshoot
+would push the panel up through the strip. `effects` springs (colour,
+opacity) are critically damped in both sets, and a colour never rides a
+spatial spring.
+
+**Tolerance is in pixels.** The engine stops a spring at half a device pixel
+and 5 px/s (one 8-bit step for an opacity), not at Flutter's 1e-3, which kept
+the standard `spatial` running 0.54 s over a 360 px drawer where it is done to
+the eye at 0.26 s. Every simulation is built by `vrxSimulate(spring, from, to,
+velocity, unit)`, and the unit says what a number is.
+
+**Ceilings.** Each micro row a person waits on has an arrival and a settle
+ceiling in the overlay, at its reference travel on the 480 px display:
+
+| Motion | Arrives (ms) | Settles (ms) |
+|---|---|---|
+| press | 100 | 250 |
+| drawer open (expressive) | 120 | 450 |
+| drawer close | 120 | 300 |
+| screen change | 170 | 400 |
+| applet entrance | 170 | 300 |
+| modal | 180 | 500 |
+| banner in / out | 150 / 120 | 300 / 250 |
+| list row | 110 | 250 |
+
+`motion_ceiling_test.dart` integrates every row through the engine (G051); a
+token swap or a stiffness edit that exceeds one fails.
+
+**Tiers.** The build decides what moves: `still` (nothing; one paint of every
+end state), `light` (position and opacity, scale only a press's, no stagger, a
+slide without a fade) and `full` (the whole table). The tier comes from the
+display class (`lcd_colour` full, `lcd_grey` light, e-paper still) or from
+`VRX_UI_MOTION` in the machine conf, which `vrx-theme` validates and writes to
+`/usr/lib/vrx/motion-tier`. Settings > Display > **Reduce motion** only takes
+motion away on top of that (G053): every travel lands at once, a screen change
+or an entrance is a quick fade, and press feedback is the same. There is no
+frame-time watchdog: motion that changes with load reads as a bug.
+
+**Where bounce has no room, it is not used.** A fade has nothing to overshoot,
+and a full-screen slide that overshot would show the screen's edge.
+
+## The drawer and screens
+
+`VrxPull` is the drawer's mechanics: it follows the finger 1:1, flings onto a
+spring with the finger's velocity, and rubber-bands past its end with Flutter's
+own friction. A finger that lands on a moving drawer stops it. It owns the
+position; the model keeps only the intent. The shell's region is the whole
+screen from the first moved pixel until the close has landed.
+
+`VrxSwitch` animates a screen change inside an applet: the new screen slides
+in from the side by 10 mm while the old one leaves as a picture; deeper comes
+from the right, shallower from the left, an equal depth cross-fades.
+`AppletHost` installs it from the model's `screen` and `depth`.
+`VrxEntrance` is an applet coming to the front.
 
 ## Components
 
@@ -99,7 +166,7 @@ on release.
 | `VrxTextEntry`, `VrxKeyboard` | text, with the on-screen keyboard |
 | `VrxZonePicker`, `VrxSchemePicker` | the system pickers |
 | `VrxQr` | a QR code at least 18 mm wide |
-| `VrxStatusStrip`, `VrxQuickDrawer` | the shell's strip and drawer |
+| `VrxStatusStrip`, `VrxQuickDrawer`, `VrxPull` | the shell's strip, the drawer's panel, and the drawer's mechanics |
 
 The strip has fixed slots, so the clock does not move when Back appears.
 A modal belongs to the client area and the strip stays visible above it.
