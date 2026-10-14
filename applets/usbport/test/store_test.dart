@@ -8,10 +8,7 @@ void main() {
     final model = UsbModel();
     final h = StoreHarness(model);
     h.assertView((v) => v.offer == UsbOffer.none, because: 'nothing read yet');
-    void facts(UsbState u) {
-      model.usb = u;
-      h.dispatch(UsbAction.factsChanged);
-    }
+    void facts(UsbState u) => h.dispatch(UsbFacts(usb: u));
 
     facts(const UsbState(present: false, connected: false, sharing: false));
     h.assertView((v) => v.offer == UsbOffer.none && v.message.contains('no USB device port'));
@@ -21,10 +18,10 @@ void main() {
     h.assertView((v) => v.title == 'Computer connected' && v.offer == UsbOffer.share);
     facts(const UsbState(present: true, connected: true, sharing: true));
     h.assertView((v) => v.title == 'Sharing files' && v.offer == UsbOffer.stop);
-    model.error = 'refused';
-    h.dispatch(UsbAction.failed);
+    h.dispatch(const UsbFacts(error: Change('refused')));
     h.assertView((v) => v.error == 'refused');
     facts(const UsbState(present: true, connected: true, sharing: true));
     h.assertView((v) => v.error == null, because: 'a new fact clears the refusal');
+    h.verify(fresh: UsbModel.new, probes: const [UsbFacts(error: Change(null))]);
   });
 }

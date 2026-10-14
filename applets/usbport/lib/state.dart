@@ -1,7 +1,31 @@
 import 'package:vrx_kit/vrx_kit.dart';
 
-/// Everything the applet reacts to.
-enum UsbAction { init, factsChanged, failed }
+/// Everything the applet reacts to: a signal, or facts from the world
+/// carried as data (plan 0013 D1: the reducer is the only writer).
+sealed class UsbAction {
+  const UsbAction();
+
+  static const init = UsbSignal.init;
+}
+
+enum UsbSignal implements UsbAction { init }
+
+/// The port's state arrived, or a refusal (null fields: unchanged).
+final class UsbFacts implements UsbAction {
+  const UsbFacts({this.usb, this.error});
+
+  final UsbState? usb;
+  final Change<String?>? error;
+
+  @override
+  bool operator ==(Object other) => other is UsbFacts && other.usb == usb && other.error == error;
+
+  @override
+  int get hashCode => Object.hash(usb, error);
+
+  @override
+  String toString() => 'UsbFacts($usb, $error)';
+}
 
 /// What the screen says, and what its buttons do.
 enum UsbOffer { none, share, stop }
@@ -28,7 +52,14 @@ class UsbModel extends StoreModel<UsbState, UsbAction, UsbView> {
 
   @override
   UsbView reduce(UsbState state, UsbAction action) {
-    if (action == UsbAction.factsChanged) error = null;
+    if (action case UsbFacts(:final usb, error: final err)) {
+      // a new reading of the port clears a refusal; a refusal is its own fact
+      if (usb != null) {
+        this.usb = usb;
+        error = null;
+      }
+      if (err != null) error = err.value;
+    }
     final u = usb;
     if (u == null) return const UsbView(title: 'USB', message: '…', offer: UsbOffer.none);
     if (!u.present) {
@@ -60,4 +91,10 @@ class UsbModel extends StoreModel<UsbState, UsbAction, UsbView> {
 
   @override
   UsbState get snapshot => usb ?? initial;
+
+  @override
+  void restore(UsbState snapshot) => usb = snapshot;
+
+  @override
+  Object? get fingerprint => (usb, error);
 }

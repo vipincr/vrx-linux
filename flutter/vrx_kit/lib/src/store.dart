@@ -97,6 +97,24 @@ abstract class StoreModel<S, A, V> {
   Object? get fingerprint => snapshot;
 }
 
+/// A field's new value inside a fact or change action (plan 0013 D1), so
+/// that null can be the value: `UsbFacts(error: Change(null))` clears the
+/// error, while a field left out of the action stays as it was.
+final class Change<T> {
+  const Change(this.value);
+
+  final T value;
+
+  @override
+  bool operator ==(Object other) => other is Change<T> && vrxDeepEquals(other.value, value);
+
+  @override
+  int get hashCode => Object.hash(Change, value);
+
+  @override
+  String toString() => 'Change($value)';
+}
+
 /// Deep equality for what models fingerprint: lists, sets, maps and
 /// records element by element, everything else by `==`.
 bool vrxDeepEquals(Object? a, Object? b) {
