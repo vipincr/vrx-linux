@@ -90,12 +90,14 @@ interface to all of them:
 | Setting | Home | Why there |
 |---|---|---|
 | brightness, where the backlight has levels | the backlight's own sysfs `brightness` | Linux's attribute; systemd-backlight keeps it across boots |
-| brightness, where the compositor dims by plane alpha (a GPIO light, HDMI) | `brightness` in `/etc/vrx/display/screen.conf` | Linux has no software dimming |
+| brightness, where the compositor dims with a black plane (a GPIO light, HDMI) | `brightness` in `/etc/vrx/display/screen.conf` | Linux has no software dimming |
 | the idle timeout | `light_off` in `screen.conf` | the compositor's own policy |
 
 The compositor says which dimming it does in `/run/vrx-ui/screen`
 (`dim=backlight|alpha|none`); the slider is offered only where it can
-dim. A position maps to a backlight level linearly and is never written
+dim. `alpha` means a dedicated overlay plane above the shell's, scanning
+out a black buffer at partial alpha; the app's and the shell's planes stay
+opaque, so the drawer never shows the app through it. A position maps to a backlight level linearly and is never written
 as 0, and the compositor keeps a perceptual floor above that, so no
 value, row or button makes the screen dark by hand. The display grant
 (group `vrx-display`, Settings and the shell) writes the brightness
