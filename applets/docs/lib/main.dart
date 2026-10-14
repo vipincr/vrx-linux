@@ -31,10 +31,7 @@ class DocsApplet extends Applet<DocsState, DocsAction, DocsView> {
   DocsState get snapshot => model.snapshot;
 
   Future<void> _openPackage(PackageLicence p) async {
-    model
-      ..open = p
-      ..text = null;
-    _events.add(DocsAction.opened);
+    _events.add(DocsOpened(p));
     try {
       final dir = Directory('$_root/${p.package}');
       final texts = <String>[];
@@ -43,12 +40,11 @@ class DocsApplet extends Applet<DocsState, DocsAction, DocsView> {
           if (f is File) texts.add('── ${f.uri.pathSegments.last} ──\n\n${await f.readAsString()}');
         }
       }
-      model.text = texts.isEmpty ? 'Licence: ${p.licence}' : texts.join('\n\n');
+      _events.add(DocsText(p, texts.isEmpty ? 'Licence: ${p.licence}' : texts.join('\n\n')));
     } on FileSystemException catch (err) {
       debugPrint('docs: ${err.message}');
-      model.text = 'Licence: ${p.licence}\n\nThe licence text is not in this image.';
+      _events.add(DocsText(p, 'Licence: ${p.licence}\n\nThe licence text is not in this image.'));
     }
-    _events.add(DocsAction.opened);
   }
 
   @override
@@ -74,10 +70,7 @@ class DocsApplet extends Applet<DocsState, DocsAction, DocsView> {
             : Column(children: [
                 VrxHeader(
                   title: 'Licence',
-                  onBack: () {
-                    model.open = null;
-                    _events.add(DocsAction.opened);
-                  },
+                  onBack: () => _events.add(DocsAction.back),
                 ),
                 Expanded(
                   child: view.text == null
@@ -103,11 +96,9 @@ Future<void> main() async {
   final model = DocsModel();
   runApplet(DocsApplet(model), actions: _events.stream);
   try {
-    model.packages = parseManifest(await File('$_root/license.manifest').readAsString());
-    _events.add(DocsAction.loaded);
+    _events.add(DocsLoaded(packages: parseManifest(await File('$_root/license.manifest').readAsString())));
   } on FileSystemException catch (err) {
     debugPrint('docs: ${err.message}');
-    model.error = 'This image carries no list of its licences.';
-    _events.add(DocsAction.failed);
+    _events.add(const DocsLoaded(error: 'This image carries no list of its licences.'));
   }
 }

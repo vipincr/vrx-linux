@@ -48,7 +48,39 @@ List<PackageLicence> parseManifest(String text) {
   return out;
 }
 
-enum DocsAction { init, loaded, opened, failed }
+/// Everything the applet reacts to (plan 0013 D1: the reducer is the only
+/// writer): a signal, or what was read, as data.
+sealed class DocsAction {
+  const DocsAction();
+
+  static const init = DocsSignal.init;
+  static const back = DocsSignal.back;
+}
+
+enum DocsSignal implements DocsAction { init, back }
+
+/// The list read from the image, or the reason it could not be.
+final class DocsLoaded implements DocsAction {
+  const DocsLoaded({this.packages = const [], this.error});
+
+  final List<PackageLicence> packages;
+  final String? error;
+}
+
+/// A package was opened; its text is read next.
+final class DocsOpened implements DocsAction {
+  const DocsOpened(this.package);
+
+  final PackageLicence package;
+}
+
+/// A package's licence text arrived (dropped if another is open by now).
+final class DocsText implements DocsAction {
+  const DocsText(this.package, this.text);
+
+  final PackageLicence package;
+  final String text;
+}
 
 class DocsView {
   const DocsView({required this.packages, required this.open, required this.text, required this.error});
@@ -74,11 +106,40 @@ class DocsModel extends StoreModel<DocsState, DocsAction, DocsView> {
   DocsAction get bootAction => DocsAction.init;
 
   @override
-  DocsView reduce(DocsState state, DocsAction action) =>
-      DocsView(packages: packages, open: open, text: text, error: error);
+  DocsView reduce(DocsState state, DocsAction action) {
+    switch (action) {
+      case DocsLoaded(:final packages, :final error):
+        this.packages = packages;
+        this.error = error;
+      case DocsOpened(:final package):
+        open = package;
+        text = null;
+      case DocsText(:final package, :final text):
+        if (identical(open, package)) this.text = text;
+      case DocsSignal.back:
+        open = null;
+        text = null;
+      case DocsSignal.init:
+        break;
+    }
+    return DocsView(packages: packages, open: open, text: text, error: error);
+  }
 
   @override
   DocsState get snapshot => const DocsState();
+
+  /// The list is read again at every start; nothing is kept.
+  @override
+  void restore(DocsState snapshot) {}
+
+  @override
+  DocsAction get backAction => DocsAction.back;
+
+  @override
+  bool get atRoot => open == null;
+
+  @override
+  Object? get fingerprint => [for (final p in packages) p.package, open?.package, text, error];
 }
 
 class DocsState {
