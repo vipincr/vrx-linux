@@ -123,6 +123,9 @@ A
 import json, os, socket, subprocess, sys, time
 cg = subprocess.run(["systemctl", "show", "-p", "ControlGroup", "--value", "vrx-applet@assistant.service"],
                     capture_output=True, text=True).stdout.strip()
+# a hidden applet may be frozen (plan 0012 D2), and a process joining a
+# frozen cgroup freezes with it: thaw the unit first
+subprocess.run(["systemctl", "thaw", "vrx-applet@assistant.service"], capture_output=True)
 open(f"/sys/fs/cgroup{cg}/cgroup.procs", "w").write(str(os.getpid()))
 def call(method, params, more=False):
     s = socket.socket(socket.AF_UNIX); s.connect("/run/vrx/io.vrx.Host")

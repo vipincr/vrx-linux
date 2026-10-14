@@ -72,6 +72,9 @@ cg = {"listen": "scripts", "open": "web"}[role]
 import subprocess
 path = subprocess.run(["systemctl", "show", "-p", "ControlGroup", "--value", f"vrx-applet@{cg}.service"],
                       capture_output=True, text=True).stdout.strip()
+# a hidden applet may be frozen (plan 0012 D2), and a process joining a
+# frozen cgroup freezes with it: thaw the unit first
+subprocess.run(["systemctl", "thaw", f"vrx-applet@{cg}.service"], capture_output=True)
 open(f"/sys/fs/cgroup{path}/cgroup.procs", "w").write(str(os.getpid()))
 def conn():
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

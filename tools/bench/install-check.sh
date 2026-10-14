@@ -136,6 +136,9 @@ cg = subprocess.run(["systemctl", "show", "-p", "ControlGroup", "--value", f"vrx
                     capture_output=True, text=True).stdout.strip()
 if not cg:
     print(json.dumps({"error": f"{who} is not running"})); sys.exit(0)
+# a hidden applet may be frozen (plan 0012 D2), and a process joining a
+# frozen cgroup freezes with it: thaw the unit first
+subprocess.run(["systemctl", "thaw", f"vrx-applet@{who}.service"], capture_output=True)
 open(f"/sys/fs/cgroup{cg}/cgroup.procs", "w").write(str(os.getpid()))
 s = socket.socket(socket.AF_UNIX); s.connect("/run/vrx/io.vrx.Host")
 s.sendall(json.dumps({"method": f"io.vrx.Host.{method}", "parameters": params}).encode() + b"\0")
