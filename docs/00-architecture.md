@@ -1,4 +1,4 @@
-# 01 — vrx-linux architecture
+# 00 · vrx-linux architecture
 
 Linux is the kernel; vrx is the OS. An applet is a store: a pure model
 (state, actions, a reducer, a derived view model), its effects, and a
@@ -13,26 +13,18 @@ file names the reality.
 
 ## The pieces
 
-| Piece | Where | State |
+| Piece | Where | Doc |
 |---|---|---|
-| The protocol (manifest, intent, pipe, registry) | `rust/protocol` | landed; strict parse, unknown keys named |
-| vrxhost (registry, trail and focus, intents, io.vrx.Host on Varlink; applets as systemd units, one user each) | `rust/host` | plan 0008 Part A |
-| The Rust SDK (`vrx` crate: applet, store, IPC clients, console kit) | `rust/sdk` | landed; hello example proves it end to end |
-| The Flutter SDK (`vrx_kit`: store, theme, Nav, Motion, IPC) | `flutter/vrx_kit` | landed; 6 tests |
-| The `vrx` CLI (new/build/install/test) | `rust/cli` | landed; both scaffolds pass their own tests |
-| The gate (fmt + clippy -D warnings + tests + cargo-deny) | `rust/xtask` | landed; `cargo xtask gate` |
-| The launcher (home applet) | `applets/launcher` | model landed; UI pending the compositor |
-| The clock | `applets/clock` | model landed |
-| Settings | `applets/settings` | model landed |
-| The console (Rust SDK applet + pipeline stage) | `applets/console` | landed, host-proven; ships in no image |
-| The terminal (zsh on a pty, debug images) | `applets/terminal` | landed (plan 0008 Part F) |
-| vrxinit (PID 1) | `rust/init` | decisions landed + tested; exec half is bench-verified |
-| The compositor (DRM/KMS, input, one fullscreen app at a time) | flutter-vrx (`--compositor`, C, its own repo) | amendment C; vrxhost names the focus by pid over its socket |
-| The Yocto layer | `layer/` | vrxhost + vrxinit recipes, packagegroup; image-built (below) |
-| The design system (metrics, type, palettes, springs) | `flutter/vrx_kit` | landed with evrx-rt's exact numbers |
-| The component library (rows, header, segmented, chip, banner, press) | `flutter/vrx_kit` | landed; contracts pinned by tests |
-| The shell chrome (status strip) + boot screens (drawer, setup walk) + modals | `flutter/vrx_kit` | landed |
-| Display scaling + input modality | `flutter/vrx_kit` | landed; reference 480 short side, touch floor by modality |
+| The protocol: manifest, intents, registry, the scan, the unit generator | `rust/protocol` | `03-ipc.md` |
+| vrxhost: registry, back trail and focus, intents, `io.vrx.Host` on Varlink, installs, freezing, energy | `rust/host` | `03-ipc.md`, below |
+| The Rust SDK (`vrx`: applet, store, IPC, console kit, layout check, services) | `rust/sdk` | `04-native.md` |
+| The Flutter SDK (`vrx_kit`: store, components, theme, Nav, the system services) | `flutter/vrx_kit` | `01-applet-guide.md`, `02-design-system.md` |
+| The layout checker (`vrx_check`, the display table) | `flutter/vrx_check` | `01-applet-guide.md` |
+| The `vrx` CLI (`new`, `build`, `test`, `unit`, `pack`) | `rust/cli` | `01-applet-guide.md` |
+| The gate | `rust/xtask` | `AGENTS.md` |
+| The compositor (DRM/KMS, input, screen power) | flutter-vrx (`--compositor`, C, its own repo) | below |
+| The Yocto layer (recipes, units, policy, grants) | `layer/` | the vrx repo's docs |
+| The built-in applets | `applets/` | each applet's `manifest.toml` |
 
 ## The four IPC shapes (there is no fifth way)
 
@@ -187,6 +179,49 @@ engine. The Assistant ships only with a chat model, stt only with a
 speech model, and the Assistant offers Speak only where stt's socket
 exists and ALSA lists a capture device.
 
+## Power
+
+Efficiency is the default on every board, battery or not (plan 0012). The
+rule is the same as everywhere: Linux counts and switches, vrx decides
+and attributes.
+
+- **CPU speed** is the kernel's `schedutil` on every board
+  (`vrx-power-tuning`, meta-vrx). A local model server gets full speed
+  only while it runs: `vrx-ml-speed.service` holds `scaling_min_freq` at
+  the maximum through systemd's reference counting, and the minimum
+  falls back when the last server stops (plan 0012 D1).
+- **Applets behind the screen are frozen**: vrxhost freezes an applet
+  through systemd's `FreezeUnit` 30 s after it leaves the screen and
+  thaws it before focus, an intent, a route or a channel
+  (`rust/host/src/freeze.rs`, G026). Never frozen: the shell, Home,
+  resident applets, services, and an applet whose manifest says why it
+  runs behind the screen (`background = "<reason>"`, built-ins only). Not
+  frozen yet, asked again 30 s later: an applet holding a logind
+  inhibitor, an open ALSA PCM, a channel end vrxhost handed it, or an
+  intent or route from the last 30 s. systemd stops a frozen unit's
+  watchdog and resets it on thaw (v259, `service_freezer_action`).
+- **Nothing polls** (G027): the system's state reaches applets as
+  events. vrxhost's `Facts` stream carries the USB port's state, the
+  supply alarm and backlight changes; the rest is D-Bus signals and
+  inotify. A loop that must wake on a clock says why (`// poll-ok:`).
+- **Wakes are few**: the applet watchdog pings once a minute (D4);
+  resident applets and services run with 50 ms timer slack (D5).
+- **Each applet's cost is measured** (`rust/host/src/energy.rs`, D8,
+  D9): vrxhost samples each applet unit's cgroup CPU time priced at the
+  frequencies the CPU ran at, each applet process's GPU time from its
+  render-node client in `/proc/<pid>/fdinfo`, voluntary context switches
+  as the wakeup proxy, and the screen and radios from sysfs, priced with
+  the board's measured power profile. Where a fuel gauge or a power
+  monitor reports real power the shares are scaled to it. A board with
+  no measured numbers says "not calibrated" and counts time only. A
+  minute ring lives in `/run/vrx/energy`, hourly summaries in
+  `/data/vrx/energy`; an applet over its budget is one journal event and
+  one alert, and still over budget ten minutes after an unanswered alert
+  it is frozen, never stopped without a person.
+
+The measured numbers for the CM4 bench, and the per-SoC sleep model, are
+in the vrx repo's `docs/POWER.md`.
+
 ## The build rungs
 
 Everything above claims only rungs it has actually reached:
@@ -194,8 +229,9 @@ Everything above claims only rungs it has actually reached:
 - `cargo xtask gate` — green (fmt, clippy -D warnings, 60+ tests,
   cargo-deny bans/licenses/sources)
 - `flutter test` — green in vrx_kit and every applet
-- the Yocto recipes (vrxhost, vrxinit) — image-built: the cm4/disp28a
-  wic (0.1.0071) carries packagegroup-vrx-linux, vrxhost, vrxinit
+- the Yocto recipes: image-built in the container; 0.1.0094 (vrxboard-cm4,
+  disp28a) flashed and booted on 2026-10-14 with every built-in applet,
+  the local models opted in, and systemd-sysext
 - vrxboard-qemu — the software test target (same image, QEMU virt,
   runqemu in the container): boot and vrxhost-live verification run
   there before any bench trip

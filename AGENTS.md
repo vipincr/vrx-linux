@@ -24,34 +24,44 @@ the gate is green.
 
 1. **No unwrap/expect/panic/todo/unimplemented/dbg!/print* in non-test
    code.** Use `?`, `tracing`, and proper error types. Tests relax via
-   `#![cfg_attr(test, allow(...))]`.
+   `#![cfg_attr(test, allow(...))]`. *Check: the workspace's clippy lints,
+   `-D warnings` in the gate.*
 2. **`[profile.dev] opt-level = 2` stays in the workspace Cargo.toml.**
    Without it, tests run 31x slower and time out (octiva lesson).
+   *Check: none (review).*
 3. **One job per crate.** `protocol` is shared types only. `host` is the
    daemon. `sdk` is what applet developers import. `cli` is the `vrx`
-   tool. No cross-boundary imports.
+   tool. No cross-boundary imports. *Check: the crates' dependency lists
+   (a cross import fails to build).*
 4. **No `unsafe`.** Applets are systemd units with their own users
    (plan 0008 D1), so vrxhost needs no privilege drop; the display and
    the engine FFI live in flutter-vrx, in C. A future block needs a
-   SAFETY comment and a reason Linux offers no safe interface.
+   SAFETY comment and a reason Linux offers no safe interface. *Check:
+   `unsafe_code = "warn"` in the workspace lints, an error under the
+   gate's `-D warnings`.*
 5. **"vrx" is always lowercase** — in prose, in code, in comments, in
    docs. Never "vrx" capitalized, never "VRX" except as a literal
-   constant inherited from existing code.
+   constant inherited from existing code. *Check: none (review).*
 6. **Linux is the kernel, vrx is the OS.** Users and developers think in
    vrx terms. The Linux filesystem is fully visible (like AOSP) but the
-   primary experience is the vrx UI. No artificial hiding.
+   primary experience is the vrx UI. No artificial hiding. *Check: none.*
 7. **The four IPC shapes** (state, signal, stream, device data) are the
    only ways applets communicate, and `io.vrx.Host` (Varlink) is the
    bridge that carries signals and hands out stream and device-data
-   descriptors (plan 0008 D15). No fifth way. The gate enforces this.
+   descriptors (plan 0008 D15). No fifth way. *Check: vrxhost refuses an
+   undeclared intent or channel at the socket (G022), and the gate refuses
+   an undeclared intent literal; `docs/03-ipc.md` describes the four.*
 8. **An applet is a store** (model + reducer + view + effects). The
    same model compiles into a host test. An applet reaches hardware
    only through what its manifest grants (plan 0008 D16): a group and
-   a DeviceAllow class per device grant, enforced by its unit.
+   a DeviceAllow class per device grant, enforced by its unit. *Check:
+   the store harness (a reduce over 2 ms fails); G017 (grants.conf matches
+   SystemGrant); `tools/bench/device-check.sh` on a board.*
 9. **Map onto Linux before writing code.** Supervision is systemd,
    authority is groups, bus policy and polkit, live system state is the
    services' own interfaces behind vrx_kit's domain services, persistent
    settings live in /etc (plan 0008). vrx code fills only the gaps.
+   *Check: none mechanical; rule 12 says the same for everything.*
 10. **Responsiveness is a contract, with hard gates** (plan 0008 D18,
     D19). The budgets: start to usable 5 s (systemd `TimeoutStartSec`),
     event loop alive 60 s (systemd `WatchdogSec`; each ping is a wake,
@@ -76,7 +86,9 @@ the gate is green.
     - only AOT release builds ship (the image build refuses anything else).
     The vrx lint set (`package:vrx_kit/analysis_options.yaml`, errors not
     warnings) and the gate's responsiveness scan enforce these; a line
-    that must break one says `vrx-allow: <reason>`.
+    that must break one says `vrx-allow: <reason>` (the dialog, timer,
+    poll and screen rules accept none). *Check: the scan
+    (`rust/protocol/src/scan.rs`); G020, G021, G027.*
 11. **Layout is computed, not eyeballed.** Every applet keeps a layout
     test that checks each of its screens, with real facts in them, on
     every display in the one table (`flutter/vrx_check/lib/displays.json`:
@@ -95,7 +107,9 @@ the gate is green.
     control over a control or under 1mm from one (cells of a list or row
     excepted), a control under 9mm on a touch display, and anything off
     the screen. The gate runs it in the image's own fonts (`cargo xtask
-    fonts`). A new screen is not done until it is in that test.
+    fonts`). A new screen is not done until it is in that test. *Check:
+    the gate refuses a Flutter applet without `test/layout_test.dart`,
+    and runs it.*
 12. **Linux first.** Where Linux provides a thing, vrx wraps or extends
     it behind a vrx interface (the kit, the SDK); vrx builds its own only
     where Linux has none, and never a second home beside Linux's. The
@@ -106,7 +120,19 @@ the gate is green.
     the backlight's sysfs attribute (kept by systemd-backlight) through
     `ScreenSettings`, and only a panel with no levels keeps it in
     `/etc/vrx/display/screen.conf`. No applet or kit code switches the
-    light or the panel: that is the compositor's.
+    light or the panel: that is the compositor's. *Check: the scan (G019).*
+13. **Power is part of every change** (plan 0012). Behind the screen an
+    applet is frozen 30 s after it leaves (systemd `FreezeUnit`, G026);
+    a built-in that must keep working there declares why in its manifest
+    (`background = "<reason>"`, one line, built-ins only), and that is
+    the only way to stay awake behind the screen. Nothing polls: state
+    arrives as events (vrxhost's `Facts` and `Watch`, D-Bus signals,
+    inotify), and a loop that must wake on a clock says why with
+    `// poll-ok: <reason>`. A screen hold is the model's
+    (`keepsScreenOn`), never a widget's. The CPU's governor is the
+    kernel's `schedutil`; nothing pins it. *Check: the scan (G027), the
+    manifest parser (`background` is validated), vrx's lint R13 (G025),
+    `tools/bench/freeze-check.sh` on a board.*
 
 > ## Planning uses the plan skill
 
@@ -117,11 +143,17 @@ by the agent.
 
 ## Documentation
 
-- `docs/00-architecture.md` — how it fits together
-- `docs/01-applet-guide.md` — how to write an applet (THE developer doc)
-- `docs/02-design-system.md` — type, spacing, colour, motion
-- `docs/03-ipc.md` — intents, pipes, files
-- `docs/04-native.md` — Rust/console applets
+- `docs/00-architecture.md`: how it fits together (the screen, the time
+  format, Device Link, the local models, power)
+- `docs/01-applet-guide.md`: how to write an applet, every rule with its
+  check (the developer doc)
+- `docs/02-design-system.md`: units, spacing, type, colour, motion,
+  components, layout
+- `docs/03-ipc.md`: the four shapes, intents, navigation, channels,
+  buffers by index, errors
+- `docs/04-native.md`: Rust applets, console applets, services
+
+The gate refuses a doc path named here that does not exist (G036).
 
 ## Layout
 
@@ -133,5 +165,5 @@ by the agent.
 | `rust/cli/` | the `vrx` command-line tool |
 | `rust/xtask/` | the gate |
 | `flutter/vrx_kit/` | the Flutter SDK package |
-| `applets/` | built-in applets (launcher, settings, clock, terminal) |
+| `applets/` | built-in applets (launcher, shell, clock, settings, wifi, setup, docs, usbport, manage, terminal, scripts, web, recorder, assistant, stt, devicelink) |
 | `layer/` | Yocto layer |
