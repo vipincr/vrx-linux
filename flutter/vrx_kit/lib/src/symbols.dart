@@ -4,7 +4,7 @@
 
 // ignore_for_file: constant_identifier_names, non_constant_identifier_names
 
-/// vrx's glyphs (77): the ones the purpose table lists, each for
+/// vrx's glyphs (78): the ones the purpose table lists, each for
 /// what its row says. The font is the whole Material Symbols set,
 /// installed system-wide (ttf-material-symbols); only these are named.
 /// A manifest's display.icon is one with the applet-icon domain.
@@ -186,6 +186,9 @@ abstract final class VrxSymbols {
   /// Pause what plays (action).
   static const IconData pause = IconData(0xe034, fontFamily: _family);
 
+  /// The camera: the Camera applet, take a photo, and the strip's mark while any app has the camera on (applet-icon, action, signal).
+  static const IconData photo_camera = IconData(0xe412, fontFamily: _family);
+
   /// Play or run (action).
   static const IconData play_arrow = IconData(0xe037, fontFamily: _family);
 
@@ -306,6 +309,7 @@ abstract final class VrxSymbols {
     'notifications': notifications,
     'notifications_off': notifications_off,
     'pause': pause,
+    'photo_camera': photo_camera,
     'play_arrow': play_arrow,
     'power_settings_new': power_settings_new,
     'public': public,

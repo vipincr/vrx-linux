@@ -230,6 +230,9 @@ Future<void> main() async {
   if (AppletsService.installed != null) {
     VrxEnergy.service.alerts().listen((a) => fact(ShellFacts(alerts: a)), onError: (Object _) {});
   }
+  // the camera's mark (plan 0018 D11): camerad's state file says when any
+  // camera runs, whoever started it
+  CameraService.instance.active.listen((on) => fact(ShellFacts(cameraOn: on)), onError: (Object _) {});
   // 12 or 24 hours: the system's locale, followed as it changes
   final format = VrxTimeFormat.changes;
   void follow() => fact(ShellFacts(h24: format.value));

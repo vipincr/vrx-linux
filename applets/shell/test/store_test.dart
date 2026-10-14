@@ -23,6 +23,11 @@ void main() {
     h.assertView((v) => v.bleUp && v.facts.bleUp, because: 'the strip and the drawer both say the radio is on');
     h.dispatch(const ShellFacts(depth: 2));
     h.assertView((v) => v.canGoBack, because: 'an applet above Home');
+    h.assertView((v) => !v.facts.cameraOn, because: 'no camera runs until camerad says so');
+    h.dispatch(const ShellFacts(cameraOn: true));
+    h.assertView((v) => v.facts.cameraOn, because: 'the strip marks a running camera whoever started it (plan 0018 D11)');
+    h.dispatch(const ShellFacts(cameraOn: false));
+    h.assertView((v) => !v.facts.cameraOn);
     h.dispatch(ShellAction.drawerOpened);
     h.assertView((v) => v.drawer);
     h.dispatch(ShellAction.drawerOpened);

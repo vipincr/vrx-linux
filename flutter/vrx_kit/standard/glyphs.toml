@@ -42,6 +42,9 @@ domains = ["applet-icon"]
 [glyph.mic]
 purpose = "The microphone: the Recorder applet, record, speak a question"
 domains = ["applet-icon", "action"]
+[glyph.photo_camera]
+purpose = "The camera: the Camera applet, take a photo, and the strip's mark while any app has the camera on"
+domains = ["applet-icon", "action", "signal"]
 [glyph.rocket_launch]
 purpose = "Setup: the first boot's walk"
 domains = ["applet-icon"]

@@ -48,6 +48,14 @@ void main() {
       final m = model(power: true)..nextWake = DateTime(2026, 10, 14, 7).millisecondsSinceEpoch ~/ 1000;
       await expectCleanLayout(tester, ShellApplet(m), display: display);
     });
+    // a camera running (plan 0018 D11): the mark joins the strip's glyphs,
+    // with the day, the battery and Bluetooth all showing
+    testWidgets('shell strip with the camera on on ${display.name}', (tester) async {
+      final m = model()
+        ..cameraOn = true
+        ..battery = const Battery(name: 'BAT0', percent: 100, charging: true);
+      await expectCleanLayout(tester, ShellApplet(m), display: display);
+    });
     testWidgets('shell power alert on ${display.name}', (tester) async {
       final m = model()
         ..alerts = const [PowerAlert(applet: 'web', name: 'Web requests', background: true, percent: 41.5)];

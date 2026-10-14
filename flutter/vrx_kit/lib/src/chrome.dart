@@ -72,6 +72,7 @@ class VrxStatusFacts {
     this.batteryCharging = false,
     this.batteryEstimated = false,
     this.notice,
+    this.cameraOn = false,
   });
 
   /// The Back affordance is offered (there is somewhere to go).
@@ -98,6 +99,10 @@ class VrxStatusFacts {
   /// A sentence that takes the day's place until its owner clears it
   /// ("Recorder stopped.", plan 0011 D2).
   final String? notice;
+
+  /// A camera is running, whichever app or script started it (plan 0018
+  /// D11): a mark no requester can suppress, drawn from camerad's state.
+  final bool cameraOn;
 }
 
 class VrxStatusStrip extends StatelessWidget {
@@ -168,6 +173,16 @@ class VrxStatusStrip extends StatelessWidget {
               ],
             ]),
           ),
+          // the camera is on (plan 0018 D11): in the error ink, hidden when
+          // off like ble, never a dead glyph
+          if (facts.cameraOn)
+            Padding(
+              padding: EdgeInsets.only(right: s.xs),
+              child: Semantics(
+                label: 'Camera on',
+                child: Icon(VrxSymbols.photo_camera, size: Chrome.statusButton, color: colors.error),
+              ),
+            ),
           // slot 3: wifi, a glyph for each state, never a fainter ink
           Icon(
             facts.wifiUp ? VrxSymbols.wifi : VrxSymbols.wifi_off,

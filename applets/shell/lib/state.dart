@@ -36,6 +36,7 @@ final class ShellFacts implements ShellAction {
     this.wakeAlarm,
     this.alerts,
     this.h24,
+    this.cameraOn,
   });
 
   final bool? clockValid;
@@ -53,6 +54,9 @@ final class ShellFacts implements ShellAction {
   final bool? wakeAlarm;
   final List<PowerAlert>? alerts;
   final bool? h24;
+
+  /// camerad says a camera is running (plan 0018 D11).
+  final bool? cameraOn;
 }
 
 class ShellView {
@@ -111,6 +115,10 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
   bool askingPower = false;
   bool wifiUp = false;
   bool bleUp = false;
+
+  /// A camera is running now, whoever started it: the strip's mark
+  /// (plan 0018 D11).
+  bool cameraOn = false;
 
   /// How the compositor dims, and the brightness setting (plan 0010 D8).
   VrxDimming dimming = VrxDimming.none;
@@ -217,6 +225,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
         wakeAlarm = f.wakeAlarm ?? wakeAlarm;
         alerts = f.alerts ?? alerts;
         h24 = f.h24 ?? h24;
+        cameraOn = f.cameraOn ?? cameraOn;
       case ShellAction.init || ShellAction.minute:
         break;
     }
@@ -232,6 +241,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
         notice: notice,
         batteryLevel: battery?.percent,
         batteryCharging: battery?.charging ?? false,
+        cameraOn: cameraOn,
       ),
       version: version,
       brightness: dimming == VrxDimming.none ? null : brightness,
@@ -269,7 +279,7 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
   @override
   Object? get fingerprint => [drawer, askingPower, wifiUp, bleUp, dimming, brightness, clockValid, version, trailDepth,
       battery?.percent, notice, h24, [for (final a in alerts) '${a.applet}/${a.answer}'], batteryZone, batteryShown,
-      nextWake, wakeAlarm];
+      nextWake, wakeAlarm, cameraOn];
 }
 
 class ShellState {

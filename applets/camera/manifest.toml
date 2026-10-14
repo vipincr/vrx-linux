@@ -1,0 +1,32 @@
+# Camera (plan 0018 D14): a viewfinder and Take photo, one client of the
+# headless camerad service, which alone owns the sensor or the webcam. The
+# camera-use grant lets it open camerad's frames and photos channels and
+# nothing else (no device access); photos lets it read the folder camerad
+# keeps them in, to show the last shot. It tells the assistant about a photo
+# with sys.camera.photo, which nobody handles until an image-capable model
+# is installed.
+[applet]
+id = "camera"
+name = "Camera"
+version = "1.0.0"
+runtime = "flutter"
+
+[applet.display]
+icon = "photo_camera"
+tile = true
+position = 11
+
+[applet.resources]
+heap_mb = 64
+
+[applet.permissions]
+system = ["camera-use", "photos"]
+
+[applet.channels]
+opens = ["camerad.frames", "camerad.photos"]
+
+[applet.intents]
+emits = ["sys.camera.photo"]
+
+[applet.command]
+enabled = false

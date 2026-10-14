@@ -159,6 +159,42 @@ abstract final class VrxWords {
     return failed;
   }
 
+  // The camera's sentences (plan 0018 D14; the notices evrx-rt's Camera
+  // said, in the same words, plus the ones a hot-plugged camera adds).
+
+  /// camerad found nothing to open.
+  static const cameraNone = 'No camera was found.';
+
+  /// No camera is listed at all (the empty screen's line).
+  static const cameraNotConnected = 'No camera is connected.';
+
+  /// The build named a camera port and nothing answered on it.
+  static const cameraExpectedMissing =
+      'A camera was expected on the camera port and none answered. A camera connects when the device starts.';
+
+  /// A second app has the viewfinder.
+  static const cameraInUse = 'Another app is using the camera.';
+  static const cameraStartFailed = 'The camera did not start.';
+
+  /// A webcam was unplugged, or camerad ended the stream.
+  static const cameraDisconnected = 'The camera was disconnected.';
+
+  /// Settings > Camera is Off.
+  static const cameraOff = 'The camera is switched off in Settings.';
+  static const photoNoRoom = 'The photo was not saved: there is no room left.';
+  static const photoSaveFailed = 'The photo was not saved. Check that the card is in.';
+  static const photoFolderFull = 'The photo was not saved: the folder holds 9999 photos.';
+  static const photoAsked = 'Sent to the assistant.';
+  static const photoNobody = 'No app on this device can look at photos yet.';
+  static const photoAskFailed = 'The photo could not be sent. Try again.';
+
+  /// camerad's reason for an empty list, for a person.
+  static String cameraReason(String reason) => switch (reason) {
+        'expected-csi-missing' => cameraExpectedMissing,
+        'disabled' => cameraOff,
+        _ => cameraNotConnected,
+      };
+
   /// Any error, in one sentence; the details go to the log.
   static String of(Object err, {String? context}) {
     debugPrint('vrx: ${context == null ? '' : '$context: '}$err');
