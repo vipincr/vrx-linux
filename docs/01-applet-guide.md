@@ -84,6 +84,7 @@ a dynamic user and may not declare `background`, `fs` or a `sys.` emit
 | Colour is a slot (`VrxColors.of(context)`), never `Colors.` or `Color(0x` | twenty schemes and four display classes | the scan (G018 pins the slots) |
 | An applet does not know its screen: no `VrxDisplayClass`, `classRow`, `displayClass`, `epaper` | the kit adapts, the applet stays the same | the scan |
 | The screen's light and power are the compositor's: no `/sys/class/backlight`, `bl_power` or `dpms` outside the kit | a person can never be left with a dark screen | the scan (G019) |
+| The board sleeps or powers off only through the compositor's idle cascade, Settings' Power off and Restart (the kit's `VrxSystem.power`), an update's reboot and a critical battery: no logind `Suspend`, `Halt`, `PowerOff` or `Reboot` and no `systemctl poweroff` elsewhere | a board nobody can wake, or one that turns off under a person | the scan (G029) |
 | An applet sends only the intents it `emits`, and pushes only applets and routes that exist | a signal into the void is a silent bug | the gate and `vrx build` (G022); vrxhost refuses at the socket |
 | `stdout` is not a log: `debugPrint` | the journal gets it with the applet's name | the scan |
 | Every control says what it does in words: a glyph-only `VrxIconButton` takes a `label`, `VrxPress` a `label` where its child has no text | a screen reader and a walk find controls by those words | the layout test (G038, rule `label`) |

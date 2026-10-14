@@ -559,7 +559,7 @@ fn gate(all: bool) -> ExitCode {
     }
     // G037 (plan 0014 D4): one reader for the per-applet counters; G044
     // (plan 0015 D4): one arbiter for who advertises on Bluetooth
-    println!("gate: forms with one home (G037 counters, G044 Bluetooth)");
+    println!("gate: forms with one home (G037 counters, G044 Bluetooth, G029 sleep and power-off)");
     let found = vrx_protocol::scan::one_home(&[
         repo.join("rust/host/src"),
         repo.join("rust/matter/src"),
@@ -572,7 +572,7 @@ fn gate(all: bool) -> ExitCode {
         eprintln!("{shown}:{}: `{}`: {}", v.line, v.needle, v.why);
     }
     if !found.is_empty() {
-        eprintln!("gate: FAILED at the one-home check (G037, G044)");
+        eprintln!("gate: FAILED at the one-home check (G037, G044, G029)");
         return ExitCode::FAILURE;
     }
     // G022 (plan 0011 D9): what applets send by name is what they declare,

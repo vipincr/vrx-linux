@@ -1060,6 +1060,58 @@ const NO_MOUNT: &str = "G063: drives mount only through vrx-usb-host's udev rule
 /// media graph and libcamera are touched only in its libcamera source.
 const ONE_CAMERA: &str = "G056: the camera has one owner, camerad (plan 0018 D1, D2): V4L2, the media graph and libcamera are touched only under applets/camerad";
 
+/// G029 (plan 0012 D13, plan 0020 D6): the board sleeps, halts or powers
+/// off through logind from three places only: the compositor's idle
+/// cascade (flutter-vrx, outside these trees), Settings' explicit Power off
+/// and Restart rows through the kit's one call (system.dart), and vrxhost
+/// for an update's reboot (update.rs) and a critical battery (energy.rs).
+const ONE_CASCADE: &str = "G029: the board sleeps or powers off only through the compositor's cascade, Settings' Power off and Restart (the kit's system.dart), an update's reboot (update.rs) and a critical battery (energy.rs) (plan 0012 D13, plan 0020 D6)";
+
+/// logind's sleep and power members, and systemctl's verbs for them, as
+/// D-Bus names and command strings spell them.
+const SLEEP_MEMBERS_RS: &[&str] = &[
+    "fn suspend(",
+    "fn hibernate(",
+    "fn hybrid_sleep(",
+    "fn suspend_then_hibernate(",
+    "fn halt(",
+    "\"Suspend\"",
+    "\"Hibernate\"",
+    "\"HybridSleep\"",
+    "\"SuspendThenHibernate\"",
+    "\"Halt\"",
+    "\"PowerOff\"",
+    "\"Reboot\"",
+    "\"suspend\"",
+    "\"hibernate\"",
+    "\"halt\"",
+    "\"poweroff\"",
+    "systemctl suspend",
+    "systemctl hibernate",
+    "systemctl halt",
+    "systemctl poweroff",
+    "systemctl reboot",
+];
+
+const SLEEP_MEMBERS_DART: &[&str] = &[
+    "'Suspend'",
+    "'Hibernate'",
+    "'HybridSleep'",
+    "'SuspendThenHibernate'",
+    "'Halt'",
+    "'PowerOff'",
+    "'Reboot'",
+    "\"Suspend\"",
+    "\"Halt\"",
+    "\"PowerOff\"",
+    "\"Reboot\"",
+    "systemctl suspend",
+    "systemctl hibernate",
+    "systemctl halt",
+    "systemctl poweroff",
+    "systemctl reboot",
+];
+
 const HOMED: &[Homed] = &[
     Homed {
         ext: "dart",
@@ -1137,6 +1189,34 @@ const HOMED: &[Homed] = &[
         ],
         home: &[],
         why: NO_MOUNT,
+        unless: &[],
+    },
+    Homed {
+        ext: "rs",
+        needles: SLEEP_MEMBERS_RS,
+        home: &[],
+        why: ONE_CASCADE,
+        unless: &[],
+    },
+    Homed {
+        ext: "rs",
+        needles: &["fn reboot("],
+        home: &["rust/host/src/update.rs"],
+        why: ONE_CASCADE,
+        unless: &[],
+    },
+    Homed {
+        ext: "rs",
+        needles: &["fn power_off("],
+        home: &["rust/host/src/energy.rs"],
+        why: ONE_CASCADE,
+        unless: &[],
+    },
+    Homed {
+        ext: "dart",
+        needles: SLEEP_MEMBERS_DART,
+        home: &["flutter/vrx_kit/lib/src/system.dart"],
+        why: ONE_CASCADE,
         unless: &[],
     },
     Homed {
@@ -1972,5 +2052,62 @@ mod tests {
         assert!(violations("flutter/vrx_kit/lib/src/x.dart", "dart", code)
             .iter()
             .all(|f| f.1 != "model.<field> ="));
+    }
+
+    /// G029 fires (plan 0012 D13, plan 0020 D6): an applet calling logind's
+    /// Suspend or PowerOff, vrxhost growing a halt, and a systemctl verb are
+    /// refused; the kit's Power off and Restart, the update's reboot, the
+    /// battery's power-off and a CanPowerOff query pass.
+    #[test]
+    fn one_cascade_g029() {
+        let dir = std::env::temp_dir().join(format!("vrx-g029-{}", std::process::id()));
+        let host = dir.join("rust/host/src");
+        let kit = dir.join("flutter/vrx_kit/lib/src");
+        let applet = dir.join("applets/clock/lib");
+        for d in [&host, &kit, &applet] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(
+            kit.join("system.dart"),
+            "Future<bool> canPowerOff() => call(_manager, 'CanPowerOff');\nFuture<void> powerOff() => call(_manager, 'PowerOff');\nFuture<void> reboot() => call(_manager, 'Reboot');\n",
+        )
+        .unwrap();
+        std::fs::write(host.join("update.rs"), "trait Login {\n    fn reboot(&self, interactive: bool) -> zbus::Result<()>;\n}\n").unwrap();
+        std::fs::write(host.join("energy.rs"), "trait Login {\n    fn power_off(&self, interactive: bool) -> zbus::Result<()>;\n}\n").unwrap();
+        std::fs::write(applet.join("main.dart"), "// logind's 'Suspend' is the compositor's\nfinal can = await power.canPowerOff();\n").unwrap();
+        assert!(
+            one_home(std::slice::from_ref(&dir)).is_empty(),
+            "the kit's calls, the update's reboot, the battery's power-off, a CanPowerOff query and a comment pass"
+        );
+        std::fs::write(applet.join("state.dart"), "void nap() {\n  bus.callMethod(m, 'Suspend', []);\n  bus.callMethod(m, 'PowerOff', []);\n}\n").unwrap();
+        std::fs::write(
+            host.join("wake.rs"),
+            "trait Login {\n    fn halt(&self, interactive: bool) -> zbus::Result<()>;\n    fn reboot(&self, interactive: bool) -> zbus::Result<()>;\n}\nfn n() { Command::new(\"sh\").arg(\"systemctl poweroff\"); }\n",
+        )
+        .unwrap();
+        let found = one_home(std::slice::from_ref(&dir));
+        let mut needles: Vec<_> = found
+            .iter()
+            .map(|v| {
+                (
+                    v.path.file_name().unwrap().to_string_lossy().into_owned(),
+                    v.line,
+                    v.needle,
+                )
+            })
+            .collect();
+        needles.sort();
+        assert_eq!(
+            needles,
+            vec![
+                ("state.dart".to_owned(), 2, "'Suspend'"),
+                ("state.dart".to_owned(), 3, "'PowerOff'"),
+                ("wake.rs".to_owned(), 2, "fn halt("),
+                ("wake.rs".to_owned(), 3, "fn reboot("),
+                ("wake.rs".to_owned(), 5, "systemctl poweroff"),
+            ],
+            "{found:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
