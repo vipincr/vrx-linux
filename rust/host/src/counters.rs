@@ -111,8 +111,10 @@ fn wakeups_of(proc_: &Path, pid: u32) -> u64 {
 
 /// The process's GPU busy time: every render-node client it holds, each
 /// counted once (`drm-client-id`), its `drm-engine-*` nanoseconds summed.
-/// Returns (ns, clients with engine time).
-fn gpu_of(proc_: &Path, pid: u32, seen: &mut Vec<String>) -> (u64, u32) {
+/// A client open on several fds counts its largest reading: the fds are
+/// listed in no fixed order, and keeping the first one read made the
+/// total depend on directory order. Returns (ns added, clients added).
+fn gpu_of(proc_: &Path, pid: u32, seen: &mut BTreeMap<String, u64>) -> (u64, u32) {
     let dir = proc_.join(pid.to_string());
     let Ok(fds) = std::fs::read_dir(dir.join("fd")) else {
         return (0, 0);
@@ -131,12 +133,6 @@ fn gpu_of(proc_: &Path, pid: u32, seen: &mut Vec<String>) -> (u64, u32) {
             l.strip_prefix("drm-client-id:")
                 .map(|v| v.trim().to_owned())
         });
-        if let Some(c) = &client {
-            if seen.contains(c) {
-                continue;
-            }
-            seen.push(c.clone());
-        }
         let engines: Vec<u64> = info
             .lines()
             .filter_map(|l| l.strip_prefix("drm-engine-"))
@@ -145,9 +141,27 @@ fn gpu_of(proc_: &Path, pid: u32, seen: &mut Vec<String>) -> (u64, u32) {
                 v.trim().trim_end_matches("ns").trim().parse::<u64>().ok()
             })
             .collect();
-        if !engines.is_empty() {
-            clients += 1;
-            total += engines.iter().sum::<u64>();
+        if engines.is_empty() {
+            continue;
+        }
+        let ns = engines.iter().sum::<u64>();
+        match client {
+            Some(c) => match seen.get(&c).copied() {
+                Some(prev) if ns > prev => {
+                    total += ns - prev;
+                    seen.insert(c, ns);
+                }
+                Some(_) => {}
+                None => {
+                    seen.insert(c, ns);
+                    clients += 1;
+                    total += ns;
+                }
+            },
+            None => {
+                clients += 1;
+                total += ns;
+            }
         }
     }
     (total, clients)
@@ -170,7 +184,7 @@ pub fn applet(unit_dir: &Path, proc_: &Path) -> Applet {
         c.io_read_bytes = Some(r);
         c.io_write_bytes = Some(w);
     }
-    let mut seen = Vec::new();
+    let mut seen = BTreeMap::new();
     for pid in read(&unit_dir.join("cgroup.procs"))
         .unwrap_or_default()
         .lines()
