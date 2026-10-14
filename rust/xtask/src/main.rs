@@ -2,7 +2,8 @@
 //
 // `cargo xtask gate` runs, in order, all blocking:
 //   1. per workspace crate: cargo fmt --check, clippy -D warnings, test
-//   2. the crates manifest, the responsiveness scan, the image's fonts
+//   2. the docs AGENTS.md names (G036), the crates manifest, the
+//      responsiveness scan, the image's fonts
 //   3. per Flutter package: pub get, analyze, test (layout checks too)
 //   4. per Rust applet: fmt, clippy, test (its layout check too)
 //   5. cargo deny check bans licenses sources
@@ -16,6 +17,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 mod crates_inc;
+mod docs;
 mod fonts;
 mod impact;
 mod ui_standard;
@@ -416,6 +418,23 @@ fn gate(all: bool) -> ExitCode {
         }
         for (_, check, hash) in &stale {
             stamps.record(check, *hash);
+        }
+    }
+
+    // G036 (plan 0013 D16): every doc AGENTS.md names exists
+    println!("gate: the docs AGENTS.md names exist");
+    match docs::missing(&repo) {
+        Ok(missing) if missing.is_empty() => {}
+        Ok(missing) => {
+            eprintln!(
+                "gate: FAILED (G036) — AGENTS.md names docs that do not exist: {}",
+                missing.join(", ")
+            );
+            return ExitCode::FAILURE;
+        }
+        Err(err) => {
+            eprintln!("gate: FAILED (G036): {err}");
+            return ExitCode::FAILURE;
         }
     }
 
