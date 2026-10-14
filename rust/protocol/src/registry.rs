@@ -30,6 +30,8 @@ pub enum RegistryError {
     SystemOnInstalled(String),
     #[error("applet id {0:?}: fs paths are granted to built-ins only (permissions.fs declared on an installed applet)")]
     FsOnInstalled(String),
+    #[error("applet id {0:?}: running behind the screen is for built-ins only (background declared on an installed applet)")]
+    BackgroundOnInstalled(String),
     #[error("applet id {id:?}: {name:?} is in the system's sys. namespace, which an installed applet may not emit")]
     ReservedEmit { id: String, name: String },
     #[error("applet id {id:?}: installed applets hold handler priorities 0-{below}, got {got}")]
@@ -70,6 +72,9 @@ impl Registry {
             }
             if !entry.manifest.applet.permissions.fs.is_empty() {
                 return Err(RegistryError::FsOnInstalled(id));
+            }
+            if entry.manifest.applet.background.is_some() {
+                return Err(RegistryError::BackgroundOnInstalled(id));
             }
             if let Some(name) = entry
                 .manifest
@@ -254,6 +259,20 @@ mod tests {
                 id: "notes".into(),
                 name: "sys.alarm.ring".into()
             })
+        );
+        e.builtin = true;
+        assert_eq!(r_admit(e), Ok(()));
+    }
+
+    /// G026 / G023: an installed applet cannot exempt itself from being
+    /// frozen behind the screen.
+    #[test]
+    fn installed_applets_cannot_run_in_the_background_g026() {
+        let mut e = entry("notes", false);
+        e.manifest.applet.background = Some("syncs notes while hidden".into());
+        assert_eq!(
+            r_admit(e.clone()),
+            Err(RegistryError::BackgroundOnInstalled("notes".into()))
         );
         e.builtin = true;
         assert_eq!(r_admit(e), Ok(()));

@@ -206,6 +206,13 @@ pub struct AppletSection {
     pub runtime: Runtime,
     #[serde(default)]
     pub kind: Kind,
+    /// Why this applet must keep running behind the screen (plan 0012
+    /// D2). vrxhost freezes an applet 30 s after it leaves the screen
+    /// unless it says why not; the reason is the value, so a bare `true`
+    /// cannot be written. Built-ins only: an installed applet that kept
+    /// itself awake would spend the battery without a reason anyone read.
+    #[serde(default)]
+    pub background: Option<String>,
 
     #[serde(default)]
     pub display: Option<DisplaySection>,
@@ -451,6 +458,16 @@ impl Manifest {
             return invalid("applet.version: must not be empty".to_owned());
         }
 
+        // a reason a person can read: a sentence, not a flag
+        if let Some(why) = &a.background {
+            let n = why.trim().chars().count();
+            if !(12..=160).contains(&n) || why.contains('\n') {
+                return invalid(format!(
+                    "applet.background {why:?}: say why it runs behind the screen, in one line of 12-160 characters"
+                ));
+            }
+        }
+
         // a service has no screen: it cannot be Flutter, a tile, or a
         // place a deep link opens
         if a.kind == Kind::Service {
@@ -598,6 +615,16 @@ mod tests {
         format!("[applet]\nid = \"a\"\nname = \"A\"\nversion = \"1\"\nruntime = \"rust\"\n{extra}").parse()
     }
 
+    /// plan 0012 D2: a background exemption is a reason, read by a person.
+    #[test]
+    fn background_is_a_reason_not_a_flag_d2() {
+        assert!(with("background = \"rings alarms while hidden\"\n").is_ok());
+        assert!(with("background = true\n").is_err());
+        assert!(with("background = \"yes\"\n").is_err());
+        assert!(with("background = \"two\\nlines are not one reason\"\n").is_err());
+        assert_eq!(with("").unwrap().applet.background, None);
+    }
+
     #[test]
     fn fs_paths_are_absolute_normal_and_outside_the_system_d10() {
         for ok in ["/data/notes", "/var/lib/vrx/x/", "/media/sd"] {
@@ -652,6 +679,7 @@ name = "Clock"                 # what a person reads, max 32
 version = "1.0.0"
 runtime = "flutter"            # "flutter" | "rust" | "native"
 kind = "applet"                # "applet" (default), "library" or "service" (no screen)
+background = "rings alarms while another applet is in front" # why it is never frozen (plan 0012 D2)
 
 [applet.display]
 icon = "icon.png"              # or a glyph from the icon font
