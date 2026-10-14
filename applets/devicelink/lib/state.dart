@@ -142,7 +142,7 @@ class LinkModel extends StoreModel<Object, LinkAction, LinkView> {
   bool get atRoot => showing == null;
 
   @override
-  Object? get fingerprint => [bt?.on, bt?.discoverable, bt?.devices.map((d) => d.id).toList(), asking?.name,
+  Object? get fingerprint => [bt?.on, bt?.discoverable, bt?.homePairing, bt?.devices.map((d) => d.id).toList(), asking?.name,
       visibleUntil, showing, h24, error, notice];
 
   @override
@@ -228,6 +228,8 @@ class LinkModel extends StoreModel<Object, LinkAction, LinkView> {
     if (!b.present) return 'This device has no Bluetooth.';
     if (!b.allowed) return VrxWords.notAllowed;
     if (!b.on) return 'Bluetooth is off. Pairing a phone turns it on.';
+    // vrxhost's arbiter lent the radio to a home app (plan 0015 D4)
+    if (b.homePairing) return 'A home app is pairing over Bluetooth. Pairing a phone waits until it is done.';
     if (b.discoverable) {
       return b.name.isEmpty
           ? 'On your phone, open its Bluetooth settings and choose this device.'

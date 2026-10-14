@@ -3,7 +3,8 @@
 // the USB device port's state by POLLPRI on the UDC (usb.rs), the
 // backlight's level by its `change` uevent (power.rs), the supply alarm
 // by POLLPRI on rpi_volt's attribute (supply.rs), the screen's state by
-// the compositor's own report (compositor.rs, plan 0015 D12). `io.vrx.Host.Facts`
+// the compositor's own report (compositor.rs, plan 0015 D12), who
+// advertises on Bluetooth by the arbiter's decision (bt_arbiter.rs). `io.vrx.Host.Facts`
 // streams them; the kit reads sysfs again when one moves, where it read
 // every second before.
 //
@@ -46,6 +47,9 @@ pub struct Facts {
     /// The brightness as the slider's position, 0 to 100, from the
     /// compositor; -1 where the screen cannot dim (or none has said).
     pub brightness: i32,
+    /// Who holds the Bluetooth adapter's advertising (plan 0015 D4, the
+    /// arbiter): "", "device-link" or "matter".
+    pub advertising: String,
 }
 
 impl Default for Facts {
@@ -60,6 +64,7 @@ impl Default for Facts {
             profiling: false,
             screen_on: false,
             brightness: -1,
+            advertising: String::new(),
         }
     }
 }

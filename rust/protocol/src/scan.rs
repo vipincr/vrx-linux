@@ -941,11 +941,26 @@ pub fn scan(roots: &[PathBuf]) -> Vec<Violation> {
     out
 }
 
+/// A form with one home (G037, G044): the files where it is the job.
+/// Anywhere else under the scanned trees it is a second reader or a
+/// second decider, and no marker excuses it.
+struct Homed {
+    ext: &'static str,
+    /// Names that end at a word boundary: `hvs_underruns`, a counter's
+    /// name in a reply, is not the debugfs file `hvs_underrun`.
+    needles: &'static [&'static str],
+    /// Path suffixes of the home; empty: nowhere in these trees.
+    home: &'static [&'static str],
+    why: &'static str,
+    /// A line with this is not the form: `/proc/self/fdinfo` is a
+    /// descriptor's own seals (bridge.rs's buffer check), `props[` a read
+    /// of BlueZ's properties.
+    unless: Option<&'static str>,
+}
+
 /// G037 (plan 0014 D4): the per-applet counters have one reader,
 /// vrxhost's `counters` module, shared by the energy estimate and the
-/// profiler. A path naming one of these files anywhere else in the Rust
-/// trees is a second reader. `/proc/self/fdinfo` is a descriptor's own
-/// seals (bridge.rs's buffer check), not a counter.
+/// profiler.
 const COUNTER_FILES: &[&str] = &[
     "cpu.stat",
     "memory.stat",
@@ -960,11 +975,75 @@ const COUNTER_FILES: &[&str] = &[
     "hvs_underrun",
 ];
 const ONE_READER: &str = "G037: per-applet counters have one reader, vrxhost's counters module (plan 0014 D4); call it instead of reading the file";
-const COUNTER_HOME: &str = "rust/host/src/counters.rs";
 
-/// Every Rust source under [roots] (tests excluded) that names a counter
-/// file outside the counters module (G037).
-pub fn counter_readers(roots: &[PathBuf]) -> Vec<Violation> {
+/// G044 (plan 0015 D4): who advertises on Bluetooth is vrxhost's
+/// arbiter's decision. BlueZ's discoverable window is set there alone
+/// (Device Link asks through io.vrx.Host.PairingWindow); vrx-matter's
+/// GATT peripheral lives in its BLE module, whose one entry point takes
+/// the arbiter's Grant; nothing registers an LE advertisement directly.
+const BLUEZ_WINDOW: &[&str] = &[
+    "Discoverable",
+    "DiscoverableTimeout",
+    "Pairable",
+    "PairableTimeout",
+];
+const ADVERTISING: &[&str] = &[
+    "RegisterAdvertisement",
+    "register_advertisement",
+    "LEAdvertisingManager1",
+];
+const ONE_ARBITER: &str = "G044: who advertises on Bluetooth is vrxhost's arbiter's decision (plan 0015 D4): Device Link asks io.vrx.Host.PairingWindow, vrx-matter asks over its link";
+const ARBITER_HOME: &[&str] = &["rust/host/src/bt_arbiter.rs"];
+
+const HOMED: &[Homed] = &[
+    Homed {
+        ext: "rs",
+        needles: COUNTER_FILES,
+        home: &["rust/host/src/counters.rs"],
+        why: ONE_READER,
+        unless: Some("/proc/self/fdinfo"),
+    },
+    Homed {
+        ext: "rs",
+        needles: BLUEZ_WINDOW,
+        home: ARBITER_HOME,
+        why: ONE_ARBITER,
+        unless: None,
+    },
+    Homed {
+        ext: "rs",
+        needles: ADVERTISING,
+        home: ARBITER_HOME,
+        why: ONE_ARBITER,
+        unless: None,
+    },
+    Homed {
+        ext: "rs",
+        needles: &["run_peripheral"],
+        home: &["rust/matter/src/ble.rs"],
+        why: ONE_ARBITER,
+        unless: None,
+    },
+    Homed {
+        ext: "dart",
+        needles: BLUEZ_WINDOW,
+        home: &[],
+        why: ONE_ARBITER,
+        unless: Some("props["),
+    },
+    Homed {
+        ext: "dart",
+        needles: ADVERTISING,
+        home: &[],
+        why: ONE_ARBITER,
+        unless: None,
+    },
+];
+
+/// Every source under [roots] (Rust tests excluded) that names a form
+/// outside its home (G037, G044). Comments never match; string literals
+/// do, since a file's or a D-Bus member's name lives in one.
+pub fn one_home(roots: &[PathBuf]) -> Vec<Violation> {
     let mut all = Vec::new();
     for root in roots {
         files(root, &mut all);
@@ -972,18 +1051,24 @@ pub fn counter_readers(roots: &[PathBuf]) -> Vec<Violation> {
     all.sort();
     let mut out = Vec::new();
     for path in all {
-        if path.extension().and_then(|e| e.to_str()) != Some("rs")
-            || path.to_string_lossy().ends_with(COUNTER_HOME)
-        {
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let shown = path.to_string_lossy();
+        let rules: Vec<&Homed> = HOMED
+            .iter()
+            .filter(|h| h.ext == ext && !h.home.iter().any(|home| shown.ends_with(home)))
+            .collect();
+        if rules.is_empty() {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let body = text.split("#[cfg(test)]").next().unwrap_or("");
-        let (kept, _) = views("rs", body);
-        // a file's name ends at a word boundary: `hvs_underruns`, a
-        // counter's name in a reply, is not the debugfs file
+        let body = if ext == "rs" {
+            text.split("#[cfg(test)]").next().unwrap_or("")
+        } else {
+            &text
+        };
+        let (kept, _) = views(ext, body);
         let names = |line: &str, needle: &str| {
             line.match_indices(needle).any(|(at, _)| {
                 !line[at + needle.len()..]
@@ -993,16 +1078,19 @@ pub fn counter_readers(roots: &[PathBuf]) -> Vec<Violation> {
             })
         };
         for (n, line) in kept.lines().enumerate() {
-            for needle in COUNTER_FILES {
-                if names(line, needle)
-                    && !(*needle == "fdinfo" && line.contains("/proc/self/fdinfo"))
-                {
-                    out.push(Violation {
-                        path: path.clone(),
-                        line: n + 1,
-                        needle,
-                        why: ONE_READER,
-                    });
+            for rule in &rules {
+                if rule.unless.is_some_and(|u| line.contains(u)) {
+                    continue;
+                }
+                for needle in rule.needles {
+                    if names(line, needle) {
+                        out.push(Violation {
+                            path: path.clone(),
+                            line: n + 1,
+                            needle,
+                            why: rule.why,
+                        });
+                    }
                 }
             }
         }
@@ -1188,7 +1276,7 @@ mod tests {
         )
         .unwrap();
         assert!(
-            counter_readers(std::slice::from_ref(&dir)).is_empty(),
+            one_home(std::slice::from_ref(&dir)).is_empty(),
             "the home and a descriptor's own seals pass"
         );
         std::fs::write(
@@ -1201,13 +1289,75 @@ mod tests {
             "fn d() { json!({ \"hvs_underruns\": n }); }\n",
         )
         .unwrap();
-        let found = counter_readers(std::slice::from_ref(&dir));
+        let found = one_home(std::slice::from_ref(&dir));
         assert_eq!(
             found.len(),
             1,
             "a counter's name in a reply is not the file"
         );
         assert_eq!((found[0].needle, found[0].line), ("io.pressure", 1));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// G044 fires: an advertisement registered in vrx-matter, the GATT
+    /// peripheral started outside its BLE module, and BlueZ's window set
+    /// from the kit are refused; the arbiter, the BLE module and a read
+    /// of BlueZ's properties pass.
+    #[test]
+    fn one_arbiter_decides_who_advertises_g044() {
+        let dir = std::env::temp_dir().join(format!("vrx-g044-{}", std::process::id()));
+        let host = dir.join("rust/host/src");
+        let matter = dir.join("rust/matter/src");
+        let kit = dir.join("flutter/vrx_kit/lib/src");
+        for d in [&host, &matter, &kit] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(
+            host.join("bt_arbiter.rs"),
+            "fn a() { set(\"Discoverable\", true); set(\"PairableTimeout\", 180); }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            matter.join("ble.rs"),
+            "async fn b() { bluez::run_peripheral(&c, None, n, &a, b).await }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            kit.join("bluetooth.dart"),
+            "final on = a.props['Discoverable']?.asBoolean();\n// sets Pairable in a comment\nfinal d = s.discoverable;\n",
+        )
+        .unwrap();
+        assert!(
+            one_home(std::slice::from_ref(&dir)).is_empty(),
+            "the homes, a read and a comment pass"
+        );
+
+        std::fs::write(
+            matter.join("node.rs"),
+            "async fn c() {\n    lm.register_advertisement(&path, opts).await?;\n    run_peripheral(&c, None, n, &a, b).await\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            kit.join("bluetooth.dart"),
+            "await set('Discoverable', const DBusBoolean(true));\nawait a.setProperty(i, 'Pairable', v);\nfinal on = a.props['Discoverable'];\n",
+        )
+        .unwrap();
+        let found: Vec<(String, usize, &str)> = one_home(std::slice::from_ref(&dir))
+            .into_iter()
+            .map(|v| {
+                let name = v.path.file_name().unwrap().to_string_lossy().into_owned();
+                (name, v.line, v.needle)
+            })
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("bluetooth.dart".to_owned(), 1, "Discoverable"),
+                ("bluetooth.dart".to_owned(), 2, "Pairable"),
+                ("node.rs".to_owned(), 2, "register_advertisement"),
+                ("node.rs".to_owned(), 3, "run_peripheral"),
+            ]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

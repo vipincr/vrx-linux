@@ -50,6 +50,8 @@ abstract final class VrxWords {
         return 'The other applet is not running.';
       case 'NotPermitted':
         return notAllowed;
+      case 'Busy':
+        return 'A home app is pairing over Bluetooth. Try again when it is done.';
       case 'OfferChanged':
         return 'That app changed after it was offered. Look at it again before installing it.';
       case 'OfferRefused':

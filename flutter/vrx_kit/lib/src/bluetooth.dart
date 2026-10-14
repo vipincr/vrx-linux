@@ -3,7 +3,10 @@
 /// holds for Wi-Fi), BlueZ owns the adapter, the bonds and pairing. vrx
 /// adds only what neither has: the applet's own pairing agent, which puts
 /// the passkey on the screen and asks Pair or Cancel (BlueZ's
-/// `DisplayYesNo`), and the window it is open for.
+/// `DisplayYesNo`), and the window it is open for. Who advertises is
+/// vrxhost's Bluetooth arbiter's decision (plan 0015 D4, G044): the
+/// window is opened through `io.vrx.Host.PairingWindow`, which waits
+/// while a home app pairs over Bluetooth.
 ///
 /// Reading the radio needs the `network` grant (connman); the adapter,
 /// the paired phones and pairing need the `bluetooth` grant (vrx-policy's
@@ -17,6 +20,7 @@ import 'dart:io';
 
 import 'package:dbus/dbus.dart';
 
+import 'host.dart';
 import 'system.dart';
 
 /// A phone (or any device) paired with this one.
@@ -38,6 +42,7 @@ class BluetoothState {
     required this.on,
     this.allowed = true,
     this.discoverable = false,
+    this.homePairing = false,
     this.name = '',
     this.devices = const [],
   });
@@ -53,6 +58,11 @@ class BluetoothState {
 
   /// Phones nearby can find this device now (BlueZ `Discoverable`).
   final bool discoverable;
+
+  /// A home app is pairing with this device over Bluetooth (Matter, plan
+  /// 0015 D4): a phone's pairing window waits until it is done, and one
+  /// that was open comes back for what was left of it.
+  final bool homePairing;
 
   /// What a phone lists this device as: the adapter's alias, which BlueZ
   /// takes from the device's name (systemd-hostnamed). '' when unknown.
@@ -110,9 +120,10 @@ abstract class BluetoothService {
   Future<void> setOn(bool on);
 
   /// Let phones find and pair with this device for [window]: the radio on
-  /// first if it is off, this applet's agent registered, then BlueZ's
-  /// `Pairable` and `Discoverable` with that timeout. [confirm] answers
-  /// each request (true pairs).
+  /// first if it is off, this applet's agent registered, then the window
+  /// itself from vrxhost's arbiter, which refuses (`Busy`) while a home
+  /// app pairs over Bluetooth. [confirm] answers each request (true
+  /// pairs).
   Future<void> openPairing({required Future<bool> Function(BluetoothPairing request) confirm});
 
   /// Close the window early, and stop answering requests.
@@ -124,16 +135,23 @@ abstract class BluetoothService {
 }
 
 class LinuxBluetoothService implements BluetoothService {
-  LinuxBluetoothService(this._bus)
-      : _connman = DBusRemoteObject(_bus, name: 'net.connman', path: DBusObjectPath('/')),
+  LinuxBluetoothService(this._bus, {VarlinkClient? host})
+      : _host = host ?? const VarlinkClient(VarlinkAppletsService.defaultSocket),
+        _connman = DBusRemoteObject(_bus, name: 'net.connman', path: DBusObjectPath('/')),
         _technology = DBusRemoteObject(_bus, name: 'net.connman', path: DBusObjectPath('/net/connman/technology/bluetooth')),
         _bluez = DBusRemoteObject(_bus, name: 'org.bluez', path: DBusObjectPath('/'));
 
   final DBusClient _bus;
+
+  /// vrxhost: the arbiter that opens the window (plan 0015 D4).
+  final VarlinkClient _host;
   final DBusRemoteObject _connman;
   final DBusRemoteObject _technology;
   final DBusRemoteObject _bluez;
   _PairingAgent? _agent;
+
+  /// The arbiter's fact: a home app holds Bluetooth now.
+  bool _homePairing = false;
 
   static const _adapterIface = 'org.bluez.Adapter1';
   static const _deviceIface = 'org.bluez.Device1';
@@ -194,6 +212,7 @@ class LinuxBluetoothService implements BluetoothService {
         present: true,
         on: radio.on,
         discoverable: radio.on && (a.props['Discoverable']?.asBoolean() ?? false),
+        homePairing: _homePairing,
         name: a.props['Alias']?.asString() ?? '',
         devices: a.devices,
       );
@@ -246,6 +265,16 @@ class LinuxBluetoothService implements BluetoothService {
           ..add(_bus.nameOwnerChanged
               .where((e) => (e.name == 'net.connman' || e.name == 'org.bluez') && e.newOwner != null)
               .listen((_) => unawaited(read())));
+        // who holds Bluetooth: vrxhost's arbiter (plan 0015 D4)
+        final facts = AppletsService.installed?.facts();
+        if (facts != null) {
+          subscriptions.add(facts.listen((f) {
+            final home = f.advertising == 'matter';
+            if (home == _homePairing) return;
+            _homePairing = home;
+            unawaited(read());
+          }, onError: (Object _) {}));
+        }
         unawaited(read());
       },
       onCancel: () async {
@@ -278,7 +307,7 @@ class LinuxBluetoothService implements BluetoothService {
   @override
   Future<void> openPairing({required Future<bool> Function(BluetoothPairing request) confirm}) => _call(() async {
         if (!(await _radio()).on) await setOn(true);
-        final adapter = await _poweredAdapter();
+        await _poweredAdapter();
         final agent = _agent ??= _PairingAgent(DBusObjectPath('/io/vrx/bluez/agent$pid'), _bus);
         agent.confirm = confirm;
         if (!agent.registered) {
@@ -290,24 +319,12 @@ class LinuxBluetoothService implements BluetoothService {
               replySignature: DBusSignature(''));
           agent.registered = true;
         }
-        final seconds = DBusUint32(BluetoothService.window.inSeconds);
-        final a = _object(adapter);
-        Future<void> set(String name, DBusValue value) => a.setProperty(_adapterIface, name, value);
-        await set('PairableTimeout', seconds);
-        await set('DiscoverableTimeout', seconds);
-        await set('Pairable', const DBusBoolean(true));
-        await set('Discoverable', const DBusBoolean(true));
+        await _host.call('io.vrx.Host.PairingWindow', {'on': true, 'seconds': BluetoothService.window.inSeconds});
       });
 
   @override
   Future<void> closePairing() => _call(() async {
-        final a = await _adapter();
-        final path = a.adapter;
-        if (path != null && (a.props['Powered']?.asBoolean() ?? false)) {
-          final adapter = _object(path);
-          await adapter.setProperty(_adapterIface, 'Discoverable', const DBusBoolean(false));
-          await adapter.setProperty(_adapterIface, 'Pairable', const DBusBoolean(false));
-        }
+        await _host.call('io.vrx.Host.PairingWindow', {'on': false});
         final agent = _agent;
         if (agent != null && agent.registered) {
           agent.registered = false;

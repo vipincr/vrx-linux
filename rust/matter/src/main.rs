@@ -2,7 +2,9 @@
 // (Apple Home, Google Home, chip-tool) pairs it over the IP network and
 // sees the screen (endpoint 1) and the applets a person exposed (bridged
 // nodes); every command it gives is carried out by vrxhost, which holds
-// the rules (G043). Its own interface is io.vrx.Matter (link.rs).
+// the rules (G043). Its own interface is io.vrx.Matter (link.rs). Where
+// the board has Bluetooth, a window is offered over BLE too (ble.rs),
+// with vrxhost's arbiter's leave (D4, G044).
 //
 // Two threads: the Varlink side on a tokio runtime, and the Matter stack
 // on a current-thread runtime of its own (rs-matter's state is not Send).
@@ -12,6 +14,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 mod attestation;
+mod ble;
 mod layout;
 mod link;
 mod node;

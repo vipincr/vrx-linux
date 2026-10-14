@@ -106,6 +106,7 @@ class SystemFacts {
     this.batteryZone = '',
     this.nextWake = 0,
     this.profiling = false,
+    this.advertising = '',
   });
 
   factory SystemFacts.fromJson(Map<String, dynamic> j) => SystemFacts(
@@ -116,6 +117,7 @@ class SystemFacts {
         batteryZone: '${j['battery_zone'] ?? ''}',
         nextWake: (j['next_wake'] as num?)?.toInt() ?? 0,
         profiling: j['profiling'] == true,
+        advertising: '${j['advertising'] ?? ''}',
       );
 
   /// The UDC's state ("configured" with a computer on the cable); '' on a
@@ -143,6 +145,11 @@ class SystemFacts {
   /// The profiler's runtime switch is on (plan 0014 D1): applets
   /// aggregate their frame timings and send them to vrxhost.
   final bool profiling;
+
+  /// Who holds Bluetooth's advertising, by vrxhost's arbiter (plan 0015
+  /// D4): '', 'device-link' (its pairing window) or 'matter' (a home app
+  /// pairing over Bluetooth, which pauses Device Link's window).
+  final String advertising;
 }
 
 /// The applet OS's own service: navigation, the registry, intents.

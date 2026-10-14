@@ -356,6 +356,8 @@ class MatterPairing extends StatelessWidget {
       if (p != null) ...[
         Center(child: SizedBox.square(dimension: side, child: VrxQr(data: p.qr, label: 'The code that pairs this device'))),
         VrxRow(label: 'Code', value: p.pretty),
+        // where the board has Bluetooth and its radio is on (plan 0015 D4, D5)
+        if (state?.ble ?? false) const VrxRow(label: 'Nearby phones', value: 'Over Bluetooth too'),
         if (until != null)
           VrxRow(label: 'Open until', value: '${until.hour.toString().padLeft(2, '0')}:${until.minute.toString().padLeft(2, '0')}'),
         VrxRow(label: 'Stop pairing', value: '', onTap: onClose),

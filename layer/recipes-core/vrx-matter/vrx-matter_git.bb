@@ -16,6 +16,8 @@ inherit cargo systemd useradd
 
 SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master \
            file://vrx-matter.service \
+           file://vrx-matter-bluetooth.conf \
+           file://vrx-matter-bluetooth.service.conf \
            "
 SRCREV = "a4ad136ea399ff5de6e7d7b4cb528f343d9901ab"
 
@@ -40,9 +42,21 @@ python () {
     bb.fatal("VRX_MATTER_FACTORY_DATA is set, but vrx-matter does not load factory data yet (plan 0015 Open 2): a release image cannot carry Matter (G042)")
 }
 
+# D5: BLE commissioning only where the board has Bluetooth. The crate's
+# `ble` feature carries BlueZ's GATT transport and the QR code's Bluetooth
+# bit; without it the device pairs on the network only. cargo.bbclass
+# hands PACKAGECONFIG_CONFARGS to cargo build.
+PACKAGECONFIG ??= "${@bb.utils.filter('MACHINE_FEATURES', 'bluetooth', d)}"
+PACKAGECONFIG[bluetooth] = "--features ble,,,bluez5"
+
 do_install() {
     install -D -m 0755 ${B}/target/${RUST_TARGET_SYS}/release/vrx-matter ${D}${bindir}/vrx-matter
     install -D -m 0644 ${UNPACKDIR}/vrx-matter.service ${D}${systemd_system_unitdir}/vrx-matter.service
+    if ${@bb.utils.contains('PACKAGECONFIG', 'bluetooth', 'true', 'false', d)}; then
+        # BlueZ on the bus for this user alone, and up before it
+        install -D -m 0644 ${UNPACKDIR}/vrx-matter-bluetooth.conf ${D}${sysconfdir}/dbus-1/system.d/vrx-matter-bluetooth.conf
+        install -D -m 0644 ${UNPACKDIR}/vrx-matter-bluetooth.service.conf ${D}${systemd_system_unitdir}/vrx-matter.service.d/bluetooth.conf
+    fi
 }
 
 # The vrx-matter group is a grant's (grants.conf: matter = vrx-matter) and
@@ -51,7 +65,9 @@ USERADD_PACKAGES = "${PN}"
 GROUPADD_PARAM:${PN} = "-r -f vrx-matter"
 USERADD_PARAM:${PN} = "--system --no-create-home --home-dir /var/lib/vrx-matter --shell /sbin/nologin --gid vrx-matter vrx-matter"
 
-FILES:${PN} = "${bindir}/vrx-matter ${systemd_system_unitdir}/vrx-matter.service"
+FILES:${PN} = "${bindir}/vrx-matter ${systemd_system_unitdir}/vrx-matter.service \
+               ${systemd_system_unitdir}/vrx-matter.service.d \
+               ${sysconfdir}/dbus-1/system.d/vrx-matter-bluetooth.conf"
 SYSTEMD_SERVICE:${PN} = "vrx-matter.service"
 # mDNS through Avahi's D-Bus API (D3)
 RDEPENDS:${PN} = "avahi-daemon"

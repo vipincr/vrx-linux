@@ -125,6 +125,14 @@ method Uninstall(applet: string) -> ()
 # time grant.
 method WakeAt(at: ?int) -> ()
 
+# Let phones find and pair with this device for seconds (1-300, default
+# 180, BlueZ's own) or stop: the adapter discoverable and pairable, set
+# by the Bluetooth arbiter (plan 0015 D4), which refuses with Busy while
+# a home app pairs over Bluetooth and reopens the window for what was
+# left of it after. The caller registers its own pairing agent first.
+# For callers holding the bluetooth grant.
+method PairingWindow(on: bool, seconds: ?int) -> ()
+
 # The front applet and the trail depth; with \"more\", again on every
 # change. stopped names an applet that crashed (systemd restarted it, or
 # gave up), until the next navigation (plan 0011 D2).
@@ -139,8 +147,10 @@ method Watch() -> (front: string, depth: int, stopped: ?string)
 # next_wake, the earliest time an applet asked to wake for (0: none);
 # profiling, the profiler's switch; screen_on and brightness, the screen
 # lit and its slider position (-1: it cannot dim), the compositor's word
-# (plan 0015 D12). With \"more\", again on every change.
-method Facts() -> (usb: string, supply_low: bool, backlight: int, battery: int, battery_zone: string, next_wake: int, profiling: bool, screen_on: bool, brightness: int)
+# (plan 0015 D12); advertising, who holds Bluetooth by the arbiter's
+# decision (\"\", device-link or matter; plan 0015 D4). With \"more\",
+# again on every change.
+method Facts() -> (usb: string, supply_low: bool, backlight: int, battery: int, battery_zone: string, next_wake: int, profiling: bool, screen_on: bool, brightness: int, advertising: string)
 
 # What each applet and the system's parts cost over the last hours (1-24,
 # default 24; plan 0012 D8, D12), most first. mj is millijoules, absent
@@ -204,6 +214,7 @@ error OfferRefused (file: string, reason: string)
 error NotInstalled (applet: string)
 error InstallFailed (applet: string, detail: string)
 error Unavailable ()
+error Busy ()
 ";
 
 const SERVICE_IDL: &str = "# The Varlink Service Interface is provided by every varlink service.
@@ -740,6 +751,35 @@ async fn dispatch(
                 .map(|()| json!({}))
                 .map_err(|detail| {
                     Failure::host("Unavailable", json!({ "detail": detail }))
+                })
+        }
+        "io.vrx.Host.PairingWindow" => {
+            if !holds(host, caller, vrx_protocol::SystemGrant::Bluetooth) {
+                return Err(Failure::host("NotPermitted", json!({})));
+            }
+            let on = params
+                .get("on")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| Failure::invalid("on"))?;
+            let seconds = match params.get("seconds") {
+                None | Some(Value::Null) => 180,
+                Some(v) => v
+                    .as_u64()
+                    .filter(|s| {
+                        (1..=u64::from(crate::bt_arbiter::DEVICE_LINK_CEILING))
+                            .contains(s)
+                    })
+                    .and_then(|s| u32::try_from(s).ok())
+                    .ok_or_else(|| Failure::invalid("seconds"))?,
+            };
+            crate::bt_arbiter::device_link(on, seconds)
+                .await
+                .map(|()| json!({}))
+                .map_err(|why| match why {
+                    crate::bt_arbiter::Refused::Busy => Failure::host("Busy", json!({})),
+                    crate::bt_arbiter::Refused::Unavailable(detail) => {
+                        Failure::host("Unavailable", json!({ "detail": detail }))
+                    }
                 })
         }
         "io.vrx.Host.Settings" => {

@@ -147,7 +147,7 @@ open: the six digits go on the screen, beside Cancel and Pair.
 | Step | Mechanism |
 |---|---|
 | radio on or off | connman `Technology(bluetooth).SetProperty("Powered")` |
-| the window | the agent registered as BlueZ's default, then `Adapter1.Pairable` and `Discoverable` with a 180 s timeout (BlueZ's own default) |
+| the window | the agent registered as BlueZ's default, then `io.vrx.Host.PairingWindow`: vrxhost's Bluetooth arbiter sets `Adapter1.Pairable` and `Discoverable` with a 180 s timeout (BlueZ's own default), or answers `Busy` while a home app pairs over Bluetooth |
 | a request | `RequestConfirmation` (digits to compare) or `RequestAuthorization` (yes or no), answered on screen; a confirmed device is marked `Trusted` so it reconnects with no agent running |
 | paired phones | ObjectManager, `Device1.Paired` |
 | forget | `Adapter1.RemoveDevice`, after a confirm |
@@ -199,8 +199,29 @@ saves the new layout (endpoint ids kept per applet, never reused), bumps
 `ConfigurationVersion` and exits; systemd starts it again. A debug image
 attests with the SDK's published test chain (VID 0xFFF1), so a home app
 warns that the device is uncertified; a release image refuses Matter until
-factory data loading lands (G042). BLE commissioning (the arbiter with
-Device Link) is not built yet: the QR code offers on-network pairing only.
+factory data loading lands (G042).
+
+On a board whose `MACHINE_FEATURES` has `bluetooth`, the recipe builds
+vrx-matter with its `ble` feature (D5): rs-matter's BTP over BlueZ's GATT,
+through BlueZ's D-Bus API. A window is then offered over Bluetooth too,
+for as long as it is open (15 minutes at most, the spec's ceiling), when
+BlueZ lists an adapter with its radio on and vrxhost's Bluetooth arbiter
+agrees. The arbiter (`rust/host/src/bt_arbiter.rs`) is the one place that
+decides who advertises: vrx-matter asks it over the link
+(`Advertise`), and it hides Device Link's open window first, keeping what
+was left of it. When the window closes (timed out, or a home app finished
+pairing) vrx-matter drops its advertisement and GATT service and says
+`AdvertiseEnd`; the arbiter reopens Device Link's window for its
+remainder. A dropped link or the 15-minute ceiling does the same. While
+Matter holds the adapter, Device Link's `PairingWindow` is refused `Busy`
+and Device Link says why; the fact `advertising` (`device-link`, `matter`
+or empty) names the holder. The QR code carries the Bluetooth bit only for
+a window that offers it, and a build without the feature never does. The
+radio stays the person's: with Bluetooth off, a window pairs on the network
+only. G044 keeps it that way: the gate's scan refuses BlueZ's
+discoverable properties outside the arbiter, an LE advertisement
+registered anywhere, and rs-matter's `run_peripheral` outside
+vrx-matter's `ble.rs`, whose one entry point takes the arbiter's `Grant`.
 
 ## The local models
 

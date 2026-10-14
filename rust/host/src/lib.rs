@@ -12,6 +12,7 @@
 
 pub mod applets;
 pub mod bridge;
+pub mod bt_arbiter;
 pub mod compositor;
 pub mod counters;
 pub mod energy;

@@ -16,6 +16,10 @@ path = "src/main.rs"
 # attestation and the binary refuses to start.
 default = ["test-attestation"]
 test-attestation = []
+# BLE commissioning (plan 0015 D4, D5): rs-matter's BTP over BlueZ's GATT.
+# The recipe turns it on where MACHINE_FEATURES has bluetooth; without it
+# the QR code offers the network alone.
+ble = []
 
 [dependencies]
 vrx-protocol = { path = "../protocol" }
@@ -25,7 +29,8 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tokio = { workspace = true }
 zlink = { version = "0.7.1", default-features = false, features = ["tokio", "server", "tracing"] }
-# rs-matter: pinned, 0.x (plan 0015 D2); its Avahi mDNS is the zbus feature
+# rs-matter: pinned, 0.x (plan 0015 D2); its Avahi mDNS and its BlueZ
+# GATT peripheral (BLE commissioning) are the zbus feature
 rs-matter = { version = "=0.4.1", default-features = false, features = ["os", "rustcrypto", "log", "zbus"] }
 async-io = "2"
 embassy-futures = "0.1"

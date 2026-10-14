@@ -12,6 +12,13 @@
 # screen off and on, set the brightness, read each back from vrxhost's
 # facts and the panel's DPMS, command an endpoint that does not exist, and
 # unpair.
+#
+# On a board with Bluetooth (and its radio on), the arbiter's rows first
+# (plan 0015 D4, G044): Device Link's window open, a Matter window takes
+# the adapter (Device Link's window paused, Matter's advertisement
+# registered, Device Link refused Busy), the window closes (the
+# advertisement gone, Device Link's window back). A phone commissioning
+# over Bluetooth is an owner session.
 set -u
 HOST=$1
 NODE=${2:-4242}
@@ -35,8 +42,15 @@ print(buf.decode().rstrip("\0"))
 P
 }
 matter() { call /run/vrx-matter/io.vrx.Matter "io.vrx.Matter.$1" "${2:-{\}}"; }
-facts() { call /run/vrx/io.vrx.Host io.vrx.Host.Facts '{}'; }
-field() { python3 -c "import json,sys; print(json.load(sys.stdin)['parameters'].get('$1'))"; }
+host() { call /run/vrx/io.vrx.Host "io.vrx.Host.$1" "${2:-{\}}"; }
+facts() { host Facts; }
+field() { python3 -c "import json,sys; print(json.load(sys.stdin).get('parameters', {}).get('$1'))"; }
+error() { python3 -c "import json,sys; print(json.load(sys.stdin).get('error', ''))"; }
+# one BlueZ property of the first adapter, as busctl prints it ("b true")
+bluez() {
+    # shellcheck disable=SC2086
+    ssh $O "root@$HOST" busctl get-property org.bluez /org/bluez/hci0 "$1" "$2" 2>/dev/null
+}
 
 echo "== vrx-matter on $HOST"
 # shellcheck disable=SC2086
@@ -44,6 +58,31 @@ if ssh $O "root@$HOST" systemctl is-active -q vrx-matter; then ok "vrx-matter ac
 state=$(matter State)
 echo "  state: $state"
 [ "$(echo "$state" | field attestation)" = test ] && ok "test attestation (debug image)" || bad "attestation is not test"
+
+echo "== Bluetooth: one arbiter (plan 0015 D4, G044)"
+if [ "$(bluez org.bluez.Adapter1 Powered)" != "b true" ]; then
+    echo "  no adapter, or its radio is off: BLE rows skipped (the window pairs on the network only)"
+else
+    host PairingWindow '{"on": true, "seconds": 180}' >/dev/null
+    [ "$(facts | field advertising)" = device-link ] && ok "Device Link holds the adapter" || bad "advertising is not device-link"
+    [ "$(bluez org.bluez.Adapter1 Discoverable)" = "b true" ] && ok "BlueZ discoverable for Device Link" || bad "BlueZ not discoverable"
+    matter OpenWindow '{"minutes": 3}' >/dev/null
+    [ "$(matter State | field ble)" = True ] && ok "the window is offered over Bluetooth" || bad "State says no BLE"
+    [ "$(facts | field advertising)" = matter ] && ok "the arbiter gave the adapter to Matter" || bad "advertising is not matter"
+    [ "$(bluez org.bluez.Adapter1 Discoverable)" = "b false" ] && ok "Device Link's window paused" || bad "Device Link still discoverable"
+    adv=$(bluez org.bluez.LEAdvertisingManager1 ActiveInstances)
+    [ "${adv#y }" -ge 1 ] 2>/dev/null && ok "Matter's advertisement registered ($adv)" || bad "no LE advertisement ($adv)"
+    [ "$(host PairingWindow '{"on": true}' | error)" = io.vrx.Host.Busy ] && ok "Device Link refused while Matter holds (Busy)" || bad "Device Link was not refused"
+    matter CloseWindow >/dev/null
+    sleep 3
+    adv=$(bluez org.bluez.LEAdvertisingManager1 ActiveInstances)
+    [ "$adv" = "y 0" ] && ok "the advertisement is gone with the window" || bad "an advertisement is left ($adv)"
+    [ "$(facts | field advertising)" = device-link ] && ok "Device Link holds the adapter again" || bad "Device Link did not get it back"
+    [ "$(bluez org.bluez.Adapter1 Discoverable)" = "b true" ] && ok "Device Link's window resumed" || bad "Device Link's window did not resume"
+    host PairingWindow '{"on": false}' >/dev/null
+    [ "$(facts | field advertising)" = "" ] && ok "nobody holds the adapter" || bad "advertising is not empty"
+    echo "  owner session: a phone (Apple Home, Google Home) commissions over Bluetooth while a window is open"
+fi
 
 echo "== the window and mDNS"
 matter OpenWindow '{"minutes": 3}' >/dev/null

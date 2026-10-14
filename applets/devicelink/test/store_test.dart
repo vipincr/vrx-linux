@@ -45,6 +45,19 @@ void main() {
     expect(model.keepsScreenOn, isNull, reason: 'nothing to watch once the window is shut');
   });
 
+  test('a home app pairing over Bluetooth pauses the window, which comes back after (plan 0015 D4)', () {
+    facts(const BluetoothState(present: true, on: true, name: 'hi'));
+    h.dispatch(LinkAction.pairingOpened);
+    facts(const BluetoothState(present: true, on: true, discoverable: true, name: 'hi'));
+    h.assertView((v) => v.pairing);
+    // the arbiter hid the window for Matter
+    facts(const BluetoothState(present: true, on: true, homePairing: true, name: 'hi'));
+    h.assertView((v) => !v.pairing && v.status.startsWith('A home app is pairing over Bluetooth'));
+    // Matter done: the arbiter reopened it for what was left
+    facts(const BluetoothState(present: true, on: true, discoverable: true, name: 'hi'));
+    h.assertView((v) => v.pairing && v.pairDetail == 'Visible to phones now');
+  });
+
   test('a request is a screen until answered; the passkey is grouped the way a phone shows it', () {
     facts(const BluetoothState(present: true, on: true, discoverable: true));
     bool? answered;

@@ -41,9 +41,11 @@ LockPersonality=yes
 MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
-# UDP and mDNS (inet), D-Bus to Avahi and io.vrx.Matter (unix), the
-# interface list (netlink), BLE commissioning when it lands (D4)
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK AF_BLUETOOTH
+# UDP and mDNS (inet), D-Bus to Avahi, BlueZ and io.vrx.Matter (unix),
+# the interface list (netlink). BLE commissioning (D4) needs no Bluetooth
+# socket: BlueZ holds the radio, and its GATT notifications arrive on a
+# unix socketpair.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 # a new endpoint set or leaving every fabric is a clean exit and a fresh
 # start (the node is built once)
 Restart=always

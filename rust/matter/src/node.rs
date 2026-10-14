@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use embassy_futures::select::{select, select4};
+use embassy_futures::select::{select, select4, Either};
 use rand::Rng;
 use rs_matter::crypto::{default_crypto, Crypto};
 use rs_matter::dm::clusters::app::level_control::{self, LevelControlHooks};
@@ -52,6 +52,8 @@ use rs_matter::sc::pase::CommWindowState;
 use rs_matter::sc::pase::{Spake2pVerifierPassword, Spake2pVerifierPasswordRef};
 use rs_matter::tlv::{Nullable, TLVBuilderParent, Utf8StrBuilder};
 use rs_matter::transport::exchange::MatterBuffers;
+use rs_matter::transport::network::btp::Btp;
+use rs_matter::transport::network::{Address, ChainedNetwork};
 use rs_matter::transport::MATTER_SOCKET_BIND_ADDR;
 use rs_matter::utils::select::Coalesce;
 use rs_matter::{
@@ -61,7 +63,7 @@ use tokio::sync::mpsc;
 use vrx_protocol::matter::Command;
 
 use crate::layout::{Layout, AGGREGATOR, SCREEN};
-use crate::link::{Fabric, Request, Shared};
+use crate::link::{Fabric, Grant, Request, Shared};
 
 /// Dimmable Plug-in Unit. Recalled from the Matter 1.4 Device Library
 /// (plan 0015's re-verification duty): confirm the id and revision.
@@ -175,19 +177,28 @@ pub fn identity(dir: &Path) -> std::io::Result<Identity> {
     })
 }
 
-/// The pairing payload: the QR code's text and the 11-digit manual code.
-pub fn payload(id: &Identity) -> Result<(String, String), Error> {
-    let qr = QrPayload::new_from_basic_info(
-        DiscoveryCapabilities::IP,
-        CommFlowType::Standard,
-        id.comm.clone(),
-        id.info,
-        no_optional_data as NoOptionalData,
-    );
-    let mut buf = [0u8; 256];
-    let (text, _) = qr.as_str(&mut buf)?;
+/// The pairing payload: the QR code's text for the network alone, for the
+/// network and Bluetooth where this build has the BLE transport (D5), and
+/// the 11-digit manual code (which names no transport).
+pub fn payload(id: &Identity) -> Result<((String, Option<String>), String), Error> {
+    let qr = |caps: DiscoveryCapabilities| -> Result<String, Error> {
+        let qr = QrPayload::new_from_basic_info(
+            caps,
+            CommFlowType::Standard,
+            id.comm.clone(),
+            id.info,
+            no_optional_data as NoOptionalData,
+        );
+        let mut buf = [0u8; 256];
+        Ok(qr.as_str(&mut buf)?.0.to_owned())
+    };
+    let ble = if crate::ble::BUILT {
+        Some(qr(DiscoveryCapabilities::IP | DiscoveryCapabilities::BLE)?)
+    } else {
+        None
+    };
     Ok((
-        text.to_owned(),
+        (qr(DiscoveryCapabilities::IP)?, ble),
         id.comm.compute_pairing_code().as_str().to_owned(),
     ))
 }
@@ -631,12 +642,49 @@ pub async fn run(
         .map_err(|_| ErrorCode::StdIoError)?;
     let mut avahi = rs_matter::transport::network::mdns::avahi::AvahiMdns::new(bus);
     let mut mdns = pin!(avahi.run(&matter));
-    let mut transport = pin!(matter.run(&crypto, &socket, &socket, &socket));
+    // BTP beside UDP: a message to a Bluetooth peer goes out over BTP, one
+    // from either is taken; with no BLE session BTP is silent (D4)
+    let btp = Btp::new();
+    let net = || ChainedNetwork::new(Address::is_btp, &btp, &socket);
+    let mut transport = pin!(matter.run(&crypto, net(), net(), &socket));
     tracing::info!(
         endpoints = node(&layout).endpoints.len(),
         commissioned = matter.has_fabrics(),
         "Matter node up"
     );
+
+    // BLE commissioning (D4): wanted while a window the arbiter granted is
+    // open; the grant waits in `granted` for the transport to take
+    let (want_ble, mut wanted) = tokio::sync::watch::channel(false);
+    let granted: RefCell<Option<Grant>> = RefCell::new(None);
+    let ble_on = Cell::new(false);
+    let mut ble = pin!(async {
+        loop {
+            if wanted.wait_for(|w| *w).await.is_err() {
+                return Ok::<(), Error>(());
+            }
+            let grant = granted.borrow_mut().take();
+            if let Some(grant) = grant {
+                let serve =
+                    crate::ble::advertise(&grant, id.info, id.comm.discriminator, &btp);
+                let closed = wanted.wait_for(|w| !*w);
+                if let Either::First(Err(err)) = select(serve, closed).await {
+                    tracing::warn!(error = %err, "BLE commissioning stopped; the window stays open on the network");
+                }
+                btp.reset();
+                ble_on.set(false);
+                shared.status.send_modify(|st| st.ble = false);
+                // the adapter goes back to the arbiter (Device Link's window)
+                if !shared.command(Command::AdvertiseEnd).await {
+                    tracing::warn!("the arbiter did not hear BLE commissioning end");
+                }
+            }
+            // a failure keeps BLE off until this window closes
+            if wanted.wait_for(|w| !*w).await.is_err() {
+                return Ok(());
+            }
+        }
+    });
 
     let exit = Cell::new(None);
     let mut control = pin!(async {
@@ -650,17 +698,30 @@ pub async fn run(
                         let done = im.open_basic_comm_window(secs).map_err(|e| e.to_string());
                         if done.is_ok() {
                             until = now() + u64::from(secs);
-                            tracing::info!(secs, "commissioning window open");
+                            // over Bluetooth too where it is built, BlueZ has an
+                            // adapter and the arbiter agrees (D4, D5); asked
+                            // before the reply so the QR code is right at once
+                            if crate::ble::BUILT && crate::ble::present().await {
+                                if let Some(grant) = shared.advertise(secs).await {
+                                    *granted.borrow_mut() = Some(grant);
+                                    ble_on.set(true);
+                                    want_ble.send_replace(true);
+                                }
+                            }
+                            tracing::info!(secs, ble = ble_on.get(), "commissioning window open");
                             // said at once: Payload answers only while it is
                             shared.status.send_modify(|st| {
                                 st.window = true;
                                 st.window_until = until;
+                                st.ble = ble_on.get();
                             });
                         }
                         let _ = reply.send(done);
                     }
                     Some(Request::Close { reply }) => {
-                        let _ = reply.send(im.close_comm_window().map(|_| ()).map_err(|e| e.to_string()));
+                        let done = im.close_comm_window().map(|_| ()).map_err(|e| e.to_string());
+                        want_ble.send_replace(false);
+                        let _ = reply.send(done);
                     }
                     Some(Request::Forget { reply }) => {
                         let done = matter
@@ -704,6 +765,10 @@ pub async fn run(
                 }
                 _ = tick.tick() => {
                     let window = matches!(matter.comm_window_state(), CommWindowState::Open { .. });
+                    // closed: timed out, or a home app finished pairing
+                    if !window {
+                        want_ble.send_replace(false);
+                    }
                     let fabrics: Vec<Fabric> = matter.with_state(|s| {
                         s.fabrics
                             .iter()
@@ -721,7 +786,7 @@ pub async fn run(
                             fabrics: fabrics.clone(),
                             window,
                             window_until: if window { until } else { 0 },
-                            ble: false,
+                            ble: window && ble_on.get(),
                             attestation: crate::attestation::KIND,
                         };
                         let changed = *st != next;
@@ -737,7 +802,7 @@ pub async fn run(
         &mut transport,
         &mut mdns,
         select(&mut respond, &mut im_job).coalesce(),
-        &mut control,
+        select(&mut control, &mut ble).coalesce(),
     )
     .coalesce()
     .await?;
@@ -800,7 +865,12 @@ mod tests {
     #[test]
     fn the_screen_clusters_pass_rs_matter_validation() {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        let shared = Shared::new(tx, String::new(), String::new(), serde_json::json!({}));
+        let shared = Shared::new(
+            tx,
+            (String::new(), None),
+            String::new(),
+            serde_json::json!({}),
+        );
         let on_off = on_off::OnOffHandler::new(
             Dataver::new(0),
             SCREEN,
@@ -875,9 +945,23 @@ mod tests {
     fn the_payload_is_a_matter_qr_and_an_11_digit_code() {
         let dir = tempfile::tempdir().unwrap();
         let id = identity(dir.path()).unwrap();
-        let (qr, manual) = payload(&id).unwrap();
+        let ((qr, qr_ble), manual) = payload(&id).unwrap();
         assert!(qr.starts_with("MT:"), "{qr}");
         assert_eq!(manual.len(), 11);
         assert!(manual.chars().all(|c| c.is_ascii_digit()));
+        // D5: the Bluetooth bit only from a build with the BLE transport
+        let caps = |qr: &str| {
+            let mut buf = [0u8; 256];
+            let parsed = rs_matter::pairing::qr::QrPayload::parse(qr, &mut buf).unwrap();
+            parsed.discovery_capabilities()
+        };
+        assert_eq!(caps(&qr), DiscoveryCapabilities::IP);
+        assert_eq!(qr_ble.is_some(), crate::ble::BUILT);
+        if let Some(qr) = qr_ble {
+            assert_eq!(
+                caps(&qr),
+                DiscoveryCapabilities::IP | DiscoveryCapabilities::BLE
+            );
+        }
     }
 }

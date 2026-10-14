@@ -15,7 +15,9 @@
 //   refuses anything else by name;
 // - the link's messages: vrxhost connects to io.vrx.Matter as root and
 //   holds `Link`, whose replies are commands; it answers each with
-//   `Done` and tells vrx-matter its state with `Host`.
+//   `Done` and tells vrx-matter its state with `Host`. The same link
+//   carries vrx-matter's request for Bluetooth (`Advertise`), which
+//   vrxhost's arbiter grants or refuses (D4, G044).
 
 use serde::{Deserialize, Serialize};
 
@@ -126,6 +128,14 @@ pub enum Command {
     Brightness { position: u8 },
     /// A bridged applet's On/Off.
     OnOff { applet: String, on: bool },
+    /// Not a home app's: vrx-matter asks vrxhost's Bluetooth arbiter for
+    /// hci0 before its BLE transport advertises, for at most `secs` (the
+    /// window; plan 0015 D4, G044). Done true is the grant: Device Link's
+    /// window is paused and the radio is on.
+    Advertise { secs: u16 },
+    /// The BLE transport stopped (the window closed, or it failed): the
+    /// arbiter gives Device Link back what was left of its window.
+    AdvertiseEnd,
 }
 
 /// Why vrxhost refused a command (G043), named in the log and the reply.
@@ -272,5 +282,12 @@ mod tests {
         let b: Command =
             serde_json::from_str(r#"{"kind":"brightness","position":40}"#).unwrap();
         assert_eq!(b, Command::Brightness { position: 40 });
+        let a: Command =
+            serde_json::from_str(r#"{"kind":"advertise","secs":900}"#).unwrap();
+        assert_eq!(a, Command::Advertise { secs: 900 });
+        assert_eq!(
+            serde_json::to_string(&Command::AdvertiseEnd).unwrap(),
+            r#"{"kind":"advertise_end"}"#
+        );
     }
 }

@@ -354,7 +354,9 @@ fn linux_tests(repo: &std::path::Path, picked: &[&str]) -> bool {
     .map(|s| (*s).to_owned())
     .collect();
     args.push(format!("rust:{version}"));
-    args.extend(["cargo", "test", "-q"].map(str::to_owned));
+    // every feature: vrx-matter's BLE transport (plan 0015 D5) is Linux
+    // code behind one, built only where a board has Bluetooth
+    args.extend(["cargo", "test", "-q", "--all-features"].map(str::to_owned));
     args.extend(picked.iter().map(|s| (*s).to_owned()));
     println!("gate: cargo test on Linux ({engine}, rust:{version})");
     let ok = Command::new(engine)
@@ -555,11 +557,14 @@ fn gate(all: bool) -> ExitCode {
         eprintln!("gate: FAILED at the responsiveness scan");
         return ExitCode::FAILURE;
     }
-    // G037 (plan 0014 D4): one reader for the per-applet counters
-    println!("gate: one reader for per-applet counters (G037)");
-    let found = vrx_protocol::scan::counter_readers(&[
+    // G037 (plan 0014 D4): one reader for the per-applet counters; G044
+    // (plan 0015 D4): one arbiter for who advertises on Bluetooth
+    println!("gate: forms with one home (G037 counters, G044 Bluetooth)");
+    let found = vrx_protocol::scan::one_home(&[
         repo.join("rust/host/src"),
+        repo.join("rust/matter/src"),
         repo.join("rust/sdk/src"),
+        repo.join("flutter/vrx_kit/lib"),
         repo.join("applets"),
     ]);
     for v in &found {
@@ -567,7 +572,7 @@ fn gate(all: bool) -> ExitCode {
         eprintln!("{shown}:{}: `{}`: {}", v.line, v.needle, v.why);
     }
     if !found.is_empty() {
-        eprintln!("gate: FAILED at the one-reader check (G037)");
+        eprintln!("gate: FAILED at the one-home check (G037, G044)");
         return ExitCode::FAILURE;
     }
     // G022 (plan 0011 D9): what applets send by name is what they declare,

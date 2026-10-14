@@ -12,6 +12,8 @@
 // by the part that owns it: the compositor turns the screen on or off,
 // the shell writes the brightness through ScreenSettings (the told intent
 // `sys.screen.brightness`), an exposed applet is told its own intent.
+// vrx-matter's request for Bluetooth goes to the arbiter (bt_arbiter.rs,
+// D4), which also takes the adapter back when the link drops.
 
 use std::time::Duration;
 
@@ -139,6 +141,13 @@ pub async fn carry_out(
                 Err(why) => refused(why),
             }
         }
+        // vrx-matter's BLE transport asks the arbiter for the adapter
+        // (D4, G044): the window's ceiling is the arbiter's too
+        Command::Advertise { secs } => crate::bt_arbiter::matter_acquire(*secs).await,
+        Command::AdvertiseEnd => {
+            crate::bt_arbiter::matter_release().await;
+            true
+        }
     }
 }
 
@@ -165,7 +174,11 @@ pub async fn run(
 ) {
     let mut announced = false;
     loop {
-        match serve(&host, &screen, &mut allowed).await {
+        let served = serve(&host, &screen, &mut allowed).await;
+        // a vrx-matter that is gone advertises nothing: the adapter goes
+        // back to Device Link (D4)
+        crate::bt_arbiter::matter_release().await;
+        match served {
             Ok(()) => return,
             Err(err) => {
                 if !announced {
