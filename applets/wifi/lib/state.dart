@@ -1,23 +1,44 @@
 import 'package:vrx_kit/vrx_kit.dart';
 
-/// Everything Wi-Fi reacts to.
-enum WifiAction {
-  init,
+/// Everything Wi-Fi reacts to (plan 0013 D1: the reducer is the only
+/// writer): a signal, or a fact carried as data.
+sealed class WifiAction {
+  const WifiAction();
 
-  /// connman's state changed.
-  networkChanged,
+  static const init = WifiSignal.init;
+  static const joinEnded = WifiSignal.joinEnded;
+  static const back = WifiSignal.back;
+}
 
-  /// The passphrase screen opened or closed.
-  asked,
+enum WifiSignal implements WifiAction { init, joinEnded, back }
 
-  /// A system call failed; the banner says why.
-  failed,
+/// connman's state, or a refusal (null fields: unchanged).
+final class WifiFacts implements WifiAction {
+  const WifiFacts({this.network, this.error});
 
-  /// A join started or ended.
-  joining,
+  final NetworkState? network;
+  final Change<String?>? error;
+}
 
-  /// A network's own screen opened or closed.
-  opened,
+/// The passphrase screen opened for a network, or closed (null).
+final class WifiAsk implements WifiAction {
+  const WifiAsk(this.network);
+
+  final WifiNetwork? network;
+}
+
+/// A network's own screen opened (connman's id), or closed (null).
+final class WifiShow implements WifiAction {
+  const WifiShow(this.id);
+
+  final String? id;
+}
+
+/// A join of this network (connman's id) started.
+final class WifiJoinStarted implements WifiAction {
+  const WifiJoinStarted(this.id);
+
+  final String id;
 }
 
 /// What Wi-Fi draws.
@@ -66,16 +87,9 @@ class WifiModel extends StoreModel<WifiState, WifiAction, WifiView> {
   /// connman's id of the network whose screen is open, or null.
   String? showing;
 
-  /// Start joining [n]; false while another join is in flight or [n] is
+  /// [n] may be joined now: no other join is in flight and [n] is not
   /// already joining or joined (a second tap is not a second join).
-  bool startJoin(WifiNetwork n) {
-    if (joining != null || n.connecting || n.connected) return false;
-    joining = n.id;
-    return true;
-  }
-
-  /// The join ended, either way.
-  void endJoin() => joining = null;
+  bool canJoin(WifiNetwork n) => joining == null && !n.connecting && !n.connected;
 
   @override
   WifiState get initial => const WifiState();
@@ -85,7 +99,25 @@ class WifiModel extends StoreModel<WifiState, WifiAction, WifiView> {
 
   @override
   WifiView reduce(WifiState state, WifiAction action) {
-    if (action == WifiAction.asked || action == WifiAction.opened) error = null;
+    switch (action) {
+      case WifiFacts(network: final n, error: final err):
+        if (n != null) network = n;
+        if (err != null) error = err.value;
+      case WifiAsk(network: final n):
+        asking = n;
+        error = null;
+      case WifiShow(:final id):
+        showing = id;
+        error = null;
+      case WifiJoinStarted(:final id):
+        joining = id;
+      case WifiSignal.joinEnded:
+        joining = null;
+      case WifiSignal.back:
+        showing = null;
+      case WifiSignal.init:
+        break;
+    }
     final n = network;
     final connected = n?.connected;
     final all = n?.networks ?? const <WifiNetwork>[];
@@ -109,6 +141,22 @@ class WifiModel extends StoreModel<WifiState, WifiAction, WifiView> {
 
   @override
   WifiState get snapshot => const WifiState();
+
+  /// connman's state is read again at every start; nothing is kept.
+  @override
+  void restore(WifiState snapshot) {}
+
+  @override
+  WifiAction get backAction => WifiAction.back;
+
+  /// The passphrase screen is answered (connman's agent waits on it),
+  /// never backed out of here; a network's screen is closed by Back.
+  @override
+  bool get atRoot => showing == null;
+
+  @override
+  Object? get fingerprint => [network?.networks.map((n) => '${n.id}/${n.state}').toList(), network?.wifiOn,
+      asking?.id, error, joining, showing];
 }
 
 /// Nothing to keep across suspension: connman remembers networks.

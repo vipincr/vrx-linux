@@ -10,7 +10,7 @@ void main() {
   test('the connected network leads; the rest are nearby', () {
     final model = WifiModel();
     final harness = StoreHarness(model);
-    model.network = NetworkState(
+    harness.dispatch(WifiFacts(network: NetworkState(
       wifiPresent: true,
       wifiOn: true,
       networks: [
@@ -20,8 +20,7 @@ void main() {
       ],
       ethernet: 'ready',
       ethernetAddress: '10.10.10.8',
-    );
-    harness.dispatch(WifiAction.networkChanged);
+    )));
     harness.assertView((v) => v.connected?.name == 'home' && v.nearby.map((n) => n.name).join(',') == 'cafe,far');
     // the Wi-Fi link's own address, never the cable's (the bench bug)
     harness.assertView((v) => v.connected?.address == '192.168.1.42');
@@ -40,11 +39,10 @@ void main() {
   test('an error clears when the person moves on, not on a network change', () {
     final model = WifiModel();
     final harness = StoreHarness(model);
-    model.error = 'invalid key';
-    harness.dispatch(WifiAction.failed);
-    harness.dispatch(WifiAction.networkChanged);
+    harness.dispatch(const WifiFacts(error: Change('invalid key')));
+    harness.dispatch(const WifiFacts(network: NetworkState(wifiPresent: true, wifiOn: true, networks: [], ethernet: 'idle', ethernetAddress: '')));
     harness.assertView((v) => v.error == 'invalid key');
-    harness.dispatch(WifiAction.asked);
+    harness.dispatch(const WifiAsk(null));
     harness.assertView((v) => v.error == null);
   });
 
@@ -52,15 +50,16 @@ void main() {
   // it); a second tap while joining is not a second join
   test('one join at a time; a joined or joining network is not joined again', () {
     final model = WifiModel();
+    final h = StoreHarness(model);
     final saved = net('home', 70, saved: true);
-    expect(model.startJoin(saved), isTrue);
-    expect(model.startJoin(saved), isFalse, reason: 'a double tap');
-    expect(model.startJoin(net('cafe', 60)), isFalse, reason: 'one join at a time');
-    model.endJoin();
-    expect(model.startJoin(net('cafe', 60)), isTrue);
-    model.endJoin();
-    expect(model.startJoin(net('x', 50, state: 'association')), isFalse);
-    expect(model.startJoin(net('y', 50, state: 'online')), isFalse);
+    expect(model.canJoin(saved), isTrue);
+    h.dispatch(WifiJoinStarted(saved.id));
+    expect(model.canJoin(saved), isFalse, reason: 'a double tap');
+    expect(model.canJoin(net('cafe', 60)), isFalse, reason: 'one join at a time');
+    h.dispatch(WifiAction.joinEnded);
+    expect(model.canJoin(net('cafe', 60)), isTrue);
+    expect(model.canJoin(net('x', 50, state: 'association')), isFalse);
+    expect(model.canJoin(net('y', 50, state: 'online')), isFalse);
   });
 
   test("a network's screen follows connman, and closes when it leaves range", () {
@@ -68,15 +67,17 @@ void main() {
     final harness = StoreHarness(model);
     NetworkState state(List<WifiNetwork> networks) =>
         NetworkState(wifiPresent: true, wifiOn: true, networks: networks, ethernet: 'idle', ethernetAddress: '');
-    model.network = state([net('home', 70, state: 'online', saved: true)]);
-    model.showing = '/net/connman/service/home';
-    harness.dispatch(WifiAction.opened);
+    harness.dispatch(WifiFacts(network: state([net('home', 70, state: 'online', saved: true)])));
+    harness.dispatch(const WifiShow('/net/connman/service/home'));
     harness.assertView((v) => v.showing?.connected == true);
-    model.network = state([net('home', 70, state: 'idle', saved: true)]);
-    harness.dispatch(WifiAction.networkChanged);
+    harness.dispatch(WifiFacts(network: state([net('home', 70, state: 'idle', saved: true)])));
     harness.assertView((v) => v.showing?.connected == false);
-    model.network = state(const []);
-    harness.dispatch(WifiAction.networkChanged);
+    harness.dispatch(const WifiShow('/net/connman/service/home'));
+    harness.verify(
+      fresh: WifiModel.new,
+      probes: [WifiAction.back, WifiAction.joinEnded, WifiAsk(net('cafe', 60)), const WifiAsk(null)],
+    );
+    harness.dispatch(WifiFacts(network: state(const [])));
     harness.assertView((v) => v.showing == null);
   });
 }

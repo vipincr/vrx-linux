@@ -34,42 +34,36 @@ class WifiApplet extends Applet<WifiState, WifiAction, WifiView> {
     } on SystemError catch (err) {
       // backing out of the passphrase screen is a choice, not a failure
       if (err.name.endsWith('Canceled') || err.name.endsWith('OperationAborted')) return;
-      model.error = VrxWords.of(err, context: 'wifi');
-      _events.add(WifiAction.failed);
+      _events.add(WifiFacts(error: Change(VrxWords.of(err, context: 'wifi'))));
     } on Object catch (err) {
-      model.error = VrxWords.of(err, context: 'wifi');
-      _events.add(WifiAction.failed);
+      _events.add(WifiFacts(error: Change(VrxWords.of(err, context: 'wifi'))));
     }
   }
 
   /// Join [network]: connman uses the passphrase it keeps for a saved
   /// one and asks through its agent for any other secured one.
   void _join(WifiNetwork network) {
-    if (!model.startJoin(network)) return;
-    _events.add(WifiAction.joining);
+    if (!model.canJoin(network)) return;
+    _events.add(WifiJoinStarted(network.id));
     unawaited(() async {
       await _ask(() => VrxSystem.network.connect(
             network.id,
             passphrase: (_) {
               // connman's agent asks: show the screen, wait for done or back
-              model.asking = network;
-              _events.add(WifiAction.asked);
+              _events.add(WifiAsk(network));
               return (_answer = Completer<String?>()).future;
             },
           ));
-      model.endJoin();
-      _events.add(WifiAction.joining);
+      _events.add(WifiAction.joinEnded);
     }());
   }
 
   void _open(WifiNetwork? network) {
-    model.showing = network?.id;
-    _events.add(WifiAction.opened);
+    _events.add(WifiShow(network?.id));
   }
 
   void _answerWith(String? passphrase) {
-    model.asking = null;
-    _events.add(WifiAction.asked);
+    _events.add(const WifiAsk(null));
     _answer?.complete(passphrase);
     _answer = null;
   }
@@ -224,13 +218,8 @@ class _Network extends StatelessWidget {
 Future<void> main() async {
   final model = WifiModel();
   runApplet(WifiApplet(model), actions: _events.stream);
-  VrxSystem.network.watch().listen((n) {
-    model.network = n;
-    _events.add(WifiAction.networkChanged);
-  }, onError: (Object err) {
-    model.error = VrxWords.of(err, context: 'wifi: watch');
-    _events.add(WifiAction.failed);
-  });
+  VrxSystem.network.watch().listen((n) => _events.add(WifiFacts(network: n)),
+      onError: (Object err) => _events.add(WifiFacts(error: Change(VrxWords.of(err, context: 'wifi: watch')))));
   // a fresh list on open: connman's own is from its last scan
   try {
     await VrxSystem.network.scan();
