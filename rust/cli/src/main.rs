@@ -6,6 +6,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 mod build;
+mod camera;
 mod new;
 mod pack;
 mod power_profile;
@@ -39,6 +40,12 @@ usage:
                                       the profiler (plan 0014): the switch, a
                                       Perfetto capture, traces off the device,
                                       a summary, the Perfetto UI
+  vrx camera list
+  vrx camera capture [-o FILE] [--keep] [--width N] [--camera ID]
+                                      the camera service (plan 0018), on the
+                                      device: list the cameras, or take a photo
+                                      and write the JPEG (--keep also stores it
+                                      as IMG_dddd.JPG in /data/photos)
   vrx walk plan <file.walk>
   vrx walk run <file.walk> --host <board> [--out <dir>] [--scanout <f>]
   vrx walk summary|check <run-dir>
@@ -56,6 +63,7 @@ fn main() -> ExitCode {
         Some("unit") => unit::run(&args[1..]),
         Some("test") => test_cmd::run(&args[1..]),
         Some("profile") => profile::run(&args[1..]),
+        Some("camera") => camera::run(&args[1..]),
         Some("walk") => walk::run_cli(&args[1..]),
         _ => {
             print!("{USAGE}");

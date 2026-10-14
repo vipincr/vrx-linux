@@ -1,0 +1,43 @@
+# camerad: the headless camera service (plan 0018 D1). Resident, no screen,
+# the only process that links libcamera and holds the camera grant. Clients
+# are the Camera applet, `vrx camera`, a script, another service: they reach
+# it through two channels (frames, photos) and one intent (sys.camera.capture).
+#
+# The libcamera binding sits behind the `libcamera` feature: the image build
+# turns it on (it needs libcamera's headers and pkg-config); the host gate
+# builds and tests everything else, with the FakeSource standing in for the
+# camera (a test double, not a second backend).
+[package]
+name = "camerad"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[features]
+default = []
+libcamera = ["dep:libcamera"]
+
+[dependencies]
+vrx = { path = "../../rust/sdk" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# libjpeg-turbo through pkg-config: the system's library (the image's
+# libjpeg-turbo, Homebrew's on a bench Mac), never a second copy built here
+turbojpeg = { version = "1.5", default-features = false, features = ["pkg-config"] }
+libcamera = { version = "0.7", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.5", default-features = false, features = ["fs", "std"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+print_stdout = "deny"      # stdout is not a log

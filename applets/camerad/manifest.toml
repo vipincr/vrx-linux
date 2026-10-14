@@ -1,0 +1,50 @@
+# Camera service (plan 0018 D1): no screen, alive from boot. The only
+# process that links libcamera and holds the camera grant. Clients reach it
+# through two channels, both gated by the camera-use grant (vrxhost refuses
+# anyone else with NotPermitted, G057):
+#   frames  the viewfinder as a buffer queue of XRGB8888 pictures (one
+#           claimant at a time; a second is told busy)
+#   photos  JSON lines: capture (the JPEG rides back as a sealed memfd, or
+#           is stored as IMG_dddd.JPG in /data/photos), list, select
+# and one intent: sys.camera.capture {keep, announce}, answered at once, the
+# photo made afterwards and announced as sys.camera.photo {path}.
+# What it knows is /run/vrx/camera/state.json, written by it alone.
+[applet]
+id = "camerad"
+name = "Camera service"
+version = "0.1.0"
+runtime = "rust"
+# no screen: vrxhost starts and supervises it, never opens it
+kind = "service"
+
+[applet.display]
+tile = false
+
+[applet.resources]
+heap_mb = 48
+
+[applet.roles]
+resident = true
+
+[applet.permissions]
+system = ["camera", "photos"]
+
+[applet.channels]
+offers = [
+  { name = "frames", requires = "camera-use" },
+  { name = "photos", requires = "camera-use" },
+]
+
+[applet.intents]
+handles = [{ name = "sys.camera.capture", priority = 500 }]
+emits = ["sys.camera.photo"]
+
+[[applet.settings]]
+key = "camera_enabled"
+label = "Camera"
+category = "Privacy"
+type = "bool"
+default = true
+
+[applet.command]
+enabled = false

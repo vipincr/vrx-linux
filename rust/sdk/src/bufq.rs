@@ -49,6 +49,17 @@ impl BufferQueue {
     /// Producer: make `count` buffers of `size` bytes and hand them to the
     /// other end of `channel`, a fresh one with nothing read from it yet.
     pub fn offer(channel: Channel, count: u32, size: u64) -> Result<Self, IpcError> {
+        Self::offer_format(channel, count, size, None)
+    }
+
+    /// [Self::offer] for a queue of pictures: the offer also says what a
+    /// picture in a buffer looks like.
+    pub fn offer_format(
+        channel: Channel,
+        count: u32,
+        size: u64,
+        format: Option<BufferFormat>,
+    ) -> Result<Self, IpcError> {
         let name = channel.name().to_owned();
         if count == 0 || count > MAX_BUFFERS {
             return Err(IpcError::BadAnswer(format!(
@@ -68,7 +79,7 @@ impl BufferQueue {
                 .map_err(|e| io(&name)(e.into()))?;
             buffers.push(fd);
         }
-        Self::send_offer(channel, buffers, size, None)
+        Self::send_offer(channel, buffers, size, format)
     }
 
     /// Producer: hand a driver's own buffers over `channel` instead of
@@ -264,6 +275,28 @@ impl BufferQueue {
         Ok(back.index)
     }
 
+    /// Producer: a second handle on the return path, for a thread of its
+    /// own to block in while this one keeps queueing (a service that owns
+    /// the queue and must not stop to wait for the consumer). Use it in
+    /// place of [Self::reclaim], and hand what it returns to [Self::push_free].
+    pub fn reclaimer(&self) -> Result<Reclaimer, IpcError> {
+        let stream = self.writer.try_clone().map_err(io(&self.name))?;
+        Ok(Reclaimer {
+            name: self.name.clone(),
+            reader: BufReader::new(stream),
+        })
+    }
+
+    /// Producer: buffer `index` is free to fill again (a [Reclaimer] heard
+    /// it come back). An index the queue does not have is refused.
+    pub fn push_free(&mut self, index: u32) -> bool {
+        if (index as usize) < self.buffers.len() && !self.free.contains(&index) {
+            self.free.push_back(index);
+            return true;
+        }
+        false
+    }
+
     /// Consumer: the next filled buffer (blocks); None when the producer
     /// closed.
     pub fn next_filled(&mut self) -> Option<BufferFilled> {
@@ -282,6 +315,31 @@ impl BufferQueue {
     /// Producer: frames dropped for want of a free buffer.
     pub fn dropped(&self) -> u64 {
         self.dropped
+    }
+}
+
+/// The return path of a producer's queue, readable from another thread.
+pub struct Reclaimer {
+    name: String,
+    reader: BufReader<UnixStream>,
+}
+
+impl Reclaimer {
+    /// Block for the next buffer the consumer gave back; None when it
+    /// closed (or sent something that is no return record).
+    pub fn next_returned(&mut self) -> Option<u32> {
+        let mut line = String::new();
+        match self.reader.read_line(&mut line) {
+            Ok(0) | Err(_) => None,
+            Ok(_) => serde_json::from_str::<BufferReturned>(line.trim())
+                .ok()
+                .map(|r| r.index),
+        }
+    }
+
+    /// The channel's name, for logs.
+    pub fn name(&self) -> &str {
+        &self.name
     }
 }
 
@@ -365,6 +423,29 @@ mod tests {
         let (p, c) = pair();
         let _producer = BufferQueue::offer(p, 1, 64).unwrap();
         assert_eq!(BufferQueue::accept(c).unwrap().format(), None);
+    }
+
+    #[test]
+    fn a_reclaimer_hears_returns_while_the_producer_keeps_queueing() {
+        let (p, c) = pair();
+        let mut producer = BufferQueue::offer(p, 2, 64).unwrap();
+        let mut consumer = BufferQueue::accept(c).unwrap();
+        let mut reclaimer = producer.reclaimer().unwrap();
+        let a = producer.take_free().unwrap();
+        producer.queue(a, 10).unwrap();
+        let filled = consumer.next_filled().unwrap();
+        consumer.give_back(filled.index).unwrap();
+        let back = std::thread::spawn(move || reclaimer.next_returned())
+            .join()
+            .unwrap()
+            .unwrap();
+        assert_eq!(back, a);
+        assert!(producer.push_free(back));
+        assert!(!producer.push_free(back), "already free");
+        assert!(!producer.push_free(9), "not a buffer of this queue");
+        // `a` went to the back of the line behind the buffer never used
+        assert_eq!(producer.take_free(), Some(1));
+        assert_eq!(producer.take_free(), Some(a));
     }
 
     #[test]

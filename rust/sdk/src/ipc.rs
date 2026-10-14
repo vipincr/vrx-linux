@@ -206,6 +206,21 @@ impl Channel {
             })
     }
 
+    /// Write one JSON line with no envelope: the first line of a buffer
+    /// queue's stream is a bare offer (plan 0009 D10), and a producer that
+    /// refuses a claimant says so in the same bare form, `{"error": "busy"}`.
+    pub fn write_bare_line(&mut self, line: &serde_json::Value) -> Result<(), IpcError> {
+        let mut bytes =
+            serde_json::to_vec(line).map_err(|e| IpcError::BadAnswer(e.to_string()))?;
+        bytes.push(b'\n');
+        self.writer
+            .write_all(&bytes)
+            .map_err(|source| IpcError::Channel {
+                channel: self.name.clone(),
+                source,
+            })
+    }
+
     /// Write one JSON record with a descriptor riding on it (SCM_RIGHTS): a
     /// photo's sealed memfd, as `camerad.photos` answers (plan 0018 D7).
     #[cfg(target_os = "linux")]
