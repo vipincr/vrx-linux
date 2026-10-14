@@ -31,40 +31,24 @@ class AssistantApplet extends Applet<AssistantState, AssistantAction, AssistantV
   /// Whether a question can be spoken here: a speech model in the image
   /// (stt and its server) and a microphone.
   Future<void> start() async {
-    model.canSpeak = await speechInstalled() && await hasMicrophone();
-    events.add(AssistantAction.ready);
+    events.add(AssistantReady(canSpeak: await speechInstalled() && await hasMicrophone()));
   }
 
   void ask(String question) {
     final q = question.trim();
-    model.typing = false;
-    if (q.isEmpty || model.generating) {
-      events.add(AssistantAction.back);
-      return;
-    }
-    model
-      ..turns = [...model.turns, ChatTurn(ChatRole.user, q)]
-      ..partial = ''
-      ..generating = true;
-    events.add(AssistantAction.asked);
-    _answer = chat.reply(model.turns).listen(
-      (piece) {
-        model.partial += piece;
-        events.add(AssistantAction.piece);
-      },
-      onError: (Object err) {
-        model.notice = err is LocalChatError ? err.sentence : VrxWords.of(err, context: 'assistant');
-        events.add(AssistantAction.failed);
-      },
+    final taken = model.takes(q);
+    events.add(AssistantAsk(q));
+    if (!taken) return;
+    // the conversation the reducer is about to hold: this question added
+    _answer = chat.reply([...model.turns, ChatTurn(ChatRole.user, q)]).listen(
+      (piece) => events.add(AssistantPiece(piece)),
+      onError: (Object err) =>
+          events.add(AssistantNotice(err is LocalChatError ? err.sentence : VrxWords.of(err, context: 'assistant'))),
       onDone: _finish,
     );
   }
 
   void _finish() {
-    if (model.partial.isNotEmpty) model.turns = [...model.turns, ChatTurn(ChatRole.assistant, model.partial)];
-    model
-      ..partial = ''
-      ..generating = false;
     _answer = null;
     events.add(AssistantAction.answered);
   }
@@ -78,42 +62,24 @@ class AssistantApplet extends Applet<AssistantState, AssistantAction, AssistantV
   /// is open (sys.stt.listening): words spoken before that are not heard,
   /// so the screen must not claim it earlier (bench, CM4, 2026-10-14).
   Future<void> _speak() async {
-    model.preparing = true;
     events.add(AssistantAction.preparing);
     try {
       await Intent.send('sys.stt.listen', null);
     } on Object catch (err) {
-      model
-        ..preparing = false
-        ..notice = VrxWords.of(err, context: 'assistant');
-      events.add(AssistantAction.failed);
+      events.add(AssistantNotice(VrxWords.of(err, context: 'assistant')));
     }
   }
 
   /// stt's microphone is open.
-  void recording() {
-    if (!model.preparing) return;
-    model
-      ..preparing = false
-      ..listening = true;
-    events.add(AssistantAction.listening);
-  }
+  void recording() => events.add(AssistantAction.recording);
 
   /// stt's answer: the words, or why there are none.
   void heard(Object? payload) {
-    if (!model.listening && !model.preparing) return;
-    model
-      ..preparing = false
-      ..listening = false;
+    final waiting = model.listening || model.preparing;
     final p = payload is Map ? payload : const {};
-    final text = p['text'];
-    if (text is String && text.trim().isNotEmpty) {
-      events.add(AssistantAction.heard);
-      ask(text);
-    } else {
-      model.notice = heardSentence(p['error'] as String?);
-      events.add(AssistantAction.heard);
-    }
+    final text = p['text'] is String ? p['text'] as String : null;
+    events.add(AssistantHeard(text: text, error: p['error'] as String?));
+    if (waiting && text != null && text.trim().isNotEmpty) ask(text);
   }
 
   Future<void> _clear(BuildContext context) async {
@@ -121,15 +87,11 @@ class AssistantApplet extends Applet<AssistantState, AssistantAction, AssistantV
         title: 'Clear the conversation?', message: 'Every question and answer on this screen will be cleared.', act: 'Clear');
     if (!yes) return;
     await _answer?.cancel();
-    model.generating = false;
     _answer = null;
     events.add(AssistantAction.cleared);
   }
 
-  void _type() {
-    model.typing = true;
-    events.add(AssistantAction.typing);
-  }
+  void _type() => events.add(AssistantAction.typing);
 
   @override
   Widget build(BuildContext context, AssistantView view) {

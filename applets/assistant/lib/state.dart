@@ -1,6 +1,60 @@
 import 'package:vrx_kit/vrx_kit.dart';
 
-enum AssistantAction { init, ready, typing, asked, piece, answered, failed, preparing, listening, heard, cleared, back }
+/// Everything the Assistant reacts to (plan 0013 D1: the reducer is the
+/// only writer): a signal, or what happened, as data.
+sealed class AssistantAction {
+  const AssistantAction();
+
+  static const init = AssistantSignal.init;
+  static const typing = AssistantSignal.typing;
+  static const back = AssistantSignal.back;
+  static const answered = AssistantSignal.answered;
+  static const cleared = AssistantSignal.cleared;
+  static const preparing = AssistantSignal.preparing;
+  static const recording = AssistantSignal.recording;
+}
+
+/// [answered]: the answer ended (written out, stopped or failed);
+/// [preparing]: stt was asked to listen; [recording]: stt said its
+/// microphone is open.
+enum AssistantSignal implements AssistantAction { init, typing, back, answered, cleared, preparing, recording }
+
+/// Whether a question can be spoken here.
+final class AssistantReady implements AssistantAction {
+  const AssistantReady({required this.canSpeak});
+
+  final bool canSpeak;
+}
+
+/// A question was asked (typed or heard); a blank one, or one while an
+/// answer is being written, only closes the typing.
+final class AssistantAsk implements AssistantAction {
+  const AssistantAsk(this.question);
+
+  final String question;
+}
+
+/// A piece of the answer arrived.
+final class AssistantPiece implements AssistantAction {
+  const AssistantPiece(this.text);
+
+  final String text;
+}
+
+/// One sentence about what did not happen; listening stops.
+final class AssistantNotice implements AssistantAction {
+  const AssistantNotice(this.sentence);
+
+  final String sentence;
+}
+
+/// stt's answer: the words, or why there are none.
+final class AssistantHeard implements AssistantAction {
+  const AssistantHeard({this.text, this.error});
+
+  final String? text;
+  final String? error;
+}
 
 /// What a person reads when the spoken question has no words (stt's
 /// sys.stt.heard error, plan 0011 D18).
@@ -61,20 +115,57 @@ class AssistantModel extends StoreModel<AssistantState, AssistantAction, Assista
   @override
   AssistantAction get bootAction => AssistantAction.init;
 
+  /// A question is taken now: not blank, and no answer being written.
+  bool takes(String question) => question.trim().isNotEmpty && !generating;
+
   @override
   AssistantView reduce(AssistantState state, AssistantAction action) {
     switch (action) {
-      case AssistantAction.back:
-        if (typing) typing = false;
-      case AssistantAction.cleared:
+      case AssistantReady(canSpeak: final can):
+        canSpeak = can;
+      case AssistantAsk(:final question):
+        typing = false;
+        if (takes(question)) {
+          turns = [...turns, ChatTurn(ChatRole.user, question.trim())];
+          partial = '';
+          generating = true;
+          notice = null;
+        }
+      case AssistantPiece(:final text):
+        partial += text;
+      case AssistantNotice(:final sentence):
+        notice = sentence;
+        preparing = false;
+        listening = false;
+      case AssistantHeard(:final text, :final error):
+        if (listening || preparing) {
+          preparing = false;
+          listening = false;
+          if (text == null || text.trim().isEmpty) notice = heardSentence(error);
+        }
+      case AssistantSignal.typing:
+        typing = true;
+      case AssistantSignal.back:
+        typing = false;
+      case AssistantSignal.answered:
+        if (partial.isNotEmpty) turns = [...turns, ChatTurn(ChatRole.assistant, partial)];
+        partial = '';
+        generating = false;
+      case AssistantSignal.cleared:
         turns = [];
         partial = '';
         notice = null;
-      case AssistantAction.asked:
-      case AssistantAction.preparing:
-      case AssistantAction.listening:
+        generating = false;
+      case AssistantSignal.preparing:
+        preparing = true;
         notice = null;
-      default:
+      case AssistantSignal.recording:
+        if (preparing) {
+          preparing = false;
+          listening = true;
+          notice = null;
+        }
+      case AssistantSignal.init:
         break;
     }
     return AssistantView(
@@ -91,6 +182,20 @@ class AssistantModel extends StoreModel<AssistantState, AssistantAction, Assista
 
   @override
   AssistantState get snapshot => const AssistantState();
+
+  /// A conversation is not kept across starts; nothing to restore.
+  @override
+  void restore(AssistantState snapshot) {}
+
+  @override
+  AssistantAction get backAction => AssistantAction.back;
+
+  @override
+  bool get atRoot => !typing;
+
+  @override
+  Object? get fingerprint =>
+      [for (final t in turns) '${t.role.name}:${t.text}', partial, generating, typing, preparing, listening, canSpeak, notice];
 }
 
 class AssistantState {
