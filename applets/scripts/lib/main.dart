@@ -27,10 +27,7 @@ class ScriptsApplet extends Applet<ScriptsState, ScriptsAction, ScriptsView> {
 
   Future<void> edit(String name) async {
     _editing = await _read(name);
-    _move(() => model
-      ..selected = name
-      ..naming = false
-      ..editing = true);
+    _events.add(ScriptsEdit(name));
   }
 
   @override
@@ -48,29 +45,22 @@ class ScriptsApplet extends Applet<ScriptsState, ScriptsAction, ScriptsView> {
   /// Run [script], or Python's prompt when it is [replName].
   Future<void> run(String script) async {
     if (_process != null) return;
-    model.start(script);
-    _events.add(ScriptsAction.started);
+    _events.add(ScriptsStarted(script));
     try {
       final args = script == replName ? ['-u', '-i', '-q'] : ['-u', '$scriptsDir/$script'];
       final p = await Process.start('python3', args, workingDirectory: scriptsDir);
       _process = p;
-      void pipe(Stream<List<int>> s) => s.transform(const Utf8Decoder(allowMalformed: true)).listen((text) {
-            model.add(text);
-            _events.add(ScriptsAction.output);
-          });
+      void pipe(Stream<List<int>> s) =>
+          s.transform(const Utf8Decoder(allowMalformed: true)).listen((text) => _events.add(ScriptsOutput(text)));
       pipe(p.stdout);
       pipe(p.stderr);
       final code = await p.exitCode;
-      model
-        ..running = false
-        ..exit = code;
+      _process = null;
+      _events.add(ScriptsEnded(exit: code));
     } on Object catch (err) {
-      model
-        ..running = false
-        ..error = VrxWords.of(err, context: 'scripts: python3');
+      _process = null;
+      _events.add(ScriptsEnded(error: VrxWords.of(err, context: 'scripts: python3')));
     }
-    _process = null;
-    _events.add(ScriptsAction.ended);
   }
 
   void stop() => _process?.kill(ProcessSignal.sigterm);
@@ -78,37 +68,25 @@ class ScriptsApplet extends Applet<ScriptsState, ScriptsAction, ScriptsView> {
   /// A line to the running script's input, echoed in the console.
   void send(String line) {
     final p = _process;
-    model.typing = false;
-    if (p != null) {
-      p.stdin.writeln(line);
-      model.add('> $line\n');
-    }
-    _events.add(ScriptsAction.output);
-  }
-
-  void _move(void Function() change) {
-    change();
-    _events.add(ScriptsAction.moved);
+    p?.stdin.writeln(line);
+    _events.add(ScriptsSent(line, echoed: p != null));
   }
 
   void _back() {
-    if (!model.back()) {
+    if (model.atRoot) {
       unawaited(Nav.pop());
       return;
     }
-    _events.add(ScriptsAction.moved);
+    _events.add(ScriptsAction.back);
   }
 
   Future<void> save(String name, String text) async {
     try {
       await VrxFile.writeAtomic('$scriptsDir/$name', text);
-      model
-        ..editing = false
-        ..scripts = await listScripts();
+      _events.add(ScriptsSaved(scripts: await listScripts()));
     } on Object catch (err) {
-      model.error = VrxWords.of(err, context: 'scripts: save');
+      _events.add(ScriptsSaved(error: VrxWords.of(err, context: 'scripts: save')));
     }
-    _events.add(ScriptsAction.moved);
   }
 
   Future<String> _read(String name) async {
@@ -137,7 +115,7 @@ class ScriptsApplet extends Applet<ScriptsState, ScriptsAction, ScriptsView> {
         onBack: _close,
         onStop: stop,
         onAgain: () => unawaited(run(open)),
-        onType: () => _move(() => model.typing = true),
+        onType: () => _events.add(ScriptsAction.typing),
       );
     } else if (view.naming) {
       body = VrxTextEntry(
@@ -168,9 +146,9 @@ class ScriptsApplet extends Applet<ScriptsState, ScriptsAction, ScriptsView> {
     } else {
       body = _List(
         view: view,
-        onOpen: (s) => _move(() => model.selected = s),
+        onOpen: (s) => _events.add(ScriptsSelect(s)),
         onRepl: () => unawaited(run(replName)),
-        onNew: () => _move(() => model.naming = true),
+        onNew: () => _events.add(ScriptsAction.naming),
         onBack: _back,
       );
     }
@@ -417,9 +395,8 @@ Future<void> main() async {
   try {
     // the recipe installs the samples beside the bundle's manifest
     await seedSamples(Directory('/system/defaults/scripts/samples'));
-    model.scripts = await listScripts();
+    _events.add(ScriptsListed(scripts: await listScripts()));
   } on Object catch (err) {
-    model.error = VrxWords.of(err, context: 'scripts: list');
+    _events.add(ScriptsListed(error: VrxWords.of(err, context: 'scripts: list')));
   }
-  _events.add(ScriptsAction.listed);
 }
