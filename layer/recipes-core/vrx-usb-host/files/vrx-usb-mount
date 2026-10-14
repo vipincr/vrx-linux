@@ -1,0 +1,40 @@
+#!/bin/sh
+# Mount one partition of a drive plugged into the board (plan 0019 D8),
+# called by 80-vrx-usb-media.rules with the device node, its sysfs path and
+# its filesystem. The mount point is /run/vrx/usb/<port>-p<partition>,
+# named by where the drive sits on the bus (1-1.2-p1), never by its label.
+# Read-only, no devices, no setuid, nothing executable, no symlinks
+# followed; files readable by the vrx-usb-media group (the usb-media
+# grant) and nobody else. systemd-mount takes a group only as a number,
+# so it is looked up here. --bind-device: the units go with the device.
+# This is the only place vrx mounts a drive (G063).
+set -eu
+dev=$1 devpath=$2 fstype=$3
+
+# the filesystems this image takes: usb.toml's fs (vrx-usb-host.bbclass)
+fs=$(sed -n 's/^fs *= *\[\(.*\)\].*/\1/p' /usr/lib/vrx/usb.toml 2>/dev/null | tr -d '" ')
+case ",$fs," in
+    *",$fstype,"*) ;;
+    *) echo "vrx-usb-mount: $dev: $fstype is not mounted on this image" >&2; exit 0 ;;
+esac
+
+# the USB device in the path: its last segment of the form <bus>-<port>[.<port>]
+port=
+IFS=/
+for seg in $devpath; do
+    case $seg in
+        *[!0-9.-]*) ;;
+        [0-9]*-[0-9]*) port=$seg ;;
+    esac
+done
+unset IFS
+part=$(cat "/sys$devpath/partition" 2>/dev/null || echo 0)
+gid=$(sed -n 's/^vrx-usb-media:[^:]*:\([0-9][0-9]*\):.*/\1/p' /etc/group)
+if [ -z "$port" ] || [ -z "$gid" ]; then
+    echo "vrx-usb-mount: $dev: no port ($port) or no vrx-usb-media group ($gid)" >&2
+    exit 0
+fi
+
+exec /usr/bin/systemd-mount --no-block --automount=yes --collect --bind-device \
+    --options="ro,nosuid,nodev,noexec,nosymfollow,gid=$gid,fmask=0137,dmask=0027" \
+    "$dev" "/run/vrx/usb/$port-p$part"

@@ -7,6 +7,8 @@ Description=vrx USB: share files
 BindsTo=vrx-usb-console.service
 After=vrx-usb-console.service
 RequiresMountsFor=/data
+# a board whose dwc2 is a host (plan 0019 D4) has no UDC: skipped, not failed
+ConditionPathExistsGlob=/sys/class/udc/*
 
 [Service]
 Type=oneshot

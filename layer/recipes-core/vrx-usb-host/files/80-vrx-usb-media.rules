@@ -1,0 +1,7 @@
+# A drive plugged into the board (plan 0019 D8): a filesystem partition on
+# a USB disk is mounted by systemd-mount, the pattern systemd-mount(1)
+# documents, through vrx-usb-mount (read-only, never executable, the
+# vrx-usb-media group, named by its port). vfat and exfat only; anything
+# else is listed in Settings and never mounted. The image's own list
+# (usb.toml's fs) narrows this further in the wrapper.
+ACTION=="add", SUBSYSTEMS=="usb", SUBSYSTEM=="block", ENV{ID_FS_USAGE}=="filesystem", ENV{ID_FS_TYPE}=="vfat|exfat", RUN{program}+="/usr/libexec/vrx/vrx-usb-mount $devnode %p $env{ID_FS_TYPE}"
