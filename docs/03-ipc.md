@@ -59,6 +59,14 @@ descriptor and hands the other to the offerer's `Listen` (kind
 `channel`). An undeclared channel is `NotDeclared`; an offerer not
 listening is `NotListening`.
 
+An offer may also name a grant the opener must hold (`requires`); vrxhost
+checks it at `Open` and refuses `NotPermitted`. A caller that is no applet
+(root at a shell, `vrx camera`) is the system and passes. The camera is the
+first user: camerad offers `photos` (JSON lines: capture, list, select) and
+`frames` (the viewfinder as a buffer queue), both requiring `camera-use`, and
+answers the intent `sys.camera.capture` with `sys.camera.photo`. The wire is
+in [camera.md](camera.md) (plan 0018), its one home.
+
 ## Buffers by index
 
 Device data stays in buffers its kernel driver owns (V4L2's `QBUF` and
