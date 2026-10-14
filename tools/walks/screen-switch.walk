@@ -1,0 +1,36 @@
+# A screen change inside an applet (plan 0017 Part F, Part E's VrxSwitch):
+# Settings to Display and back, ten times. The new screen slides in from the
+# side on the expressive spring and the old one leaves; the walk judges that it
+# drops no frame (G054's budgets, held to the same numbers as the drawer).
+name = "screen-switch"
+about = "Settings to Display and back, ten times"
+repeat = 10
+
+[setup]
+restart = ["settings"]
+capture = "frames"
+
+[budgets]
+p95_frame_ms = 16.7
+dropped_per_min = 0
+
+[[prepare]]
+action = "open"
+applet = "settings"
+expect = { label = "Display" }
+
+[[step]]
+action = "tap"
+label = "Display"
+in = "settings"
+expect = { label = "Brightness" }
+
+[[step]]
+action = "tap"
+label = "Back"
+in = "settings"
+expect = { label = "Display" }
+
+[[step]]
+action = "wait"
+secs = 0.6

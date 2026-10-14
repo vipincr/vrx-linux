@@ -13,8 +13,8 @@ import 'slider.dart';
 import 'symbols.dart';
 import 'theme.dart';
 
-/// The quick drawer: an overlay pulled from the top — an opaque scrim
-/// (a tap dismisses it) and an opaque panel: the version row with power
+/// The quick drawer's panel, which [VrxPull] pulls from the top (the scrim
+/// and the motion are its): an opaque panel: the version row with power
 /// at its right, the brightness slider (where the screen dims), and the
 /// shortcut row (wifi, ble — filled when up) across the bottom with a
 /// hairline above it. A shortcut closes the drawer before acting (a
@@ -34,7 +34,6 @@ class VrxQuickDrawer extends StatelessWidget {
     required this.bleUp,
     this.onWifi,
     this.onBle,
-    this.onDismiss,
   });
 
   final String version;
@@ -51,105 +50,87 @@ class VrxQuickDrawer extends StatelessWidget {
   final bool bleUp;
   final VoidCallback? onWifi;
   final VoidCallback? onBle;
-  final VoidCallback? onDismiss;
 
   @override
   Widget build(BuildContext context) {
     final colors = VrxTheme.of(context);
     final s = ScaledSpacing.of(context);
-    return Positioned.fill(
-      child: Stack(children: [
-        // the scrim: a tap dismisses. A sibling of the panel, so its words
-        // ("Close the drawer", what a walk finds it by) stay its own
-        Positioned.fill(
-          child: Semantics(
-            label: 'Close the drawer',
-            button: true,
-            child: GestureDetector(
-              onTap: onDismiss,
-              child: ColoredBox(color: colors.page.withValues(alpha: 0.6)),
+    // the panel only: VrxPull places it, and owns the scrim (a tap on it
+    // closes, "Close the drawer" is its words, G038)
+    return GestureDetector(
+      onTap: () {}, // the panel eats taps; they do not dismiss
+      excludeFromSemantics: true,
+      child: Container(
+        width: double.infinity,
+        // the drawer rests on the surface, as the strip it opens from
+        color: colors.surface,
+        padding: EdgeInsets.fromLTRB(s.md, s.md, s.md, 0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    version,
+                    style: TypeRole.of(context, VrxTypeRole.subtext),
+                  ),
+                ),
+                VrxIconButton(
+                  glyph: VrxSymbols.power_settings_new,
+                  label: 'Power',
+                  onTap: onPower,
+                ),
+              ],
             ),
-          ),
-        ),
-        Align(
-            alignment: Alignment.topCenter,
-            child: GestureDetector(
-              onTap: () {}, // the panel eats taps; they do not dismiss
-              excludeFromSemantics: true,
-              child: Container(
-                width: double.infinity,
-                // the drawer rests on the surface, as the strip it opens from
-                color: colors.surface,
-                padding: EdgeInsets.fromLTRB(s.md, s.md, s.md, 0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            version,
-                            style: TypeRole.of(context, VrxTypeRole.subtext),
-                          ),
-                        ),
-                        VrxIconButton(
-                          glyph: VrxSymbols.power_settings_new,
-                          label: 'Power',
-                          onTap: onPower,
-                        ),
-                      ],
-                    ),
-                    // the gutter between the power button and the slider
-                    if (brightness != null) SizedBox(height: s.sm),
-                    if (brightness != null)
-                      Row(children: [
-                        Icon(VrxSymbols.brightness_low, color: colors.text, size: VrxTypeRole.body.dp * VrxScale.of(context)),
-                        Expanded(
-                          child: VrxSlider(
-                            label: 'Brightness',
-                            value: brightness!,
-                            onChanged: onBrightness,
-                            onChangeEnd: onBrightnessEnd,
-                          ),
-                        ),
-                        Icon(VrxSymbols.brightness_high, color: colors.text, size: VrxTypeRole.body.dp * VrxScale.of(context)),
-                      ]),
-                    SizedBox(height: s.sm),
-                    Container(
-                      decoration: BoxDecoration(
-                        border: Border(
-                          top: BorderSide(
-                            color: colors.outline,
-                            width: Strokes.hairline,
-                          ),
-                        ),
-                      ),
-                      padding: EdgeInsets.symmetric(vertical: s.md),
-                      child: Row(
-                        children: [
-                          _Shortcut(
-                            glyph: VrxSymbols.wifi,
-                            label: 'Wi-Fi',
-                            filled: wifiUp,
-                            onTap: onWifi,
-                          ),
-                          SizedBox(width: s.sm),
-                          _Shortcut(
-                            glyph: VrxSymbols.bluetooth,
-                            label: 'Bluetooth',
-                            filled: bleUp,
-                            onTap: onBle,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+            // the gutter between the power button and the slider
+            if (brightness != null) SizedBox(height: s.sm),
+            if (brightness != null)
+              Row(children: [
+                Icon(VrxSymbols.brightness_low, color: colors.text, size: VrxTypeRole.body.dp * VrxScale.of(context)),
+                Expanded(
+                  child: VrxSlider(
+                    label: 'Brightness',
+                    value: brightness!,
+                    onChanged: onBrightness,
+                    onChangeEnd: onBrightnessEnd,
+                  ),
+                ),
+                Icon(VrxSymbols.brightness_high, color: colors.text, size: VrxTypeRole.body.dp * VrxScale.of(context)),
+              ]),
+            SizedBox(height: s.sm),
+            Container(
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(
+                    color: colors.outline,
+                    width: Strokes.hairline,
+                  ),
                 ),
               ),
+              padding: EdgeInsets.symmetric(vertical: s.md),
+              child: Row(
+                children: [
+                  _Shortcut(
+                    glyph: VrxSymbols.wifi,
+                    label: 'Wi-Fi',
+                    filled: wifiUp,
+                    onTap: onWifi,
+                  ),
+                  SizedBox(width: s.sm),
+                  _Shortcut(
+                    glyph: VrxSymbols.bluetooth,
+                    label: 'Bluetooth',
+                    filled: bleUp,
+                    onTap: onBle,
+                  ),
+                ],
+              ),
             ),
-          ),
-      ]),
+          ],
+        ),
+      ),
     );
   }
 }

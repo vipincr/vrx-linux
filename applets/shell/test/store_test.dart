@@ -11,7 +11,7 @@ void main() {
     ..reduce(const ShellState(), const ShellFacts(clockValid: true, depth: 1, notice: Change('x')))
     ..reduce(const ShellState(), ShellAction.back));
 
-  test('the strip shows the system\'s facts; Back above Home; the drawer toggles', () {
+  test('the strip shows the system\'s facts; Back above Home; the drawer opens and shuts', () {
     final model = ShellModel(now: () => DateTime(2026, 10, 13, 9, 5).millisecondsSinceEpoch);
     final h = StoreHarness(model);
     h.assertView((v) => v.facts.clockText == '--:--' && !v.canGoBack && !v.drawer,
@@ -23,18 +23,23 @@ void main() {
     h.assertView((v) => v.bleUp && v.facts.bleUp, because: 'the strip and the drawer both say the radio is on');
     h.dispatch(const ShellFacts(depth: 2));
     h.assertView((v) => v.canGoBack, because: 'an applet above Home');
-    h.dispatch(ShellAction.drawerToggled);
+    h.dispatch(ShellAction.drawerOpened);
     h.assertView((v) => v.drawer);
+    h.dispatch(ShellAction.drawerOpened);
+    h.assertView((v) => v.drawer, because: 'opening an open drawer changes nothing');
     // the power button closes the drawer and asks; the shell keeps the
     // screen until it is answered
     h.dispatch(ShellAction.powerAsked);
     h.assertView((v) => !v.drawer && v.askingPower);
     h.dispatch(ShellAction.powerDismissed);
     h.assertView((v) => !v.drawer && !v.askingPower);
-    h.dispatch(ShellAction.drawerToggled);
+    h.dispatch(ShellAction.drawerOpened);
+    h.dispatch(ShellAction.drawerClosed);
+    h.assertView((v) => !v.drawer);
+    h.dispatch(ShellAction.drawerOpened);
     h.verify(
       fresh: () => ShellModel(now: () => DateTime(2026, 10, 13, 9, 5).millisecondsSinceEpoch),
-      probes: const [ShellAction.back, ShellAction.powerAsked, ShellAction.drawerToggled],
+      probes: const [ShellAction.back, ShellAction.powerAsked, ShellAction.drawerOpened, ShellAction.drawerClosed],
     );
   });
 

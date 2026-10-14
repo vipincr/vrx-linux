@@ -6,7 +6,8 @@ sealed class ShellAction {
   const ShellAction();
 
   static const init = ShellSignal.init;
-  static const drawerToggled = ShellSignal.drawerToggled;
+  static const drawerOpened = ShellSignal.drawerOpened;
+  static const drawerClosed = ShellSignal.drawerClosed;
   static const powerAsked = ShellSignal.powerAsked;
   static const powerDismissed = ShellSignal.powerDismissed;
   static const back = ShellSignal.back;
@@ -14,7 +15,7 @@ sealed class ShellAction {
 }
 
 /// [minute]: the clock's minute turned; the strip is drawn again.
-enum ShellSignal implements ShellAction { init, drawerToggled, powerAsked, powerDismissed, back, minute }
+enum ShellSignal implements ShellAction { init, drawerOpened, drawerClosed, powerAsked, powerDismissed, back, minute }
 
 /// What the strip and the drawer show (null fields: unchanged; Change
 /// for what may become null).
@@ -182,8 +183,12 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
   @override
   ShellView reduce(ShellState state, ShellAction action) {
     switch (action) {
-      case ShellAction.drawerToggled:
-        drawer = !drawer;
+      // the drawer was let go open or shut (VrxPull holds its position; the
+      // model holds the intent, and saying it twice is saying it once)
+      case ShellAction.drawerOpened:
+        drawer = true;
+      case ShellAction.drawerClosed:
+        drawer = false;
       case ShellAction.powerAsked:
         // the drawer closes before acting; the question takes its place
         drawer = false;

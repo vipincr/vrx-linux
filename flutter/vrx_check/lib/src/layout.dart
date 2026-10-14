@@ -357,6 +357,20 @@ bool _offstage(Element e) {
   return found;
 }
 
+/// A scrim is a tap target under a panel, in a layer of its own: it is the
+/// whole screen by design and is not a control the panel sits over.
+bool _insideScrim(Element e) {
+  var found = false;
+  e.visitAncestorElements((a) {
+    if (a.widget is VrxScrim) {
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
 bool _insideTextField(Element e) {
   var found = false;
   e.visitAncestorElements((a) {
@@ -521,7 +535,7 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
   final targets = <_Target>[];
   for (final e in find.byWidgetPredicate(_answersTap).evaluate()) {
     // a text field is one control, whatever detectors it builds inside
-    if (_insideTextField(e)) continue;
+    if (_insideTextField(e) || _insideScrim(e)) continue;
     final box = e.renderObject;
     if (box is! RenderBox || !box.attached || !box.hasSize || box.size.isEmpty) continue;
     final whole = _rectOf(box);

@@ -19,12 +19,18 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import 'input.dart';
+import 'metrics.dart';
+import 'motion.dart';
 import 'nav.dart';
+import 'theme.dart';
+import 'ui_standard.g.dart';
 
 class VrxShell {
   VrxShell._();
@@ -204,4 +210,307 @@ class _VrxNoChromeState extends State<VrxNoChrome> {
 
   @override
   Widget build(BuildContext context) => widget.child;
+}
+
+// --- the drawer ---------------------------------------------------------------------------------------------------
+
+/// Marks a scrim: the layer under a panel that a tap on closes. It is the
+/// whole screen by design, so vrx_check's layout rules do not count it as a
+/// control the panel overlaps (its words are still checked, G038).
+class VrxScrim extends StatelessWidget {
+  const VrxScrim({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => child;
+}
+
+/// What [VrxPull] hands the strip it builds: whether the drawer is engaged
+/// (a finger on it, or any of it on screen), and the wrapper that makes a part
+/// of the strip the drawer's handle.
+class VrxPullHandle {
+  const VrxPullHandle._(this.engaged, this._wrap);
+
+  /// A finger is on the drawer or some of it is on screen, including while it
+  /// closes: the shell's region is the whole screen exactly then.
+  final bool engaged;
+  final Widget Function(Widget child) _wrap;
+
+  /// [child] starts the drawer with a vertical drag.
+  Widget handle(Widget child) => _wrap(child);
+}
+
+/// The quick drawer's mechanics (plan 0017 D7): it follows the finger 1:1,
+/// then flings onto a spring with the finger's velocity, with a rubber band
+/// past its end. It owns the drawer's position (one [VrxSpringValue], progress
+/// 0 to 1: the only place it lives); the model keeps the intent, said through
+/// [onIntent] at release or at a scrim tap, and a change of [open] that is not
+/// its own (Back, a restored state) springs it to match.
+///
+/// Layout: [below] fills the area under the strip, then the drawer's scrim and
+/// [panel], then the [strip] on top of both. The panel is laid out once and
+/// moved with a transform, so a frame of the drawer repaints one layer.
+/// Nothing under motion is ignored: a finger that lands on a moving drawer
+/// stops it and takes over (D1), and a tap lands on what is drawn.
+class VrxPull extends StatefulWidget {
+  const VrxPull({
+    super.key,
+    required this.open,
+    required this.onIntent,
+    required this.top,
+    required this.strip,
+    required this.panel,
+    this.below,
+    this.scrimLabel = 'Close the drawer',
+  });
+
+  /// The drawer is open, as the model says.
+  final bool open;
+
+  /// The drawer was let go open (true) or shut (false), or its scrim was tapped.
+  final ValueChanged<bool> onIntent;
+
+  /// Where the drawer's layer starts, in logical pixels: the strip's height.
+  final double top;
+
+  /// The strip, given the handle and whether the drawer is engaged.
+  final Widget Function(BuildContext context, VrxPullHandle pull) strip;
+
+  /// The panel the drawer pulls down.
+  final Widget panel;
+
+  /// What fills the area under the strip when the drawer is not over it.
+  final Widget? below;
+
+  /// The scrim's words, which a walk finds it by (G038).
+  final String scrimLabel;
+
+  /// How far past its stop the panel may travel under a finger, in logical
+  /// pixels: the surface is drawn this much taller than its content, so the
+  /// overshoot never shows a gap.
+  static const skirt = 40.0;
+
+  @override
+  State<VrxPull> createState() => _VrxPullState();
+}
+
+class _VrxPullState extends State<VrxPull> with TickerProviderStateMixin {
+  // a drawer's travel is about 300 px: the unit sets the tolerance of progress
+  late final VrxSpringValue _p = VrxSpringValue(vsync: this, value: widget.open ? 1 : 0, unit: VrxUnit.fractionOf(300));
+  late final VrxSpringValue _scrim = VrxSpringValue(vsync: this, value: widget.open ? 1 : 0, unit: VrxUnit.alpha);
+  late bool _intent = widget.open;
+  bool _finger = false;
+  bool _lastEngaged = false;
+  // where the finger has taken it from, in progress; and how far it has gone,
+  // in pixels from where it touched down (DragStartBehavior.down counts the
+  // slop too, so the drawer is under the finger and not behind it)
+  double _from = 0;
+  double _dragged = 0;
+  final _panel = GlobalKey();
+
+  // the target counts: an opening spring starts at 0, and a closing one is
+  // engaged until its last pixel. (isAnimating cannot say: it is still true on
+  // the tick that lands.)
+  bool get _engaged => _finger || _p.value > 0 || _p.target > 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastEngaged = _engaged;
+    _p.addListener(_sync);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final mode = VrxMotion.of(context);
+    _p.mode = mode;
+    _scrim.mode = mode;
+  }
+
+  // the region follows `engaged`: a rebuild when it turns
+  void _sync() {
+    final now = _engaged;
+    if (now != _lastEngaged && mounted) setState(() => _lastEngaged = now);
+  }
+
+  @override
+  void didUpdateWidget(VrxPull old) {
+    super.didUpdateWidget(old);
+    // a change the model made (Back, a restore): the drawer goes there; one
+    // this widget made itself is already where it is going
+    if (widget.open != _intent) {
+      _intent = widget.open;
+      _finger = false;
+      _go(widget.open, velocity: null);
+    }
+  }
+
+  @override
+  void dispose() {
+    _p.dispose();
+    _scrim.dispose();
+    super.dispose();
+  }
+
+  // the panel's height, as last measured (the first pull has none, and takes
+  // a drawer's typical 300 px for the one frame before the panel is laid out)
+  double? _measured;
+  double get _height {
+    final now = _panel.currentContext?.size?.height;
+    if (now != null && now > 0) _measured = now;
+    return _measured ?? 300;
+  }
+
+  void _go(bool open, {double? velocity}) {
+    _p.springTo(open ? 1 : 0, VrxSpring.micro(open ? VrxMicro.drawerOpen : VrxMicro.drawerClose), velocity: velocity);
+    _scrim.springTo(open ? 1 : 0, VrxSpring.micro(open ? VrxMicro.drawerOpen : VrxMicro.drawerClose, follow: true));
+    _sync();
+  }
+
+  void _finish(bool open, {double? velocity}) {
+    _finger = false;
+    _go(open, velocity: velocity == null ? null : velocity / _height);
+    if (open != _intent) {
+      _intent = open;
+      widget.onIntent(open);
+    }
+  }
+
+  // a finger lands: the drawer stops where it is and the finger has it (D1)
+  void _down() {
+    if (_p.isAnimating) {
+      _p.stop();
+      _scrim.stop();
+    }
+  }
+
+  // a touch that was no drag (a tap on the panel) lets a stopped drawer go on
+  void _up() {
+    if (_finger || _p.isAnimating) return;
+    final to = _intent ? 1.0 : 0.0;
+    if (_p.value != to) _go(_intent);
+  }
+
+  void _start(DragStartDetails d) {
+    _p.stop();
+    _scrim.stop();
+    _finger = true;
+    _from = _p.value;
+    _dragged = 0;
+    _sync();
+  }
+
+  void _update(DragUpdateDetails d) {
+    _dragged += d.primaryDelta ?? d.delta.dy;
+    _apply();
+    // the panel is not laid out until the first moved pixel has mounted the
+    // layer: its height (this position's unit) is known a frame later
+    if (_panel.currentContext == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _finger) _apply();
+      });
+    }
+  }
+
+  // the position under the finger: 1:1 to its stop, Flutter's own friction past
+  // it (to the skirt at most), clamped above 0
+  void _apply() {
+    final h = _height;
+    final pos = _from + _dragged / h;
+    final double shown;
+    if (pos > 1) {
+      shown = 1 + math.min(vrxRubberBand((pos - 1) * h, h), VrxPull.skirt) / h;
+    } else {
+      shown = math.max(0, pos);
+    }
+    _p.jumpTo(shown);
+    _scrim.jumpTo(shown.clamp(0.0, 1.0));
+  }
+
+  void _end(DragEndDetails d) {
+    final v = d.velocity.pixelsPerSecond.dy;
+    final fast = v.abs() >= Gestures.swipeMinPxPerS;
+    _finish(fast ? v > 0 : _p.value > 0.5, velocity: v);
+  }
+
+  void _cancel() => _finish(_p.value > 0.5);
+
+  Widget _drag({required Widget child}) => Listener(
+        onPointerDown: (_) => _down(),
+        onPointerUp: (_) => _up(),
+        onPointerCancel: (_) => _up(),
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          dragStartBehavior: DragStartBehavior.down,
+          onVerticalDragStart: _start,
+          onVerticalDragUpdate: _update,
+          onVerticalDragEnd: _end,
+          onVerticalDragCancel: _cancel,
+          child: child,
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = VrxTheme.of(context);
+    final pull = VrxPullHandle._(_engaged, (child) => _drag(child: child));
+    return Stack(children: [
+      if (widget.below != null)
+        Positioned(left: 0, right: 0, top: widget.top, bottom: 0, child: widget.below!),
+      if (_engaged)
+        Positioned(
+          left: 0,
+          right: 0,
+          top: widget.top,
+          bottom: 0,
+          child: _drag(
+            child: Stack(clipBehavior: Clip.none, children: [
+              // the scrim: a tap closes. A sibling of the panel, so its words
+              // stay its own; it rides the effects spring with the position
+              Positioned.fill(
+                child: VrxScrim(
+                  child: Semantics(
+                    label: widget.scrimLabel,
+                    button: true,
+                    child: GestureDetector(
+                      onTap: () => _finish(false),
+                      child: ListenableBuilder(
+                        listenable: _scrim,
+                        builder: (context, _) =>
+                            ColoredBox(color: colors.page.withValues(alpha: 0.6 * _scrim.value.clamp(0.0, 1.0))),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Align(
+                alignment: Alignment.topCenter,
+                child: ListenableBuilder(
+                  listenable: _p,
+                  child: RepaintBoundary(
+                    key: _panel,
+                    child: Stack(clipBehavior: Clip.none, children: [
+                      // the surface above the panel, for an overshoot to show
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        top: -VrxPull.skirt,
+                        height: VrxPull.skirt,
+                        child: ColoredBox(color: colors.surface),
+                      ),
+                      widget.panel,
+                    ]),
+                  ),
+                  builder: (context, child) =>
+                      FractionalTranslation(translation: Offset(0, _p.value - 1), child: child),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      Positioned(left: 0, right: 0, top: 0, child: widget.strip(context, pull)),
+    ]);
+  }
 }

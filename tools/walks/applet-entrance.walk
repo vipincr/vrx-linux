@@ -1,0 +1,36 @@
+# An applet coming to the front (plan 0017 Part F, Part E's entrance): Home to
+# Clock and back, ten times. The page colour is there from the first paint and
+# the content rises into place; the walk judges that it drops no frame.
+name = "applet-entrance"
+about = "Home to Clock and back, ten times"
+repeat = 10
+
+[setup]
+restart = ["launcher", "clock"]
+capture = "frames"
+
+[budgets]
+p95_frame_ms = 16.7
+dropped_per_min = 0
+
+[[prepare]]
+action = "home"
+expect = { front = "launcher" }
+
+[[step]]
+action = "tap"
+label = "Clock"
+in = "launcher"
+expect = { front = "clock" }
+
+[[step]]
+action = "wait"
+secs = 0.6
+
+[[step]]
+action = "back"
+expect = { front = "launcher" }
+
+[[step]]
+action = "wait"
+secs = 0.6

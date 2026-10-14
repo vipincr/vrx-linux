@@ -32,7 +32,8 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
   @override
   ShellState get snapshot => model.snapshot;
 
-  void _toggle() => _events.add(ShellAction.drawerToggled);
+  void _open() => _events.add(ShellAction.drawerOpened);
+  void _close() => _events.add(ShellAction.drawerClosed);
 
   void _answer(PowerAlert alert, {required bool stop}) => unawaited(
       VrxEnergy.service.answer(alert.applet, stop: stop).catchError((Object err) => debugPrint('shell: power alert: $err')));
@@ -53,7 +54,7 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
         if (view.askingPower) {
           _events.add(ShellAction.powerDismissed);
         } else if (view.drawer) {
-          _toggle();
+          _close();
         } else {
           unawaited(VrxShell.back());
         }
@@ -63,11 +64,12 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
       wifiUp: view.wifiUp,
       bleUp: view.bleUp,
     );
-    // the compositor routes input by the strip's height, and gives the
-    // shell all of it while the drawer is open. The drawer is a slide
-    // down from the strip and a slide up (or a tap outside it) away; a
-    // tap on the strip is only ever its Back (the owner: a tap meant for
-    // Back opened the drawer)
+    // the compositor routes input by the strip's height, and gives the shell
+    // all of it while the drawer is open, and while a finger or the motion has
+    // any of it on screen (plan 0017 D7: VrxPull's `engaged`). The drawer is
+    // pulled down from the strip with the finger following it 1:1 and let go
+    // onto a spring; a tap on the strip is only ever its Back (the owner: a tap
+    // meant for Back opened the drawer)
     // an applet over its power budget (plan 0012 D11): a band under the
     // strip, inside the shell's region (so its input is the shell's and
     // the app below moves down), until the person answers
@@ -75,79 +77,66 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
     // the battery's zone (plan 0012 D10): a sentence under the strip
     // until it charges; critical takes the place of a power alert
     final battery = view.drawer || view.askingPower ? null : view.batteryNotice;
-    final strip = VrxShellRegion(
-      full: view.drawer || view.askingPower,
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        VrxSwipe(
-          onDown: view.drawer || view.askingPower ? null : _toggle,
-          onUp: view.drawer ? _toggle : null,
-          child: VrxStatusStrip(facts: facts),
-        ),
-        if (battery != null)
-          VrxBanner(text: battery, signal: view.batteryCritical ? VrxSignal.error : VrxSignal.warning)
-        else if (alert != null)
-          PowerAlertBand(alert: alert, onAnswer: _answer),
-      ]),
-    );
-    // the drawer is an overlay of its own (a scrim and a panel) over the
-    // strip and the screen below it. Below the strip the shell is clear:
-    // its plane sits above the focused app, which shows through.
+    // the drawer's layer (a scrim and a panel) sits over the screen below the
+    // strip; there the shell is clear, its plane above the focused app, which
+    // shows through
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SafeArea(
-        child: Column(children: [
-          strip,
-          // the drawer opens under the strip: its scrim and panel fill
-          // the rest of the screen
-          if (view.drawer)
-            Expanded(
-              child: VrxSwipe(
-                onUp: _toggle,
-                child: Stack(children: [
-                  VrxQuickDrawer(
-                    version: view.version,
-                    brightness: view.brightness,
-                    onBrightness: (v) => _brightness(v, settled: false),
-                    onBrightnessEnd: (v) => _brightness(v, settled: true),
-                    wifiUp: view.wifiUp,
-                    bleUp: view.bleUp,
-                    onWifi: () {
-                      _toggle();
-                      unawaited(Nav.push('wifi'));
-                    },
-                    // Device Link: the radio, pairing and paired phones
-                    onBle: () {
-                      _toggle();
-                      unawaited(Nav.push('devicelink'));
-                    },
-                    onPower: () => _events.add(ShellAction.powerAsked),
-                    onDismiss: _toggle,
-                  ),
-                ]),
-              ),
-            ),
+        child: VrxPull(
+          open: view.drawer,
+          // let go open or shut, or the scrim tapped
+          onIntent: (open) => open ? _open() : _close(),
+          top: VrxStatusStrip.heightOf(context),
+          strip: (context, pull) => VrxShellRegion(
+            full: view.drawer || view.askingPower || pull.engaged,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              pull.handle(VrxStatusStrip(facts: facts)),
+              if (battery != null)
+                VrxBanner(text: battery, signal: view.batteryCritical ? VrxSignal.error : VrxSignal.warning)
+              else if (alert != null)
+                PowerAlertBand(alert: alert, onAnswer: _answer),
+            ]),
+          ),
+          panel: VrxQuickDrawer(
+            version: view.version,
+            brightness: view.brightness,
+            onBrightness: (v) => _brightness(v, settled: false),
+            onBrightnessEnd: (v) => _brightness(v, settled: true),
+            wifiUp: view.wifiUp,
+            bleUp: view.bleUp,
+            onWifi: () {
+              _close();
+              unawaited(Nav.push('wifi'));
+            },
+            // Device Link: the radio, pairing and paired phones
+            onBle: () {
+              _close();
+              unawaited(Nav.push('devicelink'));
+            },
+            onPower: () => _events.add(ShellAction.powerAsked),
+          ),
           // the power menu, a screen in the client area below the strip
           // (a menu is a screen, not a dialog: two acts and Cancel do
           // not fit a dialog on the 58mm panel); its Back cancels
-          if (view.askingPower)
-            Expanded(
-              child: ColoredBox(
-                color: VrxTheme.of(context).page,
-                child: VrxList(children: [
-                  // no arrow of its own: the strip's Back closes it
-                  const VrxHeader(title: 'Power'),
-                  // an alarm that cannot ring through a power-off is said
-                  // before it, whole (plan 0012 D15, the evrx-rt lesson)
-                  if (view.powerOffNote != null) VrxBanner(text: view.powerOffNote!, signal: VrxSignal.warning),
-                  VrxRow(glyph: VrxSymbols.restart_alt, label: 'Restart', onTap: () => _power(VrxSystem.power.reboot)),
-                  VrxRow(
-                      glyph: VrxSymbols.power_settings_new,
-                      label: 'Power off',
-                      onTap: () => _power(VrxSystem.power.powerOff)),
-                ]),
-              ),
-            ),
-        ]),
+          below: view.askingPower
+              ? ColoredBox(
+                  color: VrxTheme.of(context).page,
+                  child: VrxList(children: [
+                    // no arrow of its own: the strip's Back closes it
+                    const VrxHeader(title: 'Power'),
+                    // an alarm that cannot ring through a power-off is said
+                    // before it, whole (plan 0012 D15, the evrx-rt lesson)
+                    if (view.powerOffNote != null) VrxBanner(text: view.powerOffNote!, signal: VrxSignal.warning),
+                    VrxRow(glyph: VrxSymbols.restart_alt, label: 'Restart', onTap: () => _power(VrxSystem.power.reboot)),
+                    VrxRow(
+                        glyph: VrxSymbols.power_settings_new,
+                        label: 'Power off',
+                        onTap: () => _power(VrxSystem.power.powerOff)),
+                  ]),
+                )
+              : null,
+        ),
       ),
     );
   }

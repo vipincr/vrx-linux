@@ -2,36 +2,28 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vrx_kit/vrx_kit.dart';
 
-/// The quick drawer's contract: the scrim dismisses on tap, the panel
-/// does not; the shortcuts fill when their link is up. The setup
+/// The quick drawer's contract: the panel eats taps (the scrim is
+/// VrxPull's); the shortcuts fill when their link is up. The setup
 /// walk's: the step counts, the last step says Finish.
 void main() {
-  testWidgets('the scrim dismisses; the panel eats taps', (tester) async {
-    var dismissed = 0;
+  testWidgets('the panel eats taps; they do not reach what is behind it', (tester) async {
+    var behind = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: Stack(
           children: [
-            const Scaffold(body: Text('behind')),
-            VrxQuickDrawer(
-              version: 'vrx 0.1.0',
-              wifiUp: true,
-              bleUp: false,
-              onDismiss: () => dismissed++,
+            Scaffold(body: GestureDetector(onTap: () => behind++, child: const SizedBox.expand())),
+            const Align(
+              alignment: Alignment.topCenter,
+              child: VrxQuickDrawer(version: 'vrx 0.1.0', wifiUp: true, bleUp: false),
             ),
           ],
         ),
       ),
     );
-
-    // tap the panel area (the version row): not a dismissal
+    // the panel is the panel only: the scrim and its words are VrxPull's (pull_test.dart)
     await tester.tap(find.text('vrx 0.1.0'));
-    expect(dismissed, 0);
-
-    // tap the scrim below the panel: a dismissal
-    // below the panel, inside the 800x600 test surface
-    await tester.tapAt(const Offset(400, 500));
-    expect(dismissed, 1);
+    expect(behind, 0);
   });
 
   testWidgets('wifi fills when up; ble stays outlined when down',

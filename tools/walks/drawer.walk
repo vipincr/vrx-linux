@@ -1,17 +1,28 @@
 # The drawer: pull it down from the status strip, slide the brightness,
-# close it (plan 0014 Part E). The shell's overlay plane and the dimming
-# path are both on screen. The slide ends where it began, so the
-# brightness is left as found.
+# close it (plan 0014 Part E); then, plan 0017 Part F, let it go at three
+# speeds and once short of the middle, so an open, a close and a cancel are
+# each measured. It follows the finger 1:1 and flings onto a spring; the shell's
+# overlay plane and the dimming path are both on screen. The slide ends where
+# it began, so the brightness is left as found.
+#
+# G054: the drawer drops no frame. The budgets below are what judges it; a
+# test in rust/protocol/src/walk.rs fails when they are removed or loosened,
+# and `vrx walk check` on the board judges the numbers.
 name = "drawer"
-about = "Open the drawer, slide the brightness, close it"
+about = "Open the drawer, slide the brightness, close it; release at three speeds and cancel"
 repeat = 3
 
 [setup]
 capture = "frames"
 
+[budgets]
+p95_frame_ms = 16.7
+dropped_per_min = 0
+
 [[prepare]]
 action = "home"
 
+# open (a quick pull), the brightness both ways, close by the scrim
 [[step]]
 action = "swipe"
 xy = [240, 2]
@@ -37,4 +48,60 @@ ms = 400
 action = "tap"
 label = "Close the drawer"
 in = "shell"
+expect = { gone = "Close the drawer" }
+
+# let go slowly (past the middle: it opens), shut it by a drag up
+[[step]]
+action = "swipe"
+xy = [240, 2]
+by = [0, 320]
+ms = 1200
+expect = { label = "Close the drawer" }
+
+[[step]]
+action = "swipe"
+label = "Close the drawer"
+in = "shell"
+by = [0, -320]
+ms = 1200
+expect = { gone = "Close the drawer" }
+
+# a middling speed
+[[step]]
+action = "swipe"
+xy = [240, 2]
+by = [0, 320]
+ms = 400
+expect = { label = "Close the drawer" }
+
+[[step]]
+action = "swipe"
+label = "Close the drawer"
+in = "shell"
+by = [0, -320]
+ms = 400
+expect = { gone = "Close the drawer" }
+
+# a flick
+[[step]]
+action = "swipe"
+xy = [240, 2]
+by = [0, 320]
+ms = 120
+expect = { label = "Close the drawer" }
+
+[[step]]
+action = "swipe"
+label = "Close the drawer"
+in = "shell"
+by = [0, -320]
+ms = 120
+expect = { gone = "Close the drawer" }
+
+# a pull let go short of the middle goes back: a cancel
+[[step]]
+action = "swipe"
+xy = [240, 2]
+by = [0, 40]
+ms = 700
 expect = { gone = "Close the drawer" }

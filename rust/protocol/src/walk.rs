@@ -795,6 +795,42 @@ label = "Close the drawer"
 expect = { gone = "Close the drawer" }
 "#;
 
+    /// G054 (plan 0017 D11c): the drawer drops no frame. The budgets of the
+    /// shipped drawer walk are what the bench run judges; this makes them
+    /// impossible to delete or loosen quietly. The bench half is not a build
+    /// gate: `vrx walk check` on a board makes the numbers true.
+    #[test]
+    fn the_drawer_walk_holds_its_frame_budgets_g054() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tools/walks/drawer.walk");
+        let w = Walk::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            w.budgets.dropped_per_min,
+            Some(0.0),
+            "the drawer drops no refresh"
+        );
+        let p95 = w.budgets.p95_frame_ms.expect("a frame-time budget");
+        assert!(p95 <= 16.7, "a frame within one 60 Hz period, not {p95} ms");
+        // the three speeds and the cancel are in the walk: more than one swipe from the strip
+        let pulls = w
+            .step
+            .iter()
+            .filter(|s| s.action == Action::Swipe && s.xy == Some([240, 2]))
+            .count();
+        assert!(
+            pulls >= 5,
+            "an open, three speeds and a cancel are measured, not {pulls} pulls"
+        );
+        // the two motions Part E adds are held to the same numbers
+        for name in ["screen-switch", "applet-entrance"] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("../../tools/walks/{name}.walk"));
+            let w = Walk::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            assert_eq!(w.budgets.dropped_per_min, Some(0.0), "{name}");
+            assert!(w.budgets.p95_frame_ms.is_some_and(|p| p <= 16.7), "{name}");
+        }
+    }
+
     #[test]
     fn a_walk_reads_and_plans() {
         let w = Walk::parse(DRAWER).unwrap();
