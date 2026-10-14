@@ -20,6 +20,8 @@ SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master \
            file://vrxhost-tmpfiles.conf \
            file://vrx-applet@.service \
            file://vrx-install.service \
+           file://vrx-wake@.service \
+           file://vrx-wakealarm.service \
            "
 SRCREV = "877a3dfb300fe7b506601c69e8152248e471da4d"
 
@@ -45,6 +47,8 @@ do_install() {
     install -m 0644 ${UNPACKDIR}/vrxhost.service ${D}${systemd_unitdir}/system/
     install -m 0644 ${UNPACKDIR}/vrx-applet@.service ${D}${systemd_unitdir}/system/
     install -m 0644 ${UNPACKDIR}/vrx-install.service ${D}${systemd_unitdir}/system/
+    install -m 0644 ${UNPACKDIR}/vrx-wake@.service ${D}${systemd_unitdir}/system/
+    install -m 0644 ${UNPACKDIR}/vrx-wakealarm.service ${D}${systemd_unitdir}/system/
     install -d ${D}${nonarch_libdir}/tmpfiles.d
     install -m 0644 ${UNPACKDIR}/vrxhost-tmpfiles.conf ${D}${nonarch_libdir}/tmpfiles.d/vrxhost.conf
 }
@@ -60,6 +64,8 @@ GROUPADD_PARAM:${PN} = "-r vrx"
 FILES:${PN} = "${bindir}/vrxhost ${systemd_unitdir}/system/vrxhost.service \
                ${systemd_unitdir}/system/vrx-applet@.service \
                ${systemd_unitdir}/system/vrx-install.service \
+               ${systemd_unitdir}/system/vrx-wake@.service \
+               ${systemd_unitdir}/system/vrx-wakealarm.service \
                ${nonarch_libdir}/tmpfiles.d/vrxhost.conf"
 
-SYSTEMD_SERVICE:${PN} = "vrxhost.service"
+SYSTEMD_SERVICE:${PN} = "vrxhost.service vrx-wakealarm.service"

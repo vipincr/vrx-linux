@@ -1,0 +1,18 @@
+# Before a halt or a power-off (plan 0012 D14, D15): the earliest
+# vrx-wake timer goes into the RTC's wakealarm, so a board whose deep
+# sleep is a halt into its PMIC's standby (the CM5) boots for an alarm.
+# WakeSystem=yes timers wake a suspended system on their own; a halt
+# ends the kernel that would, so this writes the RTC by hand. A board
+# with no RTC that can wake it skips this unit.
+[Unit]
+Description=vrx: the next alarm into the RTC before the board halts
+DefaultDependencies=no
+Before=systemd-halt.service systemd-poweroff.service
+ConditionPathExists=/sys/class/rtc/rtc0/wakealarm
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/vrxhost wakealarm
+
+[Install]
+WantedBy=halt.target poweroff.target

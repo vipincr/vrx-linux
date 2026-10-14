@@ -26,6 +26,19 @@ async fn main() -> ExitCode {
         .init();
 
     let paths = paths::VrxPaths::system();
+    // vrx-wakealarm.service, before a halt: the next alarm into the RTC
+    // (plan 0012 D14, D15)
+    if std::env::args().nth(1).as_deref() == Some("wakealarm") {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let rtc = std::path::Path::new("/sys/class/rtc/rtc0/wakealarm");
+        return if vrx_host::wake::arm_rtc(rtc, now).await {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
+    }
     // vrx-install.service: the privileged half of an install (install.rs)
     if std::env::args().nth(1).as_deref() == Some("install-helper") {
         return if vrx_host::install::helper_main(&paths).await {

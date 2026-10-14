@@ -1,0 +1,10 @@
+# What a vrx-wake@<applet>.timer starts (plan 0012 D15): nothing. vrxhost
+# creates the timer, with WakeSystem=yes, for an applet's next alarm or
+# timer; waking the system is the point, and the applet rings on its own
+# when it is told it resumed.
+[Unit]
+Description=vrx: the system woke for %i
+
+[Service]
+Type=oneshot
+ExecStart=/bin/true

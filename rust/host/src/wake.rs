@@ -117,6 +117,95 @@ pub async fn set(applet: &str, at: Option<u64>, now: u64) -> Result<(), String> 
     Ok(())
 }
 
+#[zbus::proxy(
+    interface = "org.freedesktop.systemd1.Timer",
+    default_service = "org.freedesktop.systemd1"
+)]
+trait Timer {
+    #[zbus(property, name = "NextElapseUSecRealtime")]
+    fn next_elapse_usec_realtime(&self) -> zbus::Result<u64>;
+}
+
+#[zbus::proxy(
+    interface = "org.freedesktop.systemd1.Manager",
+    default_service = "org.freedesktop.systemd1",
+    default_path = "/org/freedesktop/systemd1"
+)]
+trait Units {
+    #[allow(clippy::type_complexity)]
+    fn list_units_by_patterns(
+        &self,
+        states: &[&str],
+        patterns: &[&str],
+    ) -> zbus::Result<
+        Vec<(
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            zbus::zvariant::OwnedObjectPath,
+            u32,
+            String,
+            zbus::zvariant::OwnedObjectPath,
+        )>,
+    >;
+}
+
+/// The earliest elapse (unix seconds) of the vrx-wake timers, from
+/// systemd, or None.
+async fn earliest() -> zbus::Result<Option<u64>> {
+    let conn = zbus::Connection::system().await?;
+    let units = UnitsProxy::new(&conn).await?;
+    let mut best: Option<u64> = None;
+    for unit in units
+        .list_units_by_patterns(&[], &["vrx-wake@*.timer"])
+        .await?
+    {
+        let timer = TimerProxy::builder(&conn).path(unit.6)?.build().await?;
+        let usec = timer.next_elapse_usec_realtime().await.unwrap_or(0);
+        if usec > 0 && usec != u64::MAX {
+            let secs = usec / 1_000_000;
+            best = Some(best.map_or(secs, |b| b.min(secs)));
+        }
+    }
+    Ok(best)
+}
+
+/// vrx-wakealarm.service, before a halt or a power-off: put the earliest
+/// vrx-wake timer into the RTC's wakealarm so a board whose deep sleep is
+/// a halt (the CM5's PMIC standby) boots for it. Writing 0 first clears
+/// an alarm left from before (the kernel refuses to overwrite a pending
+/// one). No timer: the alarm is cleared. True when the RTC took it.
+pub async fn arm_rtc(wakealarm: &std::path::Path, now: u64) -> bool {
+    let next = match earliest().await {
+        Ok(next) => next.filter(|&t| t > now),
+        Err(err) => {
+            tracing::error!(error = %err, "wakealarm: the wake timers are unread");
+            return false;
+        }
+    };
+    if let Err(err) = std::fs::write(wakealarm, "0") {
+        tracing::error!(path = %wakealarm.display(), error = %err, "wakealarm: not cleared");
+        return false;
+    }
+    let Some(at) = next else {
+        tracing::info!("wakealarm: nothing to wake for");
+        return true;
+    };
+    match std::fs::write(wakealarm, at.to_string()) {
+        Ok(()) => {
+            tracing::info!(at = %on_calendar(at), "wakealarm: the board wakes for the next alarm");
+            true
+        }
+        Err(err) => {
+            tracing::error!(error = %err, "wakealarm: the RTC refused it");
+            false
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
