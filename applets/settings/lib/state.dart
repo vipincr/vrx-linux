@@ -3,23 +3,99 @@ import 'dart:math' as math;
 import 'package:vrx_kit/vrx_kit.dart';
 
 /// Everything settings reacts to.
-enum SettingsAction {
-  init,
+/// Everything Settings reacts to (plan 0013 D1: the reducer is the only
+/// writer): Back, a screen opened or closed, or the system's facts, as
+/// data.
+sealed class SettingsAction {
+  const SettingsAction();
 
-  /// A system fact changed (time, device, screen, power): re-derive.
-  factsChanged,
+  static const init = SettingsSignal.init;
+  static const back = SettingsSignal.back;
+}
 
-  /// A category was opened or closed, or the zone picker toggled.
-  navigated,
+enum SettingsSignal implements SettingsAction { init, back }
 
-  /// The zone list arrived.
-  zonesLoaded,
+/// The system's facts (null fields: unchanged; Change for what may become
+/// null): the services' states, the declared settings and their values
+/// (one applet's file at a time), the look this boot draws, a refusal.
+final class SettingsFacts implements SettingsAction {
+  const SettingsFacts({
+    this.time,
+    this.network,
+    this.device,
+    this.screen,
+    this.dimming,
+    this.cascade,
+    this.canPowerOff,
+    this.usbPresent,
+    this.bluetooth,
+    this.supplyLow,
+    this.battery,
+    this.usage,
+    this.energyAvailable,
+    this.energy,
+    this.awake,
+    this.timeLocales,
+    this.timeLocale,
+    this.declared,
+    this.values,
+    this.zones,
+    this.runningScheme,
+    this.runningDark,
+    this.error,
+  });
 
-  /// The rename screen opened or closed.
-  renaming,
+  final TimeState? time;
+  final NetworkState? network;
+  final DeviceState? device;
+  final ScreenState? screen;
+  final VrxDimming? dimming;
+  final VrxCascade? cascade;
+  final bool? canPowerOff;
+  final bool? usbPresent;
+  final BluetoothState? bluetooth;
+  final bool? supplyLow;
+  final Change<Battery?>? battery;
+  final DeviceUsage? usage;
+  final bool? energyAvailable;
+  final Change<EnergyReport?>? energy;
+  final Change<AwakeReport?>? awake;
+  final List<TimeLocale>? timeLocales;
+  final String? timeLocale;
+  final List<AppletSettingsDecl>? declared;
 
-  /// A system call failed; the banner says why.
-  failed,
+  /// One applet's settings file as read: (its id, its values).
+  final (String, Map<String, String>)? values;
+  final List<String>? zones;
+  final int? runningScheme;
+  final bool? runningDark;
+  final String? error;
+}
+
+/// The person moved: a screen opened or closed (null fields: unchanged).
+/// A move clears a shown refusal.
+final class SettingsGo implements SettingsAction {
+  const SettingsGo({
+    this.open,
+    this.renaming,
+    this.editingSetting,
+    this.showingUse,
+    this.showingAwake,
+    this.pickingScheme,
+    this.pickingTimeFormat,
+    this.settingTime,
+    this.pickingZone,
+  });
+
+  final Change<SettingsCategory?>? open;
+  final bool? renaming;
+  final Change<(String, String)?>? editingSetting;
+  final bool? showingUse;
+  final bool? showingAwake;
+  final bool? pickingScheme;
+  final bool? pickingTimeFormat;
+  final SettingTime? settingTime;
+  final bool? pickingZone;
 }
 
 /// Which of the clock's wheels is up (Settings > Time, plan 0011 D14).
@@ -213,7 +289,51 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
 
   @override
   SettingsView reduce(SettingsState state, SettingsAction action) {
-    if (action == SettingsAction.navigated) error = null;
+    switch (action) {
+      case SettingsFacts f:
+        time = f.time ?? time;
+        network = f.network ?? network;
+        device = f.device ?? device;
+        screen = f.screen ?? screen;
+        dimming = f.dimming ?? dimming;
+        cascade = f.cascade ?? cascade;
+        canPowerOff = f.canPowerOff ?? canPowerOff;
+        usbPresent = f.usbPresent ?? usbPresent;
+        bluetooth = f.bluetooth ?? bluetooth;
+        supplyLow = f.supplyLow ?? supplyLow;
+        if (f.battery != null) battery = f.battery!.value;
+        usage = f.usage ?? usage;
+        energyAvailable = f.energyAvailable ?? energyAvailable;
+        if (f.energy != null) energy = f.energy!.value;
+        if (f.awake != null) awake = f.awake!.value;
+        timeLocales = f.timeLocales ?? timeLocales;
+        timeLocale = f.timeLocale ?? timeLocale;
+        declared = f.declared ?? declared;
+        if (f.values case (final id, final v)?) values[id] = v;
+        zones = f.zones ?? zones;
+        runningScheme = f.runningScheme ?? runningScheme;
+        runningDark = f.runningDark ?? runningDark;
+        if (f.error != null) error = f.error;
+      case SettingsGo g:
+        error = null;
+        if (g.open != null) open = g.open!.value;
+        renaming = g.renaming ?? renaming;
+        if (g.editingSetting != null) editingSetting = g.editingSetting!.value;
+        showingUse = g.showingUse ?? showingUse;
+        showingAwake = g.showingAwake ?? showingAwake;
+        pickingScheme = g.pickingScheme ?? pickingScheme;
+        pickingTimeFormat = g.pickingTimeFormat ?? pickingTimeFormat;
+        settingTime = g.settingTime ?? settingTime;
+        pickingZone = g.pickingZone ?? pickingZone;
+        // a report screen opens empty and fills when the estimate arrives
+        if (g.showingUse == true) energy = null;
+        if (g.showingAwake == true) awake = null;
+      case SettingsSignal.back:
+        error = null;
+        _back();
+      case SettingsSignal.init:
+        break;
+    }
     return SettingsView(
       categories: _categories(),
       open: open,
@@ -506,6 +626,53 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
 
   @override
   SettingsState get snapshot => SettingsState(open: open, pickingZone: pickingZone);
+
+  /// Back, one screen, in the order the screens stack over a category.
+  void _back() {
+    if (renaming) {
+      renaming = false;
+    } else if (editingSetting != null) {
+      editingSetting = null;
+    } else if (showingUse) {
+      showingUse = false;
+    } else if (showingAwake) {
+      showingAwake = false;
+    } else if (pickingScheme) {
+      pickingScheme = false;
+    } else if (pickingTimeFormat) {
+      pickingTimeFormat = false;
+    } else if (settingTime != SettingTime.none) {
+      settingTime = SettingTime.none;
+    } else if (pickingZone) {
+      pickingZone = false;
+    } else {
+      open = null;
+    }
+  }
+
+  @override
+  void restore(SettingsState snapshot) {
+    open = snapshot.open;
+    pickingZone = snapshot.pickingZone;
+  }
+
+  @override
+  SettingsAction get backAction => SettingsAction.back;
+
+  /// The categories are the root: whatever was open over them, Back from
+  /// the list leaves.
+  @override
+  bool get atRoot => open == null;
+
+  @override
+  Object? get fingerprint => [
+        time?.zone, time?.automatic, time?.synced, network?.ethernetAddress, device?.name, screen.lightOff,
+        screen.brightness, screen.sleepAfter, screen.deepAfter, dimming, cascade.sleep, cascade.deep, canPowerOff,
+        usbPresent, bluetooth?.on, supplyLow, battery?.percent, energyAvailable, energy == null, awake == null,
+        [for (final l in timeLocales) l.name], timeLocale, [for (final d in declared) d.id], values, zones,
+        runningScheme, runningDark, error, open, renaming, editingSetting?.$1, editingSetting?.$2, showingUse,
+        showingAwake, pickingScheme, pickingTimeFormat, settingTime, pickingZone,
+      ];
 }
 
 /// "388 MB", "1.4 GB".
@@ -517,4 +684,13 @@ class SettingsState {
 
   final SettingsCategory? open;
   final bool pickingZone;
+
+  @override
+  bool operator ==(Object other) => other is SettingsState && other.open == open && other.pickingZone == pickingZone;
+
+  @override
+  int get hashCode => Object.hash(open, pickingZone);
+
+  @override
+  String toString() => 'SettingsState($open, $pickingZone)';
 }

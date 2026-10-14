@@ -48,26 +48,17 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
   // opened at a category (plan 0011 D5): `time` from Clock; anything else
   // keeps where the person was
   @override
-  SettingsAction? onRoute(String route, Object? payload) {
-    if (route != 'time') return null;
-    model
-      ..open = SettingsCategory.time
-      ..pickingZone = false
-      ..settingTime = SettingTime.none;
-    return SettingsAction.navigated;
-  }
+  SettingsAction? onRoute(String route, Object? payload) => route == 'time'
+      ? const SettingsGo(open: Change(SettingsCategory.time), pickingZone: false, settingTime: SettingTime.none)
+      : null;
 
-  void _go(BuildContext context, void Function() change) {
-    change();
-    AppletScope.dispatch(context, SettingsAction.navigated);
-  }
+  void _go(BuildContext context, SettingsGo move) => AppletScope.dispatch(context, move);
 
   Future<void> _ask(BuildContext context, Future<void> Function() call) async {
     try {
       await call();
     } on Object catch (err) {
-      model.error = VrxWords.of(err, context: 'settings');
-      _facts.add(SettingsAction.failed);
+      _facts.add(SettingsFacts(error: VrxWords.of(err, context: 'settings')));
     }
   }
 
@@ -76,15 +67,15 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
     final open = view.open;
     final Widget body;
     if (open == null) {
-      body = _Categories(view: view, onOpen: (c) => _go(context, () => model.open = c));
+      body = _Categories(view: view, onOpen: (c) => _go(context, SettingsGo(open: Change(c))));
     } else if (view.renaming) {
       body = VrxTextEntry(
         title: 'Name',
         initial: model.device?.name ?? '',
         helper: (text) => 'Network name: ${hostnameFor(text)}',
-        onBack: () => _go(context, () => model.renaming = false),
+        onBack: () => _go(context, const SettingsGo(renaming: false)),
         onDone: (name) {
-          _go(context, () => model.renaming = false);
+          _go(context, const SettingsGo(renaming: false));
           if (name.trim().isNotEmpty) unawaited(_ask(context, () => VrxSystem.device.setName(name.trim())));
         },
       );
@@ -94,45 +85,44 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
       body = VrxTextEntry(
         title: decl?.label ?? key,
         initial: decl == null ? '' : model.valueOf(applet, decl),
-        onBack: () => _go(context, () => model.editingSetting = null),
+        onBack: () => _go(context, const SettingsGo(editingSetting: Change(null))),
         onDone: (text) {
-          _go(context, () => model.editingSetting = null);
+          _go(context, const SettingsGo(editingSetting: Change(null)));
           unawaited(_setSetting(applet, key, text.trim()));
         },
       );
     } else if (model.showingUse) {
-      body = BatteryUseScreen(report: model.energy, onBack: () => _go(context, () => model.showingUse = false));
+      body = BatteryUseScreen(report: model.energy, onBack: () => _go(context, const SettingsGo(showingUse: false)));
     } else if (model.showingAwake) {
       body = WhyAwakeScreen(
         awake: model.awake,
         names: {for (final r in model.energy?.rows ?? const <EnergyRow>[]) r.key: r.name},
-        onBack: () => _go(context, () => model.showingAwake = false),
+        onBack: () => _go(context, const SettingsGo(showingAwake: false)),
       );
     } else if (model.pickingScheme) {
       body = VrxSchemePicker(
         current: model.runningScheme,
         chosen: model.chosenScheme,
         dark: model.chosenDark,
-        onBack: () => _go(context, () => model.pickingScheme = false),
+        onBack: () => _go(context, const SettingsGo(pickingScheme: false)),
         onPick: (id) {
-          _go(context, () => model.pickingScheme = false);
+          _go(context, const SettingsGo(pickingScheme: false));
           unawaited(_setSetting('vrx', 'scheme', '$id'));
         },
       );
     } else if (view.pickingTimeFormat) {
       body = VrxList(children: [
-        VrxHeader(title: 'Time format', onBack: () => _go(context, () => model.pickingTimeFormat = false)),
+        VrxHeader(title: 'Time format', onBack: () => _go(context, const SettingsGo(pickingTimeFormat: false))),
         for (final l in view.timeLocales)
           VrxRow(
             label: l.timeExample,
             detail: '${l.dateExample} · ${l.name}',
             valueGlyph: l.name == model.timeLocale ? VrxSymbols.check : null,
             onTap: () {
-              _go(context, () => model.pickingTimeFormat = false);
+              _go(context, const SettingsGo(pickingTimeFormat: false));
               unawaited(_ask(context, () async {
                 await VrxSystem.locale.setTimeLocale(l.name);
-                model.timeLocale = await VrxSystem.locale.timeLocale();
-                _facts.add(SettingsAction.factsChanged);
+                _facts.add(SettingsFacts(timeLocale: await VrxSystem.locale.timeLocale()));
               }));
             },
           ),
@@ -141,9 +131,9 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
       body = VrxDatePicker(
         title: 'Set the date',
         date: DateTime.now(),
-        onBack: () => _go(context, () => model.settingTime = SettingTime.none),
+        onBack: () => _go(context, const SettingsGo(settingTime: SettingTime.none)),
         onSet: (d) {
-          _go(context, () => model.settingTime = SettingTime.none);
+          _go(context, const SettingsGo(settingTime: SettingTime.none));
           final now = DateTime.now();
           unawaited(_ask(context, () => VrxSystem.time.setTime(DateTime(d.year, d.month, d.day, now.hour, now.minute, now.second))));
         },
@@ -153,9 +143,9 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
       body = VrxTimePicker(
         title: 'Set the time',
         minutes: now.hour * 60 + now.minute,
-        onBack: () => _go(context, () => model.settingTime = SettingTime.none),
+        onBack: () => _go(context, const SettingsGo(settingTime: SettingTime.none)),
         onSet: (m) {
-          _go(context, () => model.settingTime = SettingTime.none);
+          _go(context, const SettingsGo(settingTime: SettingTime.none));
           final t = DateTime.now();
           unawaited(_ask(context, () => VrxSystem.time.setTime(DateTime(t.year, t.month, t.day, m ~/ 60, m % 60))));
         },
@@ -165,9 +155,9 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
         title: 'Time zone',
         zones: view.zones,
         current: model.time?.zone ?? '',
-        onBack: () => _go(context, () => model.pickingZone = false),
+        onBack: () => _go(context, const SettingsGo(pickingZone: false)),
         onPick: (zone) {
-          _go(context, () => model.pickingZone = false);
+          _go(context, const SettingsGo(pickingZone: false));
           unawaited(_ask(context, () => VrxSystem.time.setZone(zone)));
         },
       );
@@ -175,7 +165,7 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
       body = _Category(
         view: view,
         category: open,
-        onBack: () => _go(context, () => model.open = null),
+        onBack: () => _go(context, const SettingsGo(open: Change(null))),
         onRow: (row) => _onRow(context, row),
         onLevel: (row, v, settled) => _brightness(context, v, settled: settled),
       );
@@ -193,15 +183,13 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
   Future<void> _setSetting(String applet, String key, String value) async {
     final decl = model.declOf(applet, key);
     if (decl != null && (decl.type == 'int' || decl.type == 'float') && num.tryParse(value) == null) {
-      model.error = '${decl.label} takes a number';
-      _facts.add(SettingsAction.failed);
+      _facts.add(SettingsFacts(error: '${decl.label} takes a number'));
       return;
     }
     try {
       await _settings.set(applet, key, value);
     } on FileSystemException catch (err) {
-      model.error = VrxWords.of(err, context: 'settings: save');
-      _facts.add(SettingsAction.failed);
+      _facts.add(SettingsFacts(error: VrxWords.of(err, context: 'settings: save')));
     }
   }
 
@@ -217,7 +205,7 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
       if (row.kind == RowKind.toggle) {
         unawaited(_setSetting(applet, key, model.nextValue(applet, decl)));
       } else {
-        _go(context, () => model.editingSetting = (applet, key));
+        _go(context, SettingsGo(editingSetting: Change((applet, key))));
       }
       return;
     }
@@ -234,24 +222,16 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
       case 'licences':
         unawaited(Nav.push('docs', route: 'licences'));
       case 'name':
-        _go(context, () => model.renaming = true);
+        _go(context, const SettingsGo(renaming: true));
       case 'battery_use':
-        _go(context, () => model
-          ..showingUse = true
-          ..energy = null);
-        unawaited(_ask(context, () async {
-          model.energy = await VrxEnergy.service.energy();
-          _facts.add(SettingsAction.factsChanged);
-        }));
+        _go(context, const SettingsGo(showingUse: true));
+        unawaited(_ask(context, () async => _facts.add(SettingsFacts(energy: Change(await VrxEnergy.service.energy())))));
       case 'why_awake':
-        _go(context, () => model
-          ..showingAwake = true
-          ..awake = null);
+        _go(context, const SettingsGo(showingAwake: true));
         unawaited(_ask(context, () async {
-          model
-            ..awake = await VrxEnergy.service.awake()
-            ..energy ??= await VrxEnergy.service.energy(hours: 1);
-          _facts.add(SettingsAction.factsChanged);
+          final awake = await VrxEnergy.service.awake();
+          final energy = model.energy ?? await VrxEnergy.service.energy(hours: 1);
+          _facts.add(SettingsFacts(awake: Change(awake), energy: Change(energy)));
         }));
       case 'light_off':
         unawaited(_ask(context, () => _screen.setLightOff(model.nextLightOff)));
@@ -260,24 +240,21 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
       case 'deep_after':
         unawaited(_ask(context, () => _screen.setDeepAfter(model.nextDeepAfter)));
       case 'scheme':
-        _go(context, () => model.pickingScheme = true);
+        _go(context, const SettingsGo(pickingScheme: true));
       case 'polarity':
         unawaited(_setSetting('vrx', 'polarity', row.on ? 'light' : 'dark'));
       case 'time_format':
-        _go(context, () => model.pickingTimeFormat = true);
+        _go(context, const SettingsGo(pickingTimeFormat: true));
       case 'set_date':
-        _go(context, () => model.settingTime = SettingTime.date);
+        _go(context, const SettingsGo(settingTime: SettingTime.date));
       case 'set_time':
-        _go(context, () => model.settingTime = SettingTime.time);
+        _go(context, const SettingsGo(settingTime: SettingTime.time));
       case 'automatic':
         unawaited(_ask(context, () => VrxSystem.time.setAutomatic(!row.on)));
       case 'zone':
-        _go(context, () => model.pickingZone = true);
+        _go(context, const SettingsGo(pickingZone: true));
         if (model.zones.isEmpty) {
-          unawaited(_ask(context, () async {
-            model.zones = await VrxSystem.time.zones();
-            _facts.add(SettingsAction.zonesLoaded);
-          }));
+          unawaited(_ask(context, () async => _facts.add(SettingsFacts(zones: await VrxSystem.time.zones()))));
         }
       case 'restart':
       case 'power_off':
@@ -379,59 +356,48 @@ class _Category extends StatelessWidget {
 Future<void> main() async {
   final model = SettingsModel();
   runApplet(SettingsApplet(model), actions: _facts.stream);
-  void fact(void Function() change) {
-    change();
-    _facts.add(SettingsAction.factsChanged);
-  }
-
-  void failed(Object err) {
-    model.error = VrxWords.of(err, context: 'settings');
-    _facts.add(SettingsAction.failed);
-  }
+  void fact(SettingsFacts f) => _facts.add(f);
+  void failed(Object err) => fact(SettingsFacts(error: VrxWords.of(err, context: 'settings')));
 
   // each service on its own: one that is absent (a desktop run) leaves
   // the others working
-  VrxSystem.time.watch().listen((t) => fact(() => model.time = t), onError: failed);
-  VrxSystem.network.watch().listen((n) => fact(() => model.network = n), onError: failed);
-  VrxSystem.device.watch().listen((d) => fact(() => model.device = d), onError: failed);
-  _screen.watch().listen((s) => fact(() => model.screen = s), onError: failed);
-  unawaited(_screen.dimming().then((d) => fact(() => model.dimming = d)));
-  unawaited(_screen.cascade().then((c) => fact(() => model.cascade = c)));
-  VrxSystem.power.watchSupplyLow().listen((low) => fact(() => model.supplyLow = low), onError: failed);
-  VrxSystem.usb.watch().listen((u) => fact(() => model.usbPresent = u.present), onError: failed);
-  VrxSystem.bluetooth.watch().listen((b) => fact(() => model.bluetooth = b), onError: failed);
-  VrxSystem.powerSupply.watch().listen((b) => fact(() => model.battery = b), onError: failed);
-  unawaited(deviceUsage().then((u) => fact(() => model.usage = u)));
+  VrxSystem.time.watch().listen((t) => fact(SettingsFacts(time: t)), onError: failed);
+  VrxSystem.network.watch().listen((n) => fact(SettingsFacts(network: n)), onError: failed);
+  VrxSystem.device.watch().listen((d) => fact(SettingsFacts(device: d)), onError: failed);
+  _screen.watch().listen((s) => fact(SettingsFacts(screen: s)), onError: failed);
+  unawaited(_screen.dimming().then((d) => fact(SettingsFacts(dimming: d))));
+  unawaited(_screen.cascade().then((c) => fact(SettingsFacts(cascade: c))));
+  VrxSystem.power.watchSupplyLow().listen((low) => fact(SettingsFacts(supplyLow: low)), onError: failed);
+  VrxSystem.usb.watch().listen((u) => fact(SettingsFacts(usbPresent: u.present)), onError: failed);
+  VrxSystem.bluetooth.watch().listen((b) => fact(SettingsFacts(bluetooth: b)), onError: failed);
+  VrxSystem.powerSupply.watch().listen((b) => fact(SettingsFacts(battery: Change(b))), onError: failed);
+  unawaited(deviceUsage().then((u) => fact(SettingsFacts(usage: u))));
   // vrxhost's energy estimate (plan 0012 D12): on a device with vrxhost
-  if (AppletsService.installed != null) fact(() => model.energyAvailable = true);
+  if (AppletsService.installed != null) fact(const SettingsFacts(energyAvailable: true));
   // the locales a time format can come from, and LC_TIME now (localed)
   unawaited(() async {
     try {
       final locales = await VrxSystem.locale.timeLocales();
       final now = await VrxSystem.locale.timeLocale();
-      fact(() => model
-        ..timeLocales = locales
-        ..timeLocale = now);
+      fact(SettingsFacts(timeLocales: locales, timeLocale: now));
     } on Object catch (err) {
       debugPrint('settings: no locales: $err');
     }
   }());
   // the look this boot draws, from the same snapshot every applet reads
   final boot = bootColors();
-  model
-    ..runningScheme = boot.scheme
-    ..runningDark = boot.dark;
+  fact(SettingsFacts(runningScheme: boot.scheme, runningDark: boot.dark));
   // the system's own settings (the chosen look)
-  _settings.watch('vrx').listen((v) => fact(() => model.values['vrx'] = v), onError: failed);
+  _settings.watch('vrx').listen((v) => fact(SettingsFacts(values: ('vrx', v))), onError: failed);
   // applets' declared settings, each file watched so a change shows
   unawaited(() async {
     final service = AppletsService.installed;
     if (service == null) return;
     try {
       final declared = await service.settings();
-      fact(() => model.declared = declared);
+      fact(SettingsFacts(declared: declared));
       for (final a in declared) {
-        _settings.watch(a.id).listen((v) => fact(() => model.values[a.id] = v), onError: failed);
+        _settings.watch(a.id).listen((v) => fact(SettingsFacts(values: (a.id, v))), onError: failed);
       }
     } on Object catch (err) {
       failed(err);
@@ -439,7 +405,7 @@ Future<void> main() async {
   }());
   try {
     final canOff = await VrxSystem.power.canPowerOff();
-    fact(() => model.canPowerOff = canOff);
+    fact(SettingsFacts(canPowerOff: canOff));
   } on Object catch (err) {
     failed(err);
   }
