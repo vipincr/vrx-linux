@@ -54,24 +54,30 @@ class LauncherView {
 }
 
 /// The consent question for an offer (plan 0011 D16): named for what
-/// happens, with what will change.
-({String title, String message, String act}) consentFor(AppOffer o) => switch (o.kind) {
-      'update' => (
-          title: 'Update ${o.name} to ${o.version}?',
-          message: 'Its saved data stays. Nothing proves who made this app: it is not signed.',
-          act: 'Update',
-        ),
-      'replace' => (
-          title: 'Replace ${o.name} ${o.version} with a different build?',
-          message: 'The version is the same but the app is not. Its saved data stays. It is not signed.',
-          act: 'Replace',
-        ),
-      _ => (
-          title: 'Install ${o.name} ${o.version}?',
-          message: 'It runs on its own, with none of the system\'s permissions. Nothing proves who made it: it is not signed.',
-          act: 'Install',
-        ),
-    };
+/// happens, with what will change, and whether anything proves who made
+/// it (plan 0013 D3).
+({String title, String message, String act}) consentFor(AppOffer o) {
+  final who = o.signed
+      ? 'It is signed by a key this device trusts.'
+      : 'Nothing proves who made it: this debug system installs apps without checking a signature.';
+  return switch (o.kind) {
+    'update' => (
+        title: 'Update ${o.name} to ${o.version}?',
+        message: 'Its saved data stays. $who',
+        act: 'Update',
+      ),
+    'replace' => (
+        title: 'Replace ${o.name} ${o.version} with a different build?',
+        message: 'The version is the same but the app is not. Its saved data stays. $who',
+        act: 'Replace',
+      ),
+    _ => (
+        title: 'Install ${o.name} ${o.version}?',
+        message: 'It runs on its own, with none of the system\'s permissions. $who',
+        act: 'Install',
+      ),
+  };
+}
 
 /// The launcher model. The registry (vrxhost) feeds the applet list;
 /// a registry change (install, remove) is an action like any other.

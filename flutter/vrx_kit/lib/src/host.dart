@@ -43,6 +43,7 @@ class AppOffer {
     required this.kind,
     this.installed,
     this.problem,
+    this.signed = false,
   });
 
   factory AppOffer.fromJson(Map<String, dynamic> j) => AppOffer(
@@ -54,6 +55,7 @@ class AppOffer {
         kind: '${j['kind'] ?? ''}',
         installed: j['installed'] as String?,
         problem: j['problem'] as String?,
+        signed: j['signed'] == true,
       );
 
   final String file, id, name, version;
@@ -69,6 +71,10 @@ class AppOffer {
 
   /// Why it cannot be installed (vrxhost's key), when it cannot.
   final String? problem;
+
+  /// The kernel verified its signature against the key this device
+  /// trusts (plan 0013 D3). False on a debug image, which checks none.
+  final bool signed;
 
   /// It can be installed now, and doing so changes something.
   bool get installable => problem == null && (kind == 'install' || kind == 'update' || kind == 'replace');

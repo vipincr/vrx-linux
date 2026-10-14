@@ -126,6 +126,18 @@ impl Place {
     }
 }
 
+/// What an installed applet's unit adds to the template's sandbox (plan
+/// 0013 D4); built-ins keep the template's set. The syscalls a service
+/// needs and no others (a refused call fails with EPERM, it does not
+/// kill), no new namespaces, no personality or realtime tricks, and other
+/// processes out of sight in /proc.
+pub const INSTALLED_SANDBOX: &str = "SystemCallFilter=@system-service\n\
+SystemCallErrorNumber=EPERM\n\
+RestrictNamespaces=yes\n\
+LockPersonality=yes\n\
+RestrictRealtime=yes\n\
+ProtectProc=invisible\n";
+
 /// The drop-in text for `manifest` at `place`.
 pub fn dropin(
     manifest: &Manifest,
@@ -184,6 +196,14 @@ pub fn dropin(
         // plan 0011 D16: its own transient user; the template's User=
         // names it, its state lands under /var/lib/private/vrx/<id>
         out.push_str("DynamicUser=yes\n");
+        out.push_str(INSTALLED_SANDBOX);
+        if a.permissions.internet {
+            // the world, never the device's own services on loopback
+            out.push_str("IPAddressDeny=localhost\n");
+        } else {
+            // its own network namespace: loopback only
+            out.push_str("PrivateNetwork=yes\n");
+        }
     }
     // D18: runtimes that speak the service protocol (flutter-vrx's app
     // role, the Rust SDK) get the start budget and the watchdog
@@ -283,6 +303,24 @@ mod tests {
             "{text}"
         );
         assert!(!text.contains("ReadWritePaths"), "{text}");
+        // plan 0013 D4: the rest of the sandbox, and no network by default
+        assert!(text.contains(INSTALLED_SANDBOX), "{text}");
+        assert!(text.contains("PrivateNetwork=yes\n"), "{text}");
+        assert!(!text.contains("IPAddressDeny"), "{text}");
+        let online = manifest("[applet.permissions]\ninternet = true\n");
+        let online = dropin(&online, &place, &grants).unwrap();
+        assert!(online.contains("IPAddressDeny=localhost\n"), "{online}");
+        assert!(!online.contains("PrivateNetwork"), "{online}");
+        // a built-in's unit is unchanged by any of it
+        let builtin = dropin(
+            &manifest("[applet.permissions]\ninternet = true\n"),
+            &Place::builtin("/system/defaults/notes", Some("/b".into())),
+            &grants,
+        )
+        .unwrap();
+        for line in ["SystemCallFilter", "PrivateNetwork", "IPAddressDeny"] {
+            assert!(!builtin.contains(line), "{builtin}");
+        }
         let asks = manifest("[applet.permissions]\nsystem = [\"network\"]\n");
         assert_eq!(
             dropin(&asks, &place, &grants),

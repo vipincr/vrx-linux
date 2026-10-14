@@ -54,10 +54,18 @@ void main() {
     h.assertView((v) => v.offers.map((o) => o.id).join() == 'ad');
   });
 
-  test('consent names the act and says the app is unsigned', () {
+  test('consent names the act and says whether anything proves who made it', () {
     const base = AppOffer(file: 'n.raw', id: 'n', name: 'Notes', version: '1.3.0', build: 'x', kind: 'install');
     expect(consentFor(base).title, 'Install Notes 1.3.0?');
-    expect(consentFor(base).message, contains('not signed'));
+    expect(consentFor(base).message, contains('without checking a signature'));
+    const signed =
+        AppOffer(file: 'n.raw', id: 'n', name: 'Notes', version: '1.3.0', build: 'x', kind: 'install', signed: true);
+    expect(consentFor(signed).message, contains('signed by a key this device trusts'));
+    expect(consentFor(signed).message, isNot(contains('without checking')));
+    expect(AppOffer.fromJson({'file': 'n.raw', 'signed': true}).signed, isTrue);
+    expect(AppOffer.fromJson({'file': 'n.raw'}).signed, isFalse);
+    expect(VrxWords.offerProblem('unsigned'), contains('only signed apps'));
+    expect(VrxWords.offerProblem('untrusted'), contains('does not trust'));
     expect(consentFor(const AppOffer(file: 'n.raw', id: 'n', name: 'Notes', version: '1.3.0', build: 'x', kind: 'update')).title,
         'Update Notes to 1.3.0?');
     expect(consentFor(const AppOffer(file: 'n.raw', id: 'n', name: 'Notes', version: '1.2.0', build: 'x', kind: 'replace')).act, 'Replace');

@@ -298,6 +298,13 @@ pub struct PermissionsSection {
     /// System grants (plan 0008 D2): built-ins only.
     #[serde(default)]
     pub system: Vec<SystemGrant>,
+    /// It reaches the internet (plan 0013 D4). An installed applet without
+    /// it runs in its own network namespace (`PrivateNetwork=yes`); with
+    /// it, it reaches the world but never the device's own services
+    /// (`IPAddressDeny=localhost`). No authority over the device, so an
+    /// installed applet may ask; a built-in's unit is unchanged by it.
+    #[serde(default)]
+    pub internet: bool,
 }
 
 /// A handler declaration: which intent, at what priority, opened at

@@ -71,6 +71,9 @@ abstract final class VrxWords {
         'builtin' => 'That app has the name of one of the system\'s own.',
         'flutter' => 'That app was built for another version of the system\'s Flutter.',
         'unreadable' => 'That file is not an app this device can read.',
+        'unsigned' => 'That app is not signed, and this device installs only signed apps.',
+        'untrusted' => 'That app is signed by someone this device does not trust.',
+        'off' => 'This device does not install apps.',
         _ => 'That app cannot be installed on this device.',
       };
 

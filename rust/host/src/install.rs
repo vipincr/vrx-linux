@@ -14,11 +14,24 @@
 // sharing has stopped. Nothing is copied before the person agrees, and
 // what they agreed to is the build (the image's SHA-256): a file changed
 // between the offer and the consent is refused.
+//
+// Signing (plan 0013 D3) is systemd's and the kernel's too. A release
+// image ships a sysext.conf drop-in whose ImagePolicy= requires a signed
+// image (dm-verity with a root hash signature the kernel verified against
+// its built-in keyring); systemd-sysext enforces it when it merges, and
+// every systemd-dissect here runs under the same policy, so an offer that
+// would not merge is refused before it is copied. vrx adds only the
+// sentence: "unsigned" when the image carries no signature at all,
+// "untrusted" when it carries one the kernel refused. A debug image ships
+// no drop-in and takes unsigned images, as the owner decided.
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use vrx_protocol::sysext::{release_ok, release_path, APPS_DIR};
+use vrx_protocol::sysext::{
+    has_verity_signature, image_policy, installs_on, release_ok, release_path, APPS_DIR,
+    INSTALL_CONF, SIGNED_DROPIN,
+};
 use vrx_protocol::unit::{dropin, settings_defaults, Grants, Place};
 use vrx_protocol::{Manifest, Registry, RegistryEntry};
 
@@ -50,6 +63,12 @@ pub enum Refusal {
     Flutter(String, String),
     #[error("unreadable: {0}")]
     Unreadable(String),
+    #[error("unsigned: this image installs only signed applets, and it is not signed")]
+    Unsigned,
+    #[error("untrusted: its signature is not from a key this device trusts")]
+    Untrusted,
+    #[error("off: this image does not install applets")]
+    Off,
 }
 
 impl Refusal {
@@ -63,6 +82,9 @@ impl Refusal {
             Refusal::Builtin(_) => "builtin",
             Refusal::Flutter(..) => "flutter",
             Refusal::Unreadable(_) => "unreadable",
+            Refusal::Unsigned => "unsigned",
+            Refusal::Untrusted => "untrusted",
+            Refusal::Off => "off",
         }
     }
 }
@@ -121,6 +143,45 @@ pub fn check_release(text: &str) -> Result<(), Refusal> {
         Ok(())
     } else {
         Err(Refusal::Release)
+    }
+}
+
+/// The install policy the image was built with (plan 0013 D3): whether it
+/// installs at all (INSTALL_CONF, closed when absent) and the image policy
+/// systemd-sysext merges under (SIGNED_DROPIN; None is systemd's default,
+/// which also takes unsigned images).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Policy {
+    pub installs: bool,
+    pub image_policy: Option<String>,
+}
+
+impl Policy {
+    /// Read from the system under `root` ("/" on the device).
+    pub fn load(root: &Path) -> Self {
+        let read =
+            |p: &str| std::fs::read_to_string(root.join(p.trim_start_matches('/')));
+        Self {
+            installs: read(INSTALL_CONF).is_ok_and(|t| installs_on(&t)),
+            image_policy: read(SIGNED_DROPIN).ok().and_then(|t| image_policy(&t)),
+        }
+    }
+
+    /// The `--image-policy=` argument systemd-dissect runs with, if any.
+    fn arg(&self) -> Option<String> {
+        self.image_policy
+            .as_ref()
+            .map(|p| format!("--image-policy={p}"))
+    }
+}
+
+/// Why systemd-dissect refused an image under a signing policy: a
+/// signature the kernel did not trust, or no signature at all.
+pub fn refusal_under_policy(signed: bool) -> Refusal {
+    if signed {
+        Refusal::Untrusted
+    } else {
+        Refusal::Unsigned
     }
 }
 
@@ -238,6 +299,11 @@ pub struct Offer {
     pub installed: Option<String>,
     /// Why it cannot be installed (a Refusal key), when it cannot.
     pub problem: Option<String>,
+    /// Its signature was verified by the kernel against the key this
+    /// image trusts (plan 0013 D3): true only under the signing policy,
+    /// where nothing unverified gets this far. A debug image checks no
+    /// signature, and says so.
+    pub signed: bool,
 }
 
 /// What an image says about itself, read without merging it.
@@ -250,6 +316,10 @@ pub struct Inspected {
 async fn output(program: &str, args: &[&str]) -> Result<String, Refusal> {
     let out = tokio::process::Command::new(program)
         .args(args)
+        // a signature is the kernel's to verify against its built-in
+        // keyring, never systemd's against certificates under /etc, which
+        // root can write (plan 0013 D3)
+        .env("SYSTEMD_ALLOW_USERSPACE_VERITY", "0")
         .output()
         .await
         .map_err(|e| Refusal::Unreadable(format!("{program}: {e}")))?;
@@ -263,24 +333,25 @@ async fn output(program: &str, args: &[&str]) -> Result<String, Refusal> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// A file inside an image, through `systemd-dissect --copy-from`.
-async fn read_inside(image: &Path, path: &str) -> Result<String, Refusal> {
+/// A file inside an image, through `systemd-dissect --copy-from`, under
+/// the image policy.
+async fn read_inside(
+    image: &Path,
+    path: &str,
+    policy: &Policy,
+) -> Result<String, Refusal> {
     let tmp = std::env::temp_dir().join(format!(
         "vrx-inspect-{}-{}",
         std::process::id(),
         path.replace('/', "_")
     ));
     let _ = std::fs::remove_file(&tmp);
-    output(
-        "systemd-dissect",
-        &[
-            "--copy-from",
-            &image.to_string_lossy(),
-            path,
-            &tmp.to_string_lossy(),
-        ],
-    )
-    .await?;
+    let image = image.to_string_lossy();
+    let tmp_arg = tmp.to_string_lossy();
+    let policy_arg = policy.arg();
+    let mut args: Vec<&str> = policy_arg.iter().map(String::as_str).collect();
+    args.extend(["--copy-from", &image, path, &tmp_arg]);
+    output("systemd-dissect", &args).await?;
     let text =
         std::fs::read_to_string(&tmp).map_err(|e| Refusal::Unreadable(e.to_string()));
     let _ = std::fs::remove_file(&tmp);
@@ -297,19 +368,34 @@ pub async fn build_of(image: &Path) -> Result<String, Refusal> {
 }
 
 /// Read an offer: its listing, its release file and its manifest, every
-/// check but the registry's.
-pub async fn inspect(image: &Path) -> Result<Inspected, Refusal> {
+/// check but the registry's, all under the image policy.
+pub async fn inspect(image: &Path, policy: &Policy) -> Result<Inspected, Refusal> {
     let file = image
         .file_name()
         .map(|f| f.to_string_lossy().into_owned())
         .unwrap_or_default();
     let id = id_of_file(&file).ok_or(Refusal::Name)?.to_owned();
-    let listing =
-        output("systemd-dissect", &["--list", &image.to_string_lossy()]).await?;
+    let image_arg = image.to_string_lossy();
+    let policy_arg = policy.arg();
+    let mut args: Vec<&str> = policy_arg.iter().map(String::as_str).collect();
+    args.extend(["--list", &image_arg]);
+    let listing = match output("systemd-dissect", &args).await {
+        Ok(listing) => listing,
+        // under a signing policy, a refusal is the signature's: say which
+        Err(_) if policy.image_policy.is_some() => {
+            let signed = std::fs::File::open(image)
+                .map(|mut f| has_verity_signature(&mut f))
+                .unwrap_or(false);
+            return Err(refusal_under_policy(signed));
+        }
+        Err(other) => return Err(other),
+    };
     let bundle = check_listing(&id, &listing)?;
-    check_release(&read_inside(image, &format!("/{}", release_path(&id))).await?)?;
+    check_release(
+        &read_inside(image, &format!("/{}", release_path(&id)), policy).await?,
+    )?;
     let manifest: Manifest =
-        read_inside(image, &format!("/{APPS_DIR}/{id}/manifest.toml"))
+        read_inside(image, &format!("/{APPS_DIR}/{id}/manifest.toml"), policy)
             .await?
             .parse()
             .map_err(|e: vrx_protocol::manifest::ManifestError| {
@@ -468,8 +554,12 @@ pub async fn import_drive() {
     let _ = std::fs::remove_dir_all(&landing);
 }
 
-/// Every offer waiting, read and checked against the registry.
-pub async fn offers(registry: &Registry, defaults: &Path) -> Vec<Offer> {
+/// Every offer waiting, read and checked against the registry. An image
+/// built without installs offers nothing.
+pub async fn offers(registry: &Registry, defaults: &Path, policy: &Policy) -> Vec<Offer> {
+    if !policy.installs {
+        return Vec::new();
+    }
     let mut files: Vec<PathBuf> = std::fs::read_dir(OFFERS)
         .map(|r| r.flatten().map(|e| e.path()).collect())
         .unwrap_or_default();
@@ -492,8 +582,9 @@ pub async fn offers(registry: &Registry, defaults: &Path) -> Vec<Offer> {
             kind: Kind::Install,
             installed: None,
             problem: None,
+            signed: false,
         };
-        match check_offer(registry, &path, flutter.as_deref()).await {
+        match check_offer(registry, &path, flutter.as_deref(), policy).await {
             Ok(inspected) => {
                 let installed = installed_build(registry, &id).await;
                 offer.name = inspected.manifest.applet.name.clone();
@@ -505,6 +596,7 @@ pub async fn offers(registry: &Registry, defaults: &Path) -> Vec<Offer> {
                 );
                 offer.installed = installed.map(|(v, _)| v);
                 offer.build = inspected.build;
+                offer.signed = policy.image_policy.is_some();
             }
             Err(refusal) => {
                 tracing::info!(%file, reason = %refusal, "offer cannot be installed");
@@ -521,8 +613,12 @@ pub async fn check_offer(
     registry: &Registry,
     image: &Path,
     flutter: Option<&str>,
+    policy: &Policy,
 ) -> Result<Inspected, Refusal> {
-    let inspected = inspect(image).await?;
+    if !policy.installs {
+        return Err(Refusal::Off);
+    }
+    let inspected = inspect(image, policy).await?;
     let id = inspected.manifest.applet.id.clone();
     check_manifest(
         registry,
@@ -592,6 +688,7 @@ pub async fn helper(
     request: Request,
 ) -> serde_json::Value {
     use serde_json::json;
+    let policy = Policy::load(Path::new("/"));
     let registry = match crate::registry::scan(paths) {
         Ok(r) => r,
         Err(err) => {
@@ -606,7 +703,7 @@ pub async fn helper(
             if drive_idle {
                 import_drive().await;
             }
-            json!({ "offers": offers(&registry, &paths.system_defaults).await })
+            json!({ "offers": offers(&registry, &paths.system_defaults, &policy).await })
         }
         Request::Install { file, build } => {
             if id_of_file(&file).is_none() {
@@ -617,17 +714,17 @@ pub async fn helper(
             }
             let image = Path::new(OFFERS).join(&file);
             let flutter = system_flutter(&paths.system_defaults);
-            let inspected = match check_offer(&registry, &image, flutter.as_deref()).await
-            {
-                Ok(i) => i,
-                Err(r) => {
-                    tracing::warn!(%file, reason = %r, "install refused");
-                    return refused(
-                        "OfferRefused",
-                        json!({ "file": file, "reason": r.key() }),
-                    );
-                }
-            };
+            let inspected =
+                match check_offer(&registry, &image, flutter.as_deref(), &policy).await {
+                    Ok(i) => i,
+                    Err(r) => {
+                        tracing::warn!(%file, reason = %r, "install refused");
+                        return refused(
+                            "OfferRefused",
+                            json!({ "file": file, "reason": r.key() }),
+                        );
+                    }
+                };
             if inspected.build != build {
                 return refused("OfferChanged", json!({ "file": file }));
             }
@@ -834,6 +931,56 @@ mod tests {
         assert!(matches!(
             check_manifest(&registry, &home, dir),
             Err(Refusal::Manifest(_))
+        ));
+    }
+
+    /// Plan 0013 D3: installs are closed unless the image says yes, and the
+    /// image policy is the release drop-in's when it ships one.
+    #[test]
+    fn the_install_policy_is_read_from_the_image() {
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(Policy::load(root.path()), Policy::default());
+        let conf = root.path().join(INSTALL_CONF.trim_start_matches('/'));
+        std::fs::create_dir_all(conf.parent().unwrap()).unwrap();
+        std::fs::write(&conf, "installs=yes\n").unwrap();
+        let debug = Policy::load(root.path());
+        assert!(debug.installs);
+        assert_eq!(debug.image_policy, None);
+        assert_eq!(debug.arg(), None);
+        let dropin = root.path().join(SIGNED_DROPIN.trim_start_matches('/'));
+        std::fs::create_dir_all(dropin.parent().unwrap()).unwrap();
+        std::fs::write(
+            &dropin,
+            include_str!("../../../layer/recipes-core/vrxhost/files/50-vrx-signed.conf"),
+        )
+        .unwrap();
+        let release = Policy::load(root.path());
+        assert_eq!(
+            release.arg().as_deref(),
+            Some("--image-policy=root=signed+absent:usr=signed+absent:=ignore")
+        );
+        std::fs::write(&conf, "installs=no\n").unwrap();
+        assert!(!Policy::load(root.path()).installs);
+    }
+
+    #[test]
+    fn a_refusal_under_a_signing_policy_names_the_signature() {
+        assert_eq!(refusal_under_policy(false), Refusal::Unsigned);
+        assert_eq!(refusal_under_policy(true), Refusal::Untrusted);
+        assert_eq!(Refusal::Unsigned.key(), "unsigned");
+        assert_eq!(Refusal::Untrusted.key(), "untrusted");
+        assert_eq!(Refusal::Off.key(), "off");
+    }
+
+    #[tokio::test]
+    async fn an_image_built_without_installs_offers_and_installs_nothing() {
+        let off = Policy::default();
+        assert!(offers(&Registry::new(), Path::new("/nonexistent"), &off)
+            .await
+            .is_empty());
+        assert!(matches!(
+            check_offer(&Registry::new(), Path::new("/x/notes.raw"), None, &off).await,
+            Err(Refusal::Off)
         ));
     }
 

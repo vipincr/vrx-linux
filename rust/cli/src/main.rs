@@ -19,8 +19,11 @@ const USAGE: &str = "vrx — the applet tool
 usage:
   vrx new <name> --rust | --flutter   scaffold a working applet
   vrx build [--in <dir>]              validate the manifest, then compile
-  vrx pack <dir> [--out <dir>]        an applet as it installs, as <id>.raw:
-                                      a system extension the device offers
+  vrx pack <dir> [--out <dir>] (--key <key.pem> --cert <cert.pem> | --unsigned)
+           [--arch arm64|x86-64]
+                                      an applet as it installs, as <id>.raw:
+                                      a signed system extension the device
+                                      offers (--unsigned: debug images only)
   vrx unit --manifest <f> --dir <d> --dropin <out> [--bundle <d>]
            [--grants <f>] [--settings <out>]
                                       the applet's systemd drop-in (the build)

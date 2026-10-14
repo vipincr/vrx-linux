@@ -2,7 +2,8 @@
 # vrxhost: the applet OS daemon (plan 0007 part C). Registry scan
 # (/system/defaults, and /usr/lib/vrx/apps where systemd-sysext merges
 # installed applets), applet supervision through systemd, io.vrx.Host on
-# /run/vrx, the back trail, installs (plan 0011 D16).
+# /run/vrx, the back trail, installs (plan 0011 D16) and their policy
+# (plan 0013 D3).
 #
 # SPDX-License-Identifier: MIT
 #
@@ -22,6 +23,8 @@ SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master \
            file://vrx-install.service \
            file://vrx-wake@.service \
            file://vrx-wakealarm.service \
+           file://50-vrx-signed.conf \
+           file://vrx-kernel-verity.conf \
            "
 SRCREV = "c2d4cf75999e008c9eb6a2337e7ae0a8fcc24339"
 
@@ -51,7 +54,35 @@ do_install() {
     install -m 0644 ${UNPACKDIR}/vrx-wakealarm.service ${D}${systemd_unitdir}/system/
     install -d ${D}${nonarch_libdir}/tmpfiles.d
     install -m 0644 ${UNPACKDIR}/vrxhost-tmpfiles.conf ${D}${nonarch_libdir}/tmpfiles.d/vrxhost.conf
+
+    # the install policy (plan 0013 D3, vrx_protocol::sysext): whether this
+    # image installs applets at all, and, in a release image that does,
+    # systemd-sysext's own policy requiring a kernel-verified signature
+    install -d ${D}${nonarch_libdir}/vrx
+    printf '# written by vrxhost'"'"'s recipe from VRX_INSTALLS (plan 0013 D3)\ninstalls=%s\n' \
+        "${@vrx_installs(d)}" > ${D}${nonarch_libdir}/vrx/install.conf
+    if [ "${@vrx_installs(d)}" = yes ] && [ "${VRX_DEBUG}" != 1 ]; then
+        install -d ${D}${nonarch_libdir}/systemd/sysext.conf.d
+        install -m 0644 ${UNPACKDIR}/50-vrx-signed.conf ${D}${nonarch_libdir}/systemd/sysext.conf.d/
+    fi
+    for unit in systemd-sysext.service systemd-sysext@.service; do
+        install -d ${D}${systemd_unitdir}/system/$unit.d
+        install -m 0644 ${UNPACKDIR}/vrx-kernel-verity.conf ${D}${systemd_unitdir}/system/$unit.d/
+    done
 }
+
+# VRX_INSTALLS (meta-vrx's layer.conf): "1" lets the image install applets,
+# "" builds one that installs nothing. Closed when unset. A release image
+# that installs must carry VRX_INSTALL_CERT (meta-vrx's vrx-install-cert
+# class refuses the build otherwise); a debug image (VRX_DEBUG = "1") also
+# takes unsigned images, as the owner decided (2026-10-14).
+def vrx_installs(d):
+    v = (d.getVar('VRX_INSTALLS') or '').strip()
+    if v not in ('1', ''):
+        bb.fatal("VRX_INSTALLS must be '1' (install applets) or '' (none), got '%s'" % v)
+    return 'yes' if v == '1' else 'no'
+
+do_install[vardeps] += "VRX_INSTALLS VRX_DEBUG"
 
 # The vrx group: every applet user is a member (vrx-applet@.service's
 # SupplementaryGroups), which is what lets applets reach the compositor's
@@ -66,6 +97,10 @@ FILES:${PN} = "${bindir}/vrxhost ${systemd_unitdir}/system/vrxhost.service \
                ${systemd_unitdir}/system/vrx-install.service \
                ${systemd_unitdir}/system/vrx-wake@.service \
                ${systemd_unitdir}/system/vrx-wakealarm.service \
+               ${systemd_unitdir}/system/systemd-sysext.service.d \
+               ${systemd_unitdir}/system/systemd-sysext@.service.d \
+               ${nonarch_libdir}/vrx/install.conf \
+               ${nonarch_libdir}/systemd/sysext.conf.d \
                ${nonarch_libdir}/tmpfiles.d/vrxhost.conf"
 
 SYSTEMD_SERVICE:${PN} = "vrxhost.service vrx-wakealarm.service"
