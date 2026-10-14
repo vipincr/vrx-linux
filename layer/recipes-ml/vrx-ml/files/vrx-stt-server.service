@@ -15,7 +15,7 @@ ConditionPathExists=/usr/share/vrx-ml/speech.bin
 [Service]
 Type=exec
 ExecStart=/usr/bin/whisper-server --host 127.0.0.1 --port 8082 \
-    --model /usr/share/vrx-ml/speech.bin --threads 4
+    --model /usr/share/vrx-ml/speech.bin --threads 3
 # whisper-server loads the model before it listens; its form page at /
 # answers once it does
 ExecStartPost=/usr/libexec/vrx/vrx-ml-ready 8082 /
@@ -32,3 +32,12 @@ RestrictAddressFamilies=AF_INET AF_UNIX
 MemoryHigh=200M
 MemoryMax=250M
 OOMScoreAdjust=500
+# The screen comes first (bench, CM4, 2026-10-14: with --threads 4 on the
+# four A72 cores an applet missed its 5 s start budget while the model
+# answered). Three threads leave a core for the compositor and the
+# applets, and the scheduler favours them for the rest: CPUWeight 20
+# against the default 100, Nice 10, and IOWeight 20 against 100 for
+# reading the model off the eMMC.
+CPUWeight=20
+Nice=10
+IOWeight=20
