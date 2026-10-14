@@ -95,6 +95,28 @@ pub enum UnitError {
     InstalledWithAuthority(String),
 }
 
+/// The Flutter engine's runtime mode an image is built in (vrx plan 0014
+/// D1, Part F): release everywhere; profile only in a bench build that
+/// asks for it (`VRX_FLUTTER_RUNTIME = "profile"`), where the engine
+/// keeps its timeline and VM service.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FlutterMode {
+    #[default]
+    Release,
+    Profile,
+}
+
+impl FlutterMode {
+    /// `release` or `profile`, the values of `VRX_FLUTTER_RUNTIME`.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "release" => Some(Self::Release),
+            "profile" => Some(Self::Profile),
+            _ => None,
+        }
+    }
+}
+
 /// Where the applet lives and how its unit is budgeted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
@@ -108,6 +130,8 @@ pub struct Place {
     pub watchdog: String,
     /// Installed (plan 0011 D16): a dynamic user, no grants.
     pub installed: bool,
+    /// The engine mode the image carries (installed applets: release).
+    pub flutter_mode: FlutterMode,
 }
 
 impl Place {
@@ -122,6 +146,7 @@ impl Place {
             start_budget: "5s".to_owned(),
             watchdog: "60s".to_owned(),
             installed: false,
+            flutter_mode: FlutterMode::Release,
         }
     }
 }
@@ -181,7 +206,19 @@ pub fn dropin(
             groups.insert("video".to_owned());
             groups.insert("render".to_owned());
             devices.insert("char-drm".to_owned());
-            format!("/usr/bin/flutter-vrx --release --app {bundle}")
+            match place.flutter_mode {
+                FlutterMode::Release => {
+                    format!("/usr/bin/flutter-vrx --release --app {bundle}")
+                }
+                // the engine's timeline into ftrace's trace_marker, where a
+                // Perfetto capture merges it with the system's (plan 0014
+                // Part F); its VM service listens on localhost by default
+                FlutterMode::Profile => {
+                    format!(
+                        "/usr/bin/flutter-vrx --profile --app {bundle} --trace-systrace"
+                    )
+                }
+            }
         }
         Runtime::Dart | Runtime::Rust | Runtime::Native => format!("{}/app", place.dir),
     };
@@ -281,6 +318,38 @@ mod tests {
         assert_eq!(g.get("i2c").unwrap().devices, ["char-i2c"]);
         assert_eq!(g.get("settings").unwrap().paths, ["/etc/vrx/settings"]);
         assert!(Grants::parse("nonsense\n").is_err());
+    }
+
+    /// Part F: a profile image starts its applets in profile mode with the
+    /// engine's timeline on ftrace; a release image is unchanged.
+    #[test]
+    fn the_runtime_mode_follows_the_image() {
+        let grants = Grants::shipped();
+        let release = Place::builtin(
+            "/system/defaults/clock",
+            Some("/system/defaults/clock/3.47.5/release".into()),
+        );
+        let text = dropin(&manifest(""), &release, &grants).unwrap();
+        assert!(
+            text.contains("ExecStart=/usr/bin/flutter-vrx --release --app /system/defaults/clock/3.47.5/release\n"),
+            "{text}"
+        );
+        let profile = Place {
+            flutter_mode: FlutterMode::Profile,
+            ..Place::builtin(
+                "/system/defaults/clock",
+                Some("/system/defaults/clock/3.47.5/profile".into()),
+            )
+        };
+        let text = dropin(&manifest(""), &profile, &grants).unwrap();
+        assert!(
+            text.contains(
+                "ExecStart=/usr/bin/flutter-vrx --profile --app /system/defaults/clock/3.47.5/profile --trace-systrace\n"
+            ),
+            "{text}"
+        );
+        assert_eq!(FlutterMode::parse("profile"), Some(FlutterMode::Profile));
+        assert_eq!(FlutterMode::parse("debug"), None);
     }
 
     /// G023: whatever an installed applet's manifest asks for, its unit

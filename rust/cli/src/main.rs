@@ -26,7 +26,7 @@ usage:
                                       an applet as it installs, as <id>.raw:
                                       a signed system extension the device
                                       offers (--unsigned: debug images only)
-  vrx unit --manifest <f> --dir <d> --dropin <out> [--bundle <d>]
+  vrx unit --manifest <f> --dir <d> --dropin <out> [--bundle <d>] [--runtime release|profile]
            [--grants <f>] [--settings <out>]
                                       the applet's systemd drop-in (the build)
   vrx power-profile [--measured] <file>...

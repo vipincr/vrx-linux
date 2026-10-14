@@ -4,7 +4,7 @@
 # generator vrxhost runs when it installs an applet) writes the unit
 # drop-in vrx-applet@<id>.service.d/10-manifest.conf:
 #
-#   ExecStart  flutter: flutter-vrx --release --app ${VRX_FLUTTER_BUNDLE}
+#   ExecStart  flutter: flutter-vrx --release (or --profile) --app ${VRX_FLUTTER_BUNDLE}
 #              dart, rust, native: ${VRX_APPLET_DIR}/app
 #   SupplementaryGroups / DeviceAllow
 #              the groups and device classes its system grants map to
@@ -37,13 +37,14 @@ python vrx_applet_unit() {
     if runtime == 'flutter':
         if not bundle:
             bb.fatal("%s: a flutter applet needs VRX_FLUTTER_BUNDLE" % applet)
-        # D18: only an AOT release bundle ships. A debug or JIT bundle
+        # D18: only an AOT bundle ships (release, or profile in a bench
+        # build that asked for it: VRX_FLUTTER_RUNTIME). A debug or JIT bundle
         # (no libapp.so, or a kernel snapshot in kernel_blob.bin) is slow
         # by construction. meta-flutter leaves an EMPTY kernel_blob.bin
         # in a release bundle; a non-empty one is the JIT kernel.
         root = d.getVar('D') + bundle
         if not os.path.isfile(os.path.join(root, 'lib', 'libapp.so')):
-            bb.fatal("%s: %s has no lib/libapp.so: not an AOT release bundle" % (applet, bundle))
+            bb.fatal("%s: %s has no lib/libapp.so: not an AOT bundle" % (applet, bundle))
         blob = os.path.join(root, 'data', 'flutter_assets', 'kernel_blob.bin')
         if os.path.exists(blob) and os.path.getsize(blob) > 0:
             bb.fatal("%s: %s carries a %d-byte kernel_blob.bin: a JIT bundle, never shipped"
@@ -59,6 +60,7 @@ python vrx_applet_unit() {
            '--grants', d.getVar('VRX_GRANTS_CONF'),
            '--start-budget', d.getVar('VRX_APPLET_START_BUDGET'),
            '--watchdog', d.getVar('VRX_APPLET_WATCHDOG'),
+           '--runtime', d.getVar('VRX_FLUTTER_RUNTIME') or 'release',
            '--dropin', dropin,
            '--settings', settings]
     if runtime == 'flutter':
@@ -68,6 +70,8 @@ python vrx_applet_unit() {
         bb.fatal("%s: vrx unit: %s" % (applet, done.stderr.strip()))
 }
 do_install[postfuncs] += "vrx_applet_unit"
+# the engine mode decides ExecStart and the bundle path
+do_install[vardeps] += "VRX_FLUTTER_RUNTIME"
 do_install[file-checksums] += "${VRX_GRANTS_CONF}:True"
 # `vrx unit` runs from the native sysroot
 DEPENDS += "vrx-cli-native"

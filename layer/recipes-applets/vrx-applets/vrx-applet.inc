@@ -38,7 +38,12 @@ do_install:append() {
 # The unit drop-in and the applet's user: vrx-applet-unit.bbclass, from the
 # manifest installed above.
 VRX_APPLET_DIR = "${FLUTTER_INSTALL_DIR}"
-VRX_FLUTTER_BUNDLE = "${FLUTTER_INSTALL_DIR}/${FLUTTER_SDK_VERSION}/release"
+# The engine mode is the image's, set once in meta-vrx-ui
+# (VRX_FLUTTER_RUNTIME, release unless a bench build asks for profile;
+# plan 0014 Part F): meta-flutter builds the AOT bundle in that mode and
+# the unit starts flutter-vrx in it.
+VRX_FLUTTER_RUNTIME ??= "release"
+VRX_FLUTTER_BUNDLE = "${FLUTTER_INSTALL_DIR}/${FLUTTER_SDK_VERSION}/${VRX_FLUTTER_RUNTIME}"
 inherit vrx-applet-unit
 
 FILES:${PN} += "${FLUTTER_INSTALL_DIR}"

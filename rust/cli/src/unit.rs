@@ -5,13 +5,13 @@
 //
 //   vrx unit --manifest <manifest.toml> --dir <installed dir>
 //            [--bundle <dir>] [--grants <grants.conf>]
-//            [--start-budget 5s] [--watchdog 60s]
+//            [--start-budget 5s] [--watchdog 60s] [--runtime release|profile]
 //            --dropin <out> [--settings <out>]
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use vrx_protocol::unit::{dropin, settings_defaults, Grants, Place};
+use vrx_protocol::unit::{dropin, settings_defaults, FlutterMode, Grants, Place};
 use vrx_protocol::Manifest;
 
 fn value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
@@ -59,6 +59,13 @@ pub fn run(args: &[String]) -> ExitCode {
     }
     if let Some(watchdog) = value(args, "--watchdog") {
         watchdog.clone_into(&mut place.watchdog);
+    }
+    if let Some(mode) = value(args, "--runtime") {
+        let Some(mode) = FlutterMode::parse(mode) else {
+            eprintln!("vrx unit: --runtime is release or profile, not {mode}");
+            return ExitCode::from(64);
+        };
+        place.flutter_mode = mode;
     }
     let text = match dropin(&manifest, &place, &grants) {
         Ok(text) => text,
