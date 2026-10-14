@@ -636,6 +636,39 @@ class _Scheduler {
       if (next > now && next < at) at = next;
     }
     _wake = Timer(Duration(seconds: math.max(1, at - now)), _onWake);
+    _askWake(due);
+  }
+
+  // The system wakes for the next thing due (plan 0012 D15): vrxhost
+  // keeps a systemd timer with WakeSystem=yes for it, so an alarm rings
+  // through a sleep; asked again only when it moves.
+  int? _wakeAsked = -1;
+
+  void _askWake(int? due) {
+    if (due == _wakeAsked) return;
+    _wakeAsked = due;
+    final service = AppletsService.installed;
+    if (service == null) return;
+    unawaited(() async {
+      try {
+        await service.wakeAt(due == null ? null : DateTime.fromMillisecondsSinceEpoch(due * 1000, isUtc: true));
+      } on Object catch (err) {
+        debugPrint('clock: the system cannot wake for the next alarm: $err');
+      }
+    }());
+  }
+
+  // After a sleep (paused, then anything else) the timer above counted
+  // only the time awake: check what came due while asleep at once.
+  AppLifecycleState? _life;
+
+  void _followSleep() {
+    // the binding keeps the listener for the applet's life
+    AppLifecycleListener(onStateChange: (s) {
+      final woke = _life == AppLifecycleState.paused && s != AppLifecycleState.paused;
+      _life = s;
+      if (woke) _onWake();
+    });
   }
 
   void _onWake() {
@@ -687,6 +720,7 @@ class _Scheduler {
   Future<void> start() async {
     // a save still in flight finishes before the unit stops
     VrxFile.flushOnStop(() => _saving);
+    _followSleep();
     model.book = await ClockBook.load(_bookPath);
     await loadWorld();
     AppletsService.installed?.watch().listen((f) => _front = f.front, onError: (Object _) {});

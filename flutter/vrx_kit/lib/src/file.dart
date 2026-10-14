@@ -11,7 +11,7 @@ library;
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 /// A watchable shared-state file.
 abstract interface class VrxFile {
@@ -41,11 +41,19 @@ abstract interface class VrxFile {
   }
 
   /// Run [flush] before the applet stops (systemd's SIGTERM), so a write
-  /// still waiting is not lost. Every flush gets two seconds together.
+  /// still waiting is not lost, and before the system sleeps (the
+  /// compositor relays logind's PrepareForSleep as
+  /// AppLifecycleState.paused and holds the sleep for a second, plan 0012
+  /// D14). Every flush gets two seconds together.
   static void flushOnStop(Future<void> Function() flush) {
     _flushers.add(flush);
     if (_watching || !Platform.isLinux) return;
     _watching = true;
+    // the binding keeps the listener for the applet's life
+    AppLifecycleListener(
+      binding: WidgetsFlutterBinding.ensureInitialized(),
+      onPause: () => unawaited(_flushAll()),
+    );
     ProcessSignal.sigterm.watch().listen((_) async {
       try {
         await Future.wait([for (final f in _flushers) f()]).timeout(const Duration(seconds: 2));
@@ -54,6 +62,14 @@ abstract interface class VrxFile {
       }
       exit(0);
     });
+  }
+
+  static Future<void> _flushAll() async {
+    try {
+      await Future.wait([for (final f in _flushers) f()]).timeout(const Duration(seconds: 2));
+    } on Object catch (err) {
+      debugPrint('vrx: a write did not finish before the system slept: $err');
+    }
   }
 
   static final _flushers = <Future<void> Function()>[];

@@ -92,12 +92,22 @@ class FrontApplet {
 /// 0012 D6): the USB device port's state, the supply alarm, and a count of
 /// backlight changes (read the level again when it moves).
 class SystemFacts {
-  const SystemFacts({this.usb = '', this.supplyLow = false, this.backlight = 0});
+  const SystemFacts({
+    this.usb = '',
+    this.supplyLow = false,
+    this.backlight = 0,
+    this.battery = -1,
+    this.batteryZone = '',
+    this.nextWake = 0,
+  });
 
   factory SystemFacts.fromJson(Map<String, dynamic> j) => SystemFacts(
         usb: '${j['usb'] ?? ''}',
         supplyLow: j['supply_low'] == true,
         backlight: (j['backlight'] as num?)?.toInt() ?? 0,
+        battery: (j['battery'] as num?)?.toInt() ?? -1,
+        batteryZone: '${j['battery_zone'] ?? ''}',
+        nextWake: (j['next_wake'] as num?)?.toInt() ?? 0,
       );
 
   /// The UDC's state ("configured" with a computer on the cable); '' on a
@@ -109,6 +119,18 @@ class SystemFacts {
 
   /// Changes to the backlight's level so far.
   final int backlight;
+
+  /// The battery's charge in percent, as vrxhost shows it (plan 0012
+  /// D10); -1 where there is no battery.
+  final int battery;
+
+  /// '', 'warn' or 'critical' while discharging: at 'critical' the device
+  /// powers off in 30 seconds unless it goes on a charger.
+  final String batteryZone;
+
+  /// The earliest time (unix seconds) an applet asked the system to wake
+  /// for, Clock's next alarm; 0 = none.
+  final int nextWake;
 }
 
 /// The applet OS's own service: navigation, the registry, intents.
@@ -151,6 +173,12 @@ abstract class AppletsService implements IntentTransport, NavDelegate {
   /// Uninstall an installed applet: its image, unit drop-in, saved state,
   /// cache and settings go.
   Future<void> uninstall(String applet);
+
+  /// Wake the system at [at] for this applet's next alarm or timer (plan
+  /// 0012 D15), replacing what it asked before; null cancels. For applets
+  /// holding the time grant; a board with no RTC keeps the request and
+  /// cannot wake for it.
+  Future<void> wakeAt(DateTime? at);
 
   /// Where this applet was last opened (plan 0011 D5): the route ('' is
   /// the root; one it does not declare arrives as ''), and the payload of
@@ -311,6 +339,10 @@ class VarlinkAppletsService extends AppletsService {
 
   @override
   Future<void> uninstall(String applet) => _client.call('io.vrx.Host.Uninstall', {'applet': applet});
+
+  @override
+  Future<void> wakeAt(DateTime? at) =>
+      _client.call('io.vrx.Host.WakeAt', {'at': at == null ? null : at.millisecondsSinceEpoch ~/ 1000});
 
   @override
   Future<({String route, Object? payload})> route() async {
