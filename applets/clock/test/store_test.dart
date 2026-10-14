@@ -140,6 +140,17 @@ void main() {
       ..dispatch(ClockDo.snoozeRing);
     expect(keeper.events.last, 'release');
   });
+  test('a home app arms and disarms every alarm (plan 0015 D7)', () {
+    final m = model();
+    StoreHarness(m)
+      ..dispatch(ClockFacts(
+          book: ClockBook(alarms: [const Alarm(minutes: 7 * 60), const Alarm(minutes: 8 * 60, enabled: false)])))
+      ..dispatch(const ClockArmAlarms(true));
+    expect(m.book.alarms.every((a) => a.enabled), isTrue);
+    expect(m.takeSave(), isTrue, reason: 'the book is written');
+    StoreHarness(m).dispatch(const ClockArmAlarms(false));
+    expect(m.book.alarms.any((a) => a.enabled), isFalse);
+  });
   test("the store's promises hold over the world's facts and Back (plan 0013 D2)", () {
     final h = StoreHarness(model());
     h.dispatch(ClockFacts(home: Zone.fixed('Europe/London', 3600), synced: true));
@@ -161,6 +172,8 @@ void main() {
       ClockDraftTime(8 * 60 + 15),
       ClockDo.saveDraft,
       ClockToggleAlarm(0),
+      ClockArmAlarms(false),
+      ClockArmAlarms(true),
       ClockEditAlarm(0),
       ClockDo.deleteDraft,
       ClockRemoveAlarm(0),

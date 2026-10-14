@@ -33,6 +33,10 @@ pub const MSG_PROFILING: u32 = 20;
 /// Walks' semantics trees (plan 0014 D8): the apps build them while on and
 /// the compositor writes them to /run/vrx-ui/semantics. Payload: u32 0/1.
 pub const MSG_SEMANTICS: u32 = 22;
+/// The screen (plan 0015 D12): vrxhost asks for it on or off (Matter's
+/// On/Off); the compositor reports it lit or dark and the brightness
+/// position. Payload: u32 on, i32 position (-1: cannot dim).
+pub const MSG_SCREEN: u32 = 24;
 
 const ID_LEN: usize = 64;
 const HEADER_LEN: usize = 8;
@@ -77,6 +81,9 @@ pub enum LinkEvent {
         state: AppState,
         id: String,
     },
+    /// The screen is lit or dark, at this brightness position (0-100, -1
+    /// where it cannot dim).
+    Screen { on: bool, position: i32 },
     /// The connection dropped; the link is reconnecting.
     Lost,
 }
@@ -104,6 +111,8 @@ pub enum Control {
     Profiling(bool),
     /// The semantics trees' switch (walks).
     Semantics(bool),
+    /// The screen on (woken) or off: a home app's On/Off.
+    Screen(bool),
 }
 
 impl Control {
@@ -121,18 +130,29 @@ impl Control {
             Control::Semantics(on) => {
                 return encode(MSG_SEMANTICS, &u32::from(on).to_ne_bytes())
             }
+            Control::Screen(on) => {
+                let mut payload = u32::from(on).to_ne_bytes().to_vec();
+                payload.extend_from_slice(&(-1i32).to_ne_bytes());
+                return encode(MSG_SCREEN, &payload);
+            }
         };
         encode(kind, &i32::try_from(pid).unwrap_or(0).to_ne_bytes())
     }
 }
 
 /// Decode one received message into an event; anything that is not an
-/// APP_STATE (or is malformed) is None.
+/// APP_STATE or a SCREEN (or is malformed) is None.
 pub fn decode(msg: &[u8]) -> Option<LinkEvent> {
     let word = |at: usize| -> Option<u32> {
         let bytes: [u8; 4] = msg.get(at..at + 4)?.try_into().ok()?;
         Some(u32::from_ne_bytes(bytes))
     };
+    if word(0)? == MSG_SCREEN && word(4)? >= 8 {
+        return Some(LinkEvent::Screen {
+            on: word(HEADER_LEN)? != 0,
+            position: i32::from_ne_bytes(word(HEADER_LEN + 4)?.to_ne_bytes()),
+        });
+    }
     if word(0)? != MSG_APP_STATE || (word(4)? as usize) < APP_STATE_LEN {
         return None;
     }
@@ -334,5 +354,25 @@ mod tests {
         assert_eq!(decode(truncated), None);
         assert_eq!(decode(&encode(MSG_SET_FOCUS, &[0; 4])), None);
         assert_eq!(decode(&[]), None);
+    }
+
+    /// struct vrx_msg_screen {u32 on; i32 position} (plan 0015 D12)
+    #[test]
+    fn the_screen_message_both_ways() {
+        let msg = Control::Screen(false).encode();
+        assert_eq!(msg.len(), HEADER_LEN + 8);
+        assert_eq!(&msg[0..4], &24u32.to_ne_bytes());
+        assert_eq!(&msg[4..8], &8u32.to_ne_bytes());
+        assert_eq!(&msg[8..12], &0u32.to_ne_bytes());
+        let mut payload = 1u32.to_ne_bytes().to_vec();
+        payload.extend_from_slice(&40i32.to_ne_bytes());
+        assert_eq!(
+            decode(&encode(MSG_SCREEN, &payload)),
+            Some(LinkEvent::Screen {
+                on: true,
+                position: 40
+            })
+        );
+        assert_eq!(decode(&encode(MSG_SCREEN, &[0; 4])), None, "short");
     }
 }

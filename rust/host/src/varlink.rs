@@ -115,9 +115,11 @@ method Watch() -> (front: string, depth: int, stopped: ?string)
 # changes to the backlight's level (read the level again when it moves);
 # battery, the charge in percent as shown (-1 with no battery) and
 # battery_zone, \"\", warn or critical while discharging (plan 0012 D10);
-# next_wake, the earliest time an applet asked to wake for (0: none).
-# With \"more\", again on every change.
-method Facts() -> (usb: string, supply_low: bool, backlight: int, battery: int, battery_zone: string, next_wake: int, profiling: bool)
+# next_wake, the earliest time an applet asked to wake for (0: none);
+# profiling, the profiler's switch; screen_on and brightness, the screen
+# lit and its slider position (-1: it cannot dim), the compositor's word
+# (plan 0015 D12). With \"more\", again on every change.
+method Facts() -> (usb: string, supply_low: bool, backlight: int, battery: int, battery_zone: string, next_wake: int, profiling: bool, screen_on: bool, brightness: int)
 
 # What each applet and the system's parts cost over the last hours (1-24,
 # default 24; plan 0012 D8, D12), most first. mj is millijoules, absent
@@ -895,14 +897,24 @@ async fn deliver(host: &Host, intent: &Intent) -> Result<Value, Failure> {
     Ok(json!({ "verdict": "pass" }))
 }
 
-/// An intent vrxhost raises itself; the outcome is logged.
-pub async fn raise(host: &Host, intent: Intent) {
+/// Route an intent vrxhost raises itself and say whether a handler took
+/// it (opened or handled); the outcome is logged.
+pub async fn route(host: &Host, intent: Intent) -> bool {
     match deliver(host, &intent).await {
-        Ok(verdict) => tracing::info!(intent = %intent.name, %verdict, "raised"),
+        Ok(verdict) => {
+            tracing::info!(intent = %intent.name, %verdict, "raised");
+            verdict.get("verdict").and_then(Value::as_str) != Some("pass")
+        }
         Err(failure) => {
-            tracing::warn!(intent = %intent.name, error = %failure.error, "raised; not handled")
+            tracing::warn!(intent = %intent.name, error = %failure.error, "raised; not handled");
+            false
         }
     }
+}
+
+/// An intent vrxhost raises itself; the outcome is logged.
+pub async fn raise(host: &Host, intent: Intent) {
+    route(host, intent).await;
 }
 
 async fn navigate(host: &Host, op: NavOp) -> Result<String, Failure> {

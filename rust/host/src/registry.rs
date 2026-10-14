@@ -25,32 +25,32 @@ pub enum ScanError {
 
 /// The registry every part of vrxhost reads, replaced whole when an
 /// install or uninstall changes what is on the system (plan 0011 D16):
-/// a reader takes a snapshot (`get`) and keeps using it for its call.
+/// a reader takes a snapshot (`get`) and keeps using it for its call; a
+/// part that follows it (the Matter link's exposed set) hears each
+/// replacement (`changes`).
 #[derive(Debug, Clone)]
-pub struct Shared(std::sync::Arc<std::sync::RwLock<std::sync::Arc<Registry>>>);
+pub struct Shared(std::sync::Arc<tokio::sync::watch::Sender<std::sync::Arc<Registry>>>);
 
 impl Shared {
     pub fn new(registry: Registry) -> Self {
-        Self(std::sync::Arc::new(std::sync::RwLock::new(
+        Self(std::sync::Arc::new(tokio::sync::watch::Sender::new(
             std::sync::Arc::new(registry),
         )))
     }
 
     /// The registry now.
     pub fn get(&self) -> std::sync::Arc<Registry> {
-        self.0
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
+        self.0.borrow().clone()
     }
 
     /// Replace it.
     pub fn set(&self, registry: Registry) {
-        *self
-            .0
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) =
-            std::sync::Arc::new(registry);
+        self.0.send_replace(std::sync::Arc::new(registry));
+    }
+
+    /// The registry now, and again on every replacement.
+    pub fn changes(&self) -> tokio::sync::watch::Receiver<std::sync::Arc<Registry>> {
+        self.0.subscribe()
     }
 }
 

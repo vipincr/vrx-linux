@@ -224,6 +224,8 @@ impl Session {
                 orders.extend(self.refocus());
                 orders
             }
+            // a fact (main.rs publishes it), nothing the trail decides
+            LinkEvent::Screen { .. } => Vec::new(),
             LinkEvent::Lost => {
                 self.linked = false;
                 self.sent = None;

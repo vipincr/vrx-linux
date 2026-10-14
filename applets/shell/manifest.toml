@@ -25,8 +25,13 @@ resident = true
 system = ["network", "display", "power"]
 
 [applet.intents]
-# the battery changed (vrxhost relays power_supply uevents, plan 0011 D12)
-handles = [{ name = "sys.power.changed", priority = 600 }]
+handles = [
+    # the battery changed (vrxhost relays power_supply uevents, plan 0011 D12)
+    { name = "sys.power.changed", priority = 600 },
+    # a home app set the brightness (vrxhost relays Matter's Level Control,
+    # plan 0015 D12): written through ScreenSettings, the one writer
+    { name = "sys.screen.brightness", priority = 600 },
+]
 
 [applet.command]
 enabled = false

@@ -30,6 +30,9 @@ system = ["time"]
 handles = [
     { name = "sys.alarm.ring", priority = 900, at = "ring" },
     { name = "vrx.open", priority = 500 },
+    # a home app switches every alarm on or off (plan 0015 D7), told
+    { name = "vrx.clock.alarm.arm", priority = 500 },
+    { name = "vrx.clock.alarm.disarm", priority = 500 },
 ]
 # it sends sys.alarm.ring itself, to come to the front when one is due
 emits = ["sys.alarm.ring", "app.finished"]
@@ -44,4 +47,12 @@ zone = {}                      # route 5 (choose the home zone)
 
 [applet.command]
 enabled = false
+
+# What a home app sees once a person exposes Clock (Settings > Matter):
+# a plug whose On/Off is every alarm armed or not (plan 0015 D7)
+[applet.matter]
+device_type = "on_off_plug"
+clusters = ["on_off"]
+on_off.command.on = "vrx.clock.alarm.arm"
+on_off.command.off = "vrx.clock.alarm.disarm"
 

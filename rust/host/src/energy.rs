@@ -1012,22 +1012,37 @@ pub struct Awake {
     pub screen_on: bool,
 }
 
+// logind's Manager, one proxy for vrxhost (Awake, the freezer, the
+// battery's power-off).
+
+/// One of logind's inhibitors as ListInhibitors returns it: what, who,
+/// why, mode, uid, pid.
+pub type InhibitorRow = (String, String, String, String, u32, u32);
+
 #[zbus::proxy(
     interface = "org.freedesktop.login1.Manager",
     default_service = "org.freedesktop.login1",
     default_path = "/org/freedesktop/login1"
 )]
 trait Login {
-    fn list_inhibitors(
-        &self,
-    ) -> zbus::Result<Vec<(String, String, String, String, u32, u32)>>;
+    fn list_inhibitors(&self) -> zbus::Result<Vec<InhibitorRow>>;
+    fn power_off(&self, interactive: bool) -> zbus::Result<()>;
+}
+
+/// Power off through logind, asking nobody (the battery's critical zone).
+pub async fn power_off() -> zbus::Result<()> {
+    let conn = zbus::Connection::system().await?;
+    LoginProxy::new(&conn).await?.power_off(false).await
+}
+
+/// logind's inhibitors now: the one reader, for Awake and the freezer.
+pub async fn inhibitor_rows() -> zbus::Result<Vec<InhibitorRow>> {
+    let conn = zbus::Connection::system().await?;
+    LoginProxy::new(&conn).await?.list_inhibitors().await
 }
 
 async fn inhibitors() -> Vec<Inhibitor> {
-    let list = async {
-        let conn = zbus::Connection::system().await?;
-        LoginProxy::new(&conn).await?.list_inhibitors().await
-    };
+    let list = inhibitor_rows();
     match list.await {
         Ok(list) => list
             .into_iter()

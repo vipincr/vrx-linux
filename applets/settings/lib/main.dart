@@ -6,6 +6,7 @@ import 'package:vrx_kit/vrx_kit.dart';
 
 import 'energy.dart';
 import 'state.dart';
+import 'update.dart';
 
 /// Facts from the system services, for the applet's whole life.
 final _facts = StreamController<SettingsAction>();
@@ -90,6 +91,27 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
           _go(context, const SettingsGo(editingSetting: Change(null)));
           unawaited(_setSetting(applet, key, text.trim()));
         },
+      );
+    } else if (model.pairing) {
+      body = MatterPairing(
+        state: model.matter,
+        payload: model.matterPayload,
+        onBack: () => _go(context, const SettingsGo(pairing: false)),
+        onClose: () {
+          _go(context, const SettingsGo(pairing: false));
+          unawaited(_ask(context, () async => VrxMatter.service?.closeWindow()));
+        },
+      );
+    } else if (model.showingUpdate) {
+      body = SoftwareUpdateScreen(
+        status: model.updateStatus,
+        offers: model.updateOffers,
+        installing: model.updateInstalling,
+        installed: model.updateInstalled,
+        onInstall: (offer) => unawaited(installUpdate(offer, _facts.add)),
+        onRestart: () => unawaited(
+            restartIntoUpdate(context, model.updateInstalled ?? '', model.updateStatus?.running ?? '', _facts.add)),
+        onBack: () => _go(context, const SettingsGo(showingUpdate: false)),
       );
     } else if (model.showingUse) {
       body = BatteryUseScreen(report: model.energy, onBack: () => _go(context, const SettingsGo(showingUse: false)));
@@ -197,6 +219,11 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
       unawaited(_ask(context, () => _screen.setBrightness(value, settled: settled)));
 
   void _onRow(BuildContext context, SettingRow row) {
+    if (row.key.startsWith('matter_expose:')) {
+      final id = row.key.substring('matter_expose:'.length);
+      unawaited(_setSetting('vrx', 'matter_expose', model.exposure.exposing(id, on: !row.on)));
+      return;
+    }
     if (row.key.startsWith('setting:')) {
       final parts = row.key.split(':');
       final applet = parts[1], key = parts.sublist(2).join(':');
@@ -223,6 +250,30 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
         unawaited(Nav.push('docs', route: 'licences'));
       case 'name':
         _go(context, const SettingsGo(renaming: true));
+      case 'matter_pair':
+        // the window opens and the codes show; a home app has 15 minutes
+        _go(context, const SettingsGo(pairing: true));
+        unawaited(_ask(context, () async {
+          final matter = VrxMatter.service;
+          if (matter == null) return;
+          if (model.matter?.window != true) await matter.openWindow();
+          _facts.add(SettingsFacts(matterPayload: Change(await matter.payload())));
+        }));
+      case 'matter_screen':
+        unawaited(_setSetting('vrx', 'matter_screen', row.on ? 'false' : 'true'));
+      case 'matter_forget':
+        unawaited(() async {
+          final yes = await vrxConfirm(
+            context,
+            title: 'Remove from every home app?',
+            message: 'Each home app loses this device and its controls. It can be paired again.',
+            act: 'Remove',
+          );
+          if (yes && context.mounted) unawaited(_ask(context, () async => VrxMatter.service?.forget()));
+        }());
+      case 'software_update':
+        _go(context, const SettingsGo(showingUpdate: true));
+        unawaited(refreshUpdates(_facts.add));
       case 'battery_use':
         _go(context, const SettingsGo(showingUse: true));
         unawaited(_ask(context, () async => _facts.add(SettingsFacts(energy: Change(await VrxEnergy.service.energy())))));
@@ -276,6 +327,43 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
   }
 }
 
+/// Pairing with a home app (plan 0015 D9): the QR code a home app scans,
+/// the manual code for one that asks for it, and when the window closes.
+class MatterPairing extends StatelessWidget {
+  const MatterPairing({super.key, required this.state, required this.payload, required this.onBack, required this.onClose});
+
+  final MatterState? state;
+  final MatterPayload? payload;
+  final VoidCallback onBack;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final space = ScaledSpacing.of(context);
+    final p = payload;
+    final until = state?.windowUntil;
+    // the code is as wide as the panel allows, never taller than half of it
+    final side = MediaQuery.sizeOf(context).shortestSide * 0.6;
+    return VrxList(children: [
+      VrxHeader(title: 'Pair with a home app', onBack: onBack),
+      Padding(
+        padding: EdgeInsets.all(space.inset),
+        child: Text(
+          p == null ? 'Opening…' : 'In the home app, add a device and scan this code, or type the code below.',
+          style: TypeRole.body(context),
+        ),
+      ),
+      if (p != null) ...[
+        Center(child: SizedBox.square(dimension: side, child: VrxQr(data: p.qr, label: 'The code that pairs this device'))),
+        VrxRow(label: 'Code', value: p.pretty),
+        if (until != null)
+          VrxRow(label: 'Open until', value: '${until.hour.toString().padLeft(2, '0')}:${until.minute.toString().padLeft(2, '0')}'),
+        VrxRow(label: 'Stop pairing', value: '', onTap: onClose),
+      ],
+    ]);
+  }
+}
+
 class _Categories extends StatelessWidget {
   const _Categories({required this.view, required this.onOpen});
 
@@ -321,6 +409,7 @@ class _Category extends StatelessWidget {
     SettingsCategory.time: 'Time',
     SettingsCategory.network: 'Network',
     SettingsCategory.device: 'Device',
+    SettingsCategory.matter: 'Matter',
     SettingsCategory.applets: 'Applets',
   };
 
@@ -376,6 +465,8 @@ Future<void> main() async {
   unawaited(deviceUsage().then((u) => fact(SettingsFacts(usage: u))));
   // vrxhost's energy estimate (plan 0012 D12): on a device with vrxhost
   if (AppletsService.installed != null) fact(const SettingsFacts(energyAvailable: true));
+  // software update (plan 0016 D11): where vrxhost answers for it
+  if (AppletsService.installed != null) unawaited(findUpdates(fact));
   // the locales a time format can come from, and LC_TIME now (localed)
   unawaited(() async {
     try {
@@ -405,6 +496,18 @@ Future<void> main() async {
       failed(err);
     }
   }());
+  // Matter (plan 0015 D9): where the image carries vrx-matter
+  final matter = await VrxMatter.find();
+  if (matter != null) {
+    matter.watch().listen((m) => fact(SettingsFacts(matter: m)), onError: (Object err) => debugPrint('settings: matter: $err'));
+    unawaited(() async {
+      try {
+        fact(SettingsFacts(matterApplets: await matter.applets()));
+      } on Object catch (err) {
+        debugPrint('settings: matter applets: $err');
+      }
+    }());
+  }
   try {
     final canOff = await VrxSystem.power.canPowerOff();
     fact(SettingsFacts(canPowerOff: canOff));

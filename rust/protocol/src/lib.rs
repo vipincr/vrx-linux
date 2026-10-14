@@ -13,6 +13,7 @@
 pub mod bufq;
 pub mod intent;
 pub mod manifest;
+pub mod matter;
 pub mod pipe;
 pub mod power_profile;
 pub mod registry;

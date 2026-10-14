@@ -224,6 +224,7 @@ async fn main() -> ExitCode {
     // the battery's rules (plan 0012 D10): fed by the same changes, and a
     // WARN cap goes to the compositor on the focus link
     let (battery_tx, battery_rx) = mpsc::unbounded_channel();
+    let matter_link = focus_for_battery.clone();
     let cap_link = focus_for_battery;
     tokio::spawn(power::battery(
         std::path::PathBuf::from("/sys/class/power_supply"),
@@ -251,12 +252,25 @@ async fn main() -> ExitCode {
             tracing::warn!(error = %err, "power supplies: not watched");
         }
     });
+    // Matter (plan 0015): only where the image carries vrx-matter; the
+    // screen orders go to the compositor on the focus link
+    if std::path::Path::new(MATTER_BIN).exists() {
+        tokio::spawn(vrx_host::matter::run(
+            host.clone(),
+            matter_link,
+            vrx_host::matter::exposure(),
+        ));
+    }
     if let Err(err) = varlink::serve(&socket, host).await {
         tracing::error!(socket = %socket.display(), error = %err, "io.vrx.Host stopped");
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
 }
+
+/// vrx-matter's binary: present when the image opted into Matter
+/// (VRX_MATTER, plan 0015 D13).
+const MATTER_BIN: &str = "/usr/bin/vrx-matter";
 
 /// The first-boot applet and the marker it writes when the walk is done.
 const SETUP: &str = "setup";
@@ -329,6 +343,12 @@ impl Host {
                 }
                 Some(event) = link.recv() => {
                     tracing::info!(?event, "compositor");
+                    if let LinkEvent::Screen { on, position } = event {
+                        vrx_host::facts::update(|f| {
+                            f.screen_on = on;
+                            f.brightness = position;
+                        });
+                    }
                     session.link(&event)
                 }
                 Some((op, reply)) = nav.recv() => {

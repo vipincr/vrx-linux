@@ -90,6 +90,13 @@ final class ClockRemoveAlarm implements ClockAction {
   final int index;
 }
 
+/// A home app switched every alarm on or off: Matter's On/Off on Clock's
+/// endpoint, as the intents vrx.clock.alarm.arm and .disarm (plan 0015 D7).
+final class ClockArmAlarms implements ClockAction {
+  const ClockArmAlarms(this.on);
+  final bool on;
+}
+
 /// The editor's time set.
 final class ClockDraftTime implements ClockAction {
   const ClockDraftTime(this.minutes);
@@ -338,6 +345,14 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
     book.checked = now;
   }
 
+  void _armAlarms(bool on) {
+    for (var i = 0; i < book.alarms.length; i++) {
+      book.alarms[i] = book.alarms[i].copyWith(enabled: on);
+    }
+    // a re-enabled one-off rings at its next time, not at a missed one
+    if (on) book.checked = now;
+  }
+
   void _removeAlarm(int i) {
     if (i < 0 || i >= book.alarms.length) return;
     book.alarms.removeAt(i);
@@ -558,6 +573,8 @@ class ClockModel extends StoreModel<ClockState, ClockAction, ClockView> {
         _book(() => _toggleAlarm(index));
       case ClockRemoveAlarm(:final index):
         _book(() => _removeAlarm(index));
+      case ClockArmAlarms(:final on):
+        _book(() => _armAlarms(on));
       case ClockDraftTime(:final minutes):
         _setDraftTime(minutes);
       case ClockTimerMode(:final mode):

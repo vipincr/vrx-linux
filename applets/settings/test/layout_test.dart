@@ -45,6 +45,11 @@ void main() {
     // a colour panel drawing scheme 12, with 13 chosen: the longest Display
     ..runningScheme = 12
     ..values['vrx'] = {'scheme': '13', 'polarity': 'light'}
+    // paired, the window open, a test device, two applets offered: every
+    // Matter row (plan 0015)
+    ..matter = MatterState(
+        commissioned: true, fabrics: 2, window: true, windowUntil: DateTime(2026, 10, 14, 14, 5), attestation: 'test')
+    ..matterApplets = const [MatterApplet(id: 'recorder', name: 'Recorder'), MatterApplet(id: 'clock', name: 'Clock')]
     ..canPowerOff = true
     ..supplyLow = true
     ..zones = ['America/Argentina/Buenos_Aires', 'Asia/Kolkata', 'Europe/London']
@@ -62,6 +67,36 @@ void main() {
     'setting entry': () => model()
       ..open = SettingsCategory.applets
       ..editingSetting = ('recorder', 'sample_rate'),
+    'pair with a home app': () => model()
+      ..open = SettingsCategory.matter
+      ..pairing = true
+      ..matterPayload = const MatterPayload(qr: 'MT:Y.K90AFN00KA0648G00', manual: '34970112332'),
+    'pair with a home app, opening': () => model()
+      ..open = SettingsCategory.matter
+      ..pairing = true,
+    // plan 0016 D11: the longest rows the update screen holds
+    'software update': () => model()
+      ..updatesAvailable = true
+      ..open = SettingsCategory.device
+      ..showingUpdate = true
+      ..updateStatus = const UpdateStatus(running: '0.1.0074', last: UpdateOutcome.fellBack)
+      ..updateOffers = const [
+        UpdateOffer(file: 'vrx-bundle-vrxboard-cm4-0.1.0081.raucb', version: '0.1.0081'),
+        UpdateOffer(file: 'vrx-bundle-vrxboard-cm5-0.1.0081.raucb', version: '0.1.0081', problem: 'machine'),
+        UpdateOffer(file: 'manage-upload.raucb', version: '', problem: 'unsigned'),
+      ],
+    'software update, installed': () => model()
+      ..updatesAvailable = true
+      ..open = SettingsCategory.device
+      ..showingUpdate = true
+      ..updateStatus = const UpdateStatus(running: '0.1.0074', trial: true, last: UpdateOutcome.trial)
+      ..updateOffers = const []
+      ..updateInstalled = '0.1.0081',
+    'software update, installing': () => model()
+      ..updatesAvailable = true
+      ..open = SettingsCategory.device
+      ..showingUpdate = true
+      ..updateInstalling = '0.1.0081',
     'rename': () => model()
       ..open = SettingsCategory.device
       ..renaming = true,

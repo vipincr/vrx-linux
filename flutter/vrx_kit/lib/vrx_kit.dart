@@ -22,6 +22,7 @@ export 'src/input.dart';
 export 'src/intent.dart';
 export 'src/keyboard.dart';
 export 'src/locale.dart';
+export 'src/matter.dart';
 export 'src/metrics.dart';
 export 'src/modals.dart';
 export 'src/motion.dart';

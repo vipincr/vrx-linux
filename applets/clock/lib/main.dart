@@ -740,6 +740,20 @@ class _Scheduler {
 
     follow();
     format.addListener(follow);
+    // a home app's On/Off on Clock's Matter endpoint (plan 0015 D7):
+    // vrxhost tells it as an intent, answered once the store has it
+    VrxBridge.listen().listen((d) {
+      if (d is! VrxIntentDelivery) return;
+      final on = switch (d.name) {
+        'vrx.clock.alarm.arm' => true,
+        'vrx.clock.alarm.disarm' => false,
+        _ => null,
+      };
+      if (on == null) return;
+      _events.add(ClockArmAlarms(on));
+      final id = d.id;
+      if (id != null) unawaited(VrxBridge.answer(id, handled: true).catchError((Object _) {}));
+    }, onError: (Object err) => debugPrint('clock: listen: $err'));
     try {
       _events.add(ClockFacts(zones: await VrxSystem.time.zones()));
     } on Object catch (err) {

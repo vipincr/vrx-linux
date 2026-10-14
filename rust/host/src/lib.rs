@@ -19,6 +19,7 @@ pub mod facts;
 pub mod freeze;
 pub mod install;
 pub mod intent;
+pub mod matter;
 pub mod paths;
 pub mod power;
 pub mod profile;

@@ -2,7 +2,8 @@
 // 0012 D6). Each is watched here once, by the kernel's own notification:
 // the USB device port's state by POLLPRI on the UDC (usb.rs), the
 // backlight's level by its `change` uevent (power.rs), the supply alarm
-// by POLLPRI on rpi_volt's attribute (supply.rs). `io.vrx.Host.Facts`
+// by POLLPRI on rpi_volt's attribute (supply.rs), the screen's state by
+// the compositor's own report (compositor.rs, plan 0015 D12). `io.vrx.Host.Facts`
 // streams them; the kit reads sysfs again when one moves, where it read
 // every second before.
 //
@@ -39,6 +40,12 @@ pub struct Facts {
     /// The profiler's runtime switch is on (plan 0014 D1): the kit
     /// aggregates frame timings and sends them.
     pub profiling: bool,
+    /// The screen is lit, as the compositor reports it (plan 0015 D12);
+    /// false headless.
+    pub screen_on: bool,
+    /// The brightness as the slider's position, 0 to 100, from the
+    /// compositor; -1 where the screen cannot dim (or none has said).
+    pub brightness: i32,
 }
 
 impl Default for Facts {
@@ -51,6 +58,8 @@ impl Default for Facts {
             battery_zone: String::new(),
             next_wake: 0,
             profiling: false,
+            screen_on: false,
+            brightness: -1,
         }
     }
 }

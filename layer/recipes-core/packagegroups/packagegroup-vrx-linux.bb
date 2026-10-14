@@ -27,6 +27,7 @@ RDEPENDS:${PN} = "\
     ${@'vrx-applet-terminal' if d.getVar('VRX_UI') == 'flutter' and d.getVar('VRX_DEBUG') == '1' else ''} \
     ${@'vrx-applet-stt' if vrx_ml_role(d, 'speech') else ''} \
     ${@'vrx-applet-assistant' if d.getVar('VRX_UI') == 'flutter' and vrx_ml_role(d, 'chat') else ''} \
+    ${@'vrx-matter' if vrx_matter(d) else ''} \
 "
 
 # The built-in applets render through flutter-vrx, so they ride only on
@@ -43,3 +44,12 @@ def vrx_ml_role(d, role):
     if not bb.utils.contains('VRX_ML', 'packagegroup-vrx-ml', True, False, d):
         return False
     return any(m.startswith(role + '-') for m in (d.getVar('VRX_ML_MODELS') or '').split())
+
+# Matter (plan 0015 D13): opt-in, VRX_MATTER = "1" (meta-vrx's layer.conf
+# defaults it empty). A test-attested device advertising itself on every
+# network it joins is not a default.
+def vrx_matter(d):
+    v = (d.getVar('VRX_MATTER') or '').strip()
+    if v not in ('1', ''):
+        bb.fatal("VRX_MATTER must be '1' (the device on a Matter fabric) or '' (none), got '%s'" % v)
+    return v == '1'

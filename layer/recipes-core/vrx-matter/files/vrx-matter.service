@@ -1,0 +1,53 @@
+# vrx-matter (plan 0015 D10): the device on a Matter fabric. Reachable
+# from the network, so it holds nothing over the device: its own user, no
+# capability (Matter's port 5540 and Avahi's mDNS need none), no access to
+# io.vrx.Host (vrxhost connects to it), its fabrics and keys in its state
+# directory, mode 0600. G045: vrx-image fails the build when a hardening
+# line below is missing.
+[Unit]
+Description=vrx Matter device
+Documentation=https://github.com/vipincr/vrx-linux/blob/master/docs/00-architecture.md
+# mDNS is Avahi's (D3): commissioning and operational discovery
+Requires=avahi-daemon.service
+After=avahi-daemon.service network.target
+
+[Service]
+ExecStart=/usr/bin/vrx-matter
+User=vrx-matter
+Group=vrx-matter
+StateDirectory=vrx-matter
+StateDirectoryMode=0700
+# io.vrx.Matter: the group (the matter grant) and root may connect
+RuntimeDirectory=vrx-matter
+RuntimeDirectoryMode=0750
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+DevicePolicy=closed
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+# UDP and mDNS (inet), D-Bus to Avahi and io.vrx.Matter (unix), the
+# interface list (netlink), BLE commissioning when it lands (D4)
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK AF_BLUETOOTH
+# a new endpoint set or leaving every fabric is a clean exit and a fresh
+# start (the node is built once)
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

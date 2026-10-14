@@ -196,6 +196,45 @@ void main() {
     h.assertView((v) => v.rows.firstWhere((r) => r.key == 'time_format').value == '13:05:00 · 14/10/26');
   });
 
+  test('Matter: only where vrx-matter is; the screen shown by default, applets once switched on (plan 0015 D8, D9)', () {
+    final model = SettingsModel();
+    final h = StoreHarness(model);
+    h.assertView((v) => !v.categories.any((c) => c.category == SettingsCategory.matter), because: 'no vrx-matter, no Matter');
+    h.dispatch(const SettingsFacts(
+      matter: MatterState(attestation: 'test'),
+      matterApplets: [MatterApplet(id: 'clock', name: 'Clock')],
+    ));
+    h.dispatch(const SettingsGo(open: Change(SettingsCategory.matter)));
+    h.assertView((v) => v.rows.map((r) => r.key).join(',') ==
+        'matter_pair,matter_fabrics,matter_screen,matter_expose:clock,matter_attestation');
+    h.assertView((v) => v.rows.firstWhere((r) => r.key == 'matter_screen').on, because: 'D8: the screen is on by default');
+    h.assertView((v) => !v.rows.firstWhere((r) => r.key == 'matter_expose:clock').on, because: 'D8: an applet is off');
+    h.dispatch(const SettingsFacts(values: ('vrx', {'matter_screen': 'false', 'matter_expose': 'clock'})));
+    h.assertView((v) => !v.rows.firstWhere((r) => r.key == 'matter_screen').on);
+    h.assertView((v) => v.rows.firstWhere((r) => r.key == 'matter_expose:clock').on);
+    expect(model.exposure.exposing('clock', on: false), '');
+    expect(model.exposure.exposing('recorder', on: true), 'clock,recorder');
+    // paired: the remove row; the codes only while the window is open
+    h.dispatch(SettingsFacts(
+      matter: MatterState(commissioned: true, fabrics: 1, window: true, windowUntil: DateTime(2026, 10, 14, 14, 5)),
+      matterPayload: const Change(MatterPayload(qr: 'MT:Y.K90AFN00KA0648G00', manual: '34970112332')),
+    ));
+    h.assertView((v) => v.rows.any((r) => r.key == 'matter_forget'));
+    h.assertView((v) => v.rows.first.value == 'Open until 14:05');
+    expect(model.matterPayload?.pretty, '3497-011-2332');
+    h.dispatch(const SettingsGo(pairing: true));
+    h.dispatch(const SettingsFacts(matter: MatterState(commissioned: true, fabrics: 1)));
+    expect(model.matterPayload, isNull, reason: 'the window closed: the codes go');
+    h.dispatch(SettingsAction.back);
+    expect(model.pairing, isFalse);
+    h.verify(fresh: SettingsModel.new, probes: const [
+      SettingsAction.back,
+      SettingsGo(pairing: true),
+      SettingsGo(pairing: false),
+      SettingsFacts(matter: MatterState(window: true)),
+    ]);
+  });
+
   test('a battery is a Power row only where one exists', () {
     final h = StoreHarness(SettingsModel())..dispatch(const SettingsGo(open: Change(SettingsCategory.power)));
     h.assertView((v) => !v.categories.any((c) => c.category == SettingsCategory.power));

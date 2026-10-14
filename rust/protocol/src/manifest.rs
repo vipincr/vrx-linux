@@ -91,6 +91,9 @@ pub enum SystemGrant {
     /// layer's vrx-script@.service template, and no other unit (plan 0013
     /// D13).
     Scripts,
+    /// Pair the device with a home app and choose what it shows there:
+    /// io.vrx.Matter, served by vrx-matter (plan 0015 D9).
+    Matter,
 }
 
 impl SystemGrant {
@@ -119,11 +122,12 @@ impl SystemGrant {
             SystemGrant::Locale => "locale",
             SystemGrant::PowerStats => "power-stats",
             SystemGrant::Scripts => "scripts",
+            SystemGrant::Matter => "matter",
         }
     }
 
     /// Every grant, for table checks.
-    pub const ALL: [SystemGrant; 22] = [
+    pub const ALL: [SystemGrant; 23] = [
         SystemGrant::Network,
         SystemGrant::Bluetooth,
         SystemGrant::Time,
@@ -146,6 +150,7 @@ impl SystemGrant {
         SystemGrant::Locale,
         SystemGrant::PowerStats,
         SystemGrant::Scripts,
+        SystemGrant::Matter,
     ];
 }
 
@@ -248,6 +253,10 @@ pub struct AppletSection {
     /// fall back to the board's power profile (`walk-budget`).
     #[serde(default)]
     pub budgets: Option<crate::walk::Budgets>,
+    /// What it shows a home app (plan 0015 D7): a bridged device on the
+    /// device's Matter node, once a person exposes it.
+    #[serde(default)]
+    pub matter: Option<MatterSection>,
 }
 
 /// Launcher presentation. Absent means: not a tile.
@@ -392,6 +401,50 @@ pub struct SettingDecl {
     pub options: Option<Vec<String>>,
 }
 
+/// The Matter device types an applet may be (plan 0015 D7): a closed
+/// list, because a home app draws only the standard ones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MatterDeviceType {
+    /// On/Off Plug-in Unit (0x010A): a switch a home app shows as a plug.
+    OnOffPlug,
+}
+
+/// The standard clusters an applet's endpoint may carry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MatterCluster {
+    OnOff,
+}
+
+/// `[applet.matter]` (plan 0015 D7). Every command is an intent the
+/// applet handles while running (told, not opened at a route): a home app
+/// switches something, it never opens a screen. The attribute a home app
+/// reads is the last command it gave (no applet publishes facts to
+/// vrxhost yet).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MatterSection {
+    pub device_type: MatterDeviceType,
+    pub clusters: Vec<MatterCluster>,
+    #[serde(default)]
+    pub on_off: Option<MatterOnOff>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MatterOnOff {
+    pub command: MatterOnOffCommands,
+}
+
+/// The intents On and Off become (Toggle is whichever is not the state).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MatterOnOffCommands {
+    pub on: String,
+    pub off: String,
+}
+
 /// Trees no applet may be granted write access to (plan 0011 D10): the
 /// OS's own configuration, programs, boot files and kernel interfaces.
 pub const FS_REFUSED: &[&str] = &[
@@ -430,6 +483,44 @@ pub fn fs_path_ok(path: &str) -> Result<(), &'static str> {
 /// A card app can never be asked before a built-in.
 pub const PRIORITY_BUILTIN_MIN: u16 = 500;
 pub const PRIORITY_MAX: u16 = 999;
+
+/// The `[applet.matter]` rules: the device type's clusters exactly, each
+/// cluster's binding present, and every command an intent this applet
+/// handles told.
+fn matter_ok(a: &AppletSection, m: &MatterSection) -> Result<(), String> {
+    let want = match m.device_type {
+        MatterDeviceType::OnOffPlug => [MatterCluster::OnOff],
+    };
+    if m.clusters != want {
+        return Err(format!(
+            "device_type {:?} carries clusters {want:?}, got {:?}",
+            m.device_type, m.clusters
+        ));
+    }
+    let on_off = m
+        .on_off
+        .as_ref()
+        .ok_or("the on_off cluster needs on_off.command.on and .off")?;
+    for name in [&on_off.command.on, &on_off.command.off] {
+        match a.intents.handles.iter().find(|h| &h.name == name) {
+            None => {
+                return Err(format!(
+                    "command {name:?} is not an intent this applet handles"
+                ))
+            }
+            Some(h) if h.at.is_some() => {
+                return Err(format!(
+                    "command {name:?} opens a route; a home app's command is told to the running applet"
+                ))
+            }
+            Some(_) => {}
+        }
+    }
+    if on_off.command.on == on_off.command.off {
+        return Err("on and off must be two intents".to_owned());
+    }
+    Ok(())
+}
 
 impl std::str::FromStr for Manifest {
     type Err = ManifestError;
@@ -546,6 +637,11 @@ impl Manifest {
             if let Err(why) = fs_path_ok(path) {
                 return invalid(format!("permissions.fs {path:?}: {why}"));
             }
+        }
+
+        if let Some(m) = &a.matter {
+            matter_ok(a, m)
+                .map_err(|e| ManifestError::Invalid(format!("matter: {e}")))?;
         }
 
         if a.settings.len() > SETTINGS_MAX {
@@ -686,6 +782,34 @@ mod tests {
         assert!(decl("text", "1", "").is_err());
         let twice = "[[applet.settings]]\nkey = \"k\"\nlabel = \"K\"\ncategory = \"C\"\ntype = \"bool\"\ndefault = true\n";
         assert!(with(&format!("{twice}{twice}")).is_err());
+    }
+
+    /// plan 0015 D7: a Matter block names a closed device type, its
+    /// clusters exactly, and commands the applet handles told.
+    #[test]
+    fn a_matter_block_binds_to_told_handlers_d7() {
+        let handles = "[applet.intents]\nhandles = [{ name = \"a.arm\", priority = 1 }, { name = \"a.disarm\", priority = 1 }, { name = \"a.show\", priority = 1, at = \"r\" }]\n[applet.routes]\nr = {}\n";
+        let block = |body: &str| with(&format!("{handles}[applet.matter]\n{body}"));
+        let good = "device_type = \"on_off_plug\"\nclusters = [\"on_off\"]\non_off.command.on = \"a.arm\"\non_off.command.off = \"a.disarm\"\n";
+        let m = block(good).unwrap();
+        let matter = m.applet.matter.unwrap();
+        assert_eq!(matter.device_type, MatterDeviceType::OnOffPlug);
+        assert_eq!(matter.on_off.unwrap().command.off, "a.disarm");
+        for (bad, why) in [
+            (good.replace("on_off_plug", "toaster"), "toaster"),
+            (good.replace("[\"on_off\"]", "[]"), "clusters"),
+            (good.replace("a.disarm", "a.missing"), "handles"),
+            (good.replace("a.disarm", "a.show"), "opens a route"),
+            (good.replace("a.disarm", "a.arm"), "two intents"),
+            (format!("{good}on_off.attribute = \"x\"\n"), "attribute"),
+            (
+                "device_type = \"on_off_plug\"\nclusters = [\"on_off\"]\n".to_owned(),
+                "on_off.command",
+            ),
+        ] {
+            let err = block(&bad).unwrap_err().to_string();
+            assert!(err.contains(why), "{why}: {err}");
+        }
     }
 
     /// The reference manifest: the clock example from the plan, verbatim.

@@ -35,6 +35,11 @@ final class SettingsFacts implements SettingsAction {
     this.energyAvailable,
     this.energy,
     this.awake,
+    this.updatesAvailable,
+    this.updateStatus,
+    this.updateOffers,
+    this.updateInstalling,
+    this.updateInstalled,
     this.timeLocales,
     this.timeLocale,
     this.declared,
@@ -42,6 +47,9 @@ final class SettingsFacts implements SettingsAction {
     this.zones,
     this.runningScheme,
     this.runningDark,
+    this.matter,
+    this.matterApplets,
+    this.matterPayload,
     this.error,
   });
 
@@ -60,6 +68,15 @@ final class SettingsFacts implements SettingsAction {
   final bool? energyAvailable;
   final Change<EnergyReport?>? energy;
   final Change<AwakeReport?>? awake;
+
+  /// Software update (plan 0016 D11): offered where vrxhost answers for
+  /// it; the status and offers as read, the version installing (Change:
+  /// it ends) and the one installed and waiting for the restart.
+  final bool? updatesAvailable;
+  final UpdateStatus? updateStatus;
+  final List<UpdateOffer>? updateOffers;
+  final Change<String?>? updateInstalling;
+  final String? updateInstalled;
   final List<TimeLocale>? timeLocales;
   final String? timeLocale;
   final List<AppletSettingsDecl>? declared;
@@ -69,6 +86,11 @@ final class SettingsFacts implements SettingsAction {
   final List<String>? zones;
   final int? runningScheme;
   final bool? runningDark;
+
+  /// vrx-matter's state (plan 0015 D9); never sent where there is none.
+  final MatterState? matter;
+  final List<MatterApplet>? matterApplets;
+  final Change<MatterPayload?>? matterPayload;
   final String? error;
 }
 
@@ -81,10 +103,12 @@ final class SettingsGo implements SettingsAction {
     this.editingSetting,
     this.showingUse,
     this.showingAwake,
+    this.showingUpdate,
     this.pickingScheme,
     this.pickingTimeFormat,
     this.settingTime,
     this.pickingZone,
+    this.pairing,
   });
 
   final Change<SettingsCategory?>? open;
@@ -92,17 +116,21 @@ final class SettingsGo implements SettingsAction {
   final Change<(String, String)?>? editingSetting;
   final bool? showingUse;
   final bool? showingAwake;
+  final bool? showingUpdate;
   final bool? pickingScheme;
   final bool? pickingTimeFormat;
   final SettingTime? settingTime;
   final bool? pickingZone;
+
+  /// The pairing screen: the QR code and the manual code (plan 0015 D9).
+  final bool? pairing;
 }
 
 /// Which of the clock's wheels is up (Settings > Time, plan 0011 D14).
 enum SettingTime { none, date, time }
 
 /// The settings categories, in the order evrx-rt's Settings lists them.
-enum SettingsCategory { display, power, time, network, device, applets }
+enum SettingsCategory { display, power, time, network, device, matter, applets }
 
 /// What a row does when tapped.
 enum RowKind {
@@ -284,6 +312,24 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
   EnergyReport? energy;
   AwakeReport? awake;
 
+  /// Software update (plan 0016 D11): the screen open, what vrxhost said
+  /// (offers null while they load), the install under way and done.
+  bool updatesAvailable = false;
+  bool showingUpdate = false;
+  UpdateStatus? updateStatus;
+  List<UpdateOffer>? updateOffers;
+  String? updateInstalling;
+  String? updateInstalled;
+
+  /// Device's Software update row value.
+  String get updateSummary => updateInstalled != null
+      ? 'Restart to finish'
+      : switch (updateStatus?.last) {
+          UpdateOutcome.fellBack => 'Went back',
+          UpdateOutcome.trial => 'On trial',
+          _ => updateStatus?.running ?? '',
+        };
+
   /// The installed locales and the one LC_TIME is now (plan 0011 D7).
   List<TimeLocale> timeLocales = const [];
   String timeLocale = '';
@@ -292,6 +338,15 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
   /// Applets' declared settings (vrxhost) and their values (the files).
   List<AppletSettingsDecl> declared = const [];
   final values = <String, Map<String, String>>{};
+
+  /// Matter (plan 0015 D8, D9): null where the image has no vrx-matter.
+  MatterState? matter;
+  List<MatterApplet> matterApplets = const [];
+  MatterPayload? matterPayload;
+  bool pairing = false;
+
+  /// What a home app may see: the system settings file's (D8).
+  MatterExposure get exposure => MatterExposure.of(values['vrx'] ?? const {});
 
   /// A text or number setting being typed: (applet, key).
   (String, String)? editingSetting;
@@ -326,6 +381,11 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         energyAvailable = f.energyAvailable ?? energyAvailable;
         if (f.energy != null) energy = f.energy!.value;
         if (f.awake != null) awake = f.awake!.value;
+        updatesAvailable = f.updatesAvailable ?? updatesAvailable;
+        updateStatus = f.updateStatus ?? updateStatus;
+        updateOffers = f.updateOffers ?? updateOffers;
+        if (f.updateInstalling != null) updateInstalling = f.updateInstalling!.value;
+        updateInstalled = f.updateInstalled ?? updateInstalled;
         timeLocales = f.timeLocales ?? timeLocales;
         timeLocale = f.timeLocale ?? timeLocale;
         declared = f.declared ?? declared;
@@ -333,6 +393,11 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         zones = f.zones ?? zones;
         runningScheme = f.runningScheme ?? runningScheme;
         runningDark = f.runningDark ?? runningDark;
+        matter = f.matter ?? matter;
+        matterApplets = f.matterApplets ?? matterApplets;
+        if (f.matterPayload != null) matterPayload = f.matterPayload!.value;
+        // the window closed (timed out, or a home app paired): the codes go
+        if (matter?.window == false) matterPayload = null;
         if (f.error != null) error = f.error;
       case SettingsGo g:
         error = null;
@@ -341,13 +406,16 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         if (g.editingSetting != null) editingSetting = g.editingSetting!.value;
         showingUse = g.showingUse ?? showingUse;
         showingAwake = g.showingAwake ?? showingAwake;
+        showingUpdate = g.showingUpdate ?? showingUpdate;
         pickingScheme = g.pickingScheme ?? pickingScheme;
         pickingTimeFormat = g.pickingTimeFormat ?? pickingTimeFormat;
         settingTime = g.settingTime ?? settingTime;
         pickingZone = g.pickingZone ?? pickingZone;
+        pairing = g.pairing ?? pairing;
         // a report screen opens empty and fills when the estimate arrives
         if (g.showingUse == true) energy = null;
         if (g.showingAwake == true) awake = null;
+        if (g.showingUpdate == true) updateOffers = null;
       case SettingsSignal.back:
         error = null;
         _back();
@@ -389,6 +457,9 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         CategoryRow(SettingsCategory.time, 'Time', 'schedule', time?.zone ?? ''),
         CategoryRow(SettingsCategory.network, 'Network', 'wifi', network?.connected?.name ?? (network?.ethernet == 'online' || network?.ethernet == 'ready' ? 'Wired' : '')),
         CategoryRow(SettingsCategory.device, 'Device', 'developer_board', device?.name ?? ''),
+        // pairing with a home app (plan 0015), where the image has Matter
+        if (matter != null)
+          CategoryRow(SettingsCategory.matter, 'Matter', 'smartphone', matter!.commissioned ? 'Paired' : ''),
         // what applets let the person set (plan 0008 D5), when any do
         if (declared.isNotEmpty) const CategoryRow(SettingsCategory.applets, 'Applets', 'apps', ''),
       ];
@@ -606,6 +677,8 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
             SettingRow(key: 'hostname', label: 'Network name', value: d.hostname, kind: RowKind.info),
           if (d.model.isNotEmpty) SettingRow(key: 'model', label: 'Board', value: d.model, kind: RowKind.info),
           if (d.version.isNotEmpty) SettingRow(key: 'version', label: 'Software version', value: d.version, kind: RowKind.info),
+          // installing a signed update (plan 0016 D11), where the image can
+          if (updatesAvailable) SettingRow(key: 'software_update', label: 'Software update', value: updateSummary, kind: RowKind.open),
           if (d.memoryMb > 0)
             SettingRow(
               key: 'memory',
@@ -641,6 +714,48 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
           const SettingRow(key: 'licences', label: 'Licences', value: '', kind: RowKind.open),
           const SettingRow(key: 'setup', label: 'Set up again', value: '', kind: RowKind.open),
         ];
+      case SettingsCategory.matter:
+        final m = matter;
+        if (m == null) return const [];
+        final shown = exposure;
+        return [
+          SettingRow(
+            key: 'matter_pair',
+            label: 'Pair with a home app',
+            value: m.window && m.windowUntil != null ? 'Open until ${_hm(m.windowUntil!)}' : '',
+            kind: RowKind.open,
+          ),
+          SettingRow(
+            key: 'matter_fabrics',
+            label: 'Home apps',
+            value: m.fabrics == 0 ? 'None' : '${m.fabrics}',
+            kind: RowKind.info,
+          ),
+          // what a home app may see (D8): the screen on by default, an
+          // applet once switched on here
+          SettingRow(
+            key: 'matter_screen',
+            label: 'Show the screen',
+            value: shown.screen ? 'On' : 'Off',
+            kind: RowKind.toggle,
+            on: shown.screen,
+            widest: 'Off',
+          ),
+          for (final a in matterApplets)
+            SettingRow(
+              key: 'matter_expose:${a.id}',
+              label: 'Show ${a.name}',
+              value: shown.applets.contains(a.id) ? 'On' : 'Off',
+              kind: RowKind.toggle,
+              on: shown.applets.contains(a.id),
+              widest: 'Off',
+            ),
+          // a debug image's test attestation: home apps warn about it
+          if (m.attestation == 'test')
+            const SettingRow(key: 'matter_attestation', label: 'Certification', value: 'Test device', kind: RowKind.info),
+          if (m.commissioned)
+            const SettingRow(key: 'matter_forget', label: 'Remove from every home app', value: '', kind: RowKind.confirm),
+        ];
       case SettingsCategory.applets:
         // keys are setting:<applet>:<key>; an enum or bool changes on a
         // tap, a number or text opens the keyboard
@@ -670,8 +785,12 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
   void _back() {
     if (renaming) {
       renaming = false;
+    } else if (pairing) {
+      pairing = false;
     } else if (editingSetting != null) {
       editingSetting = null;
+    } else if (showingUpdate) {
+      showingUpdate = false;
     } else if (showingUse) {
       showingUse = false;
     } else if (showingAwake) {
@@ -708,11 +827,18 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
         time?.zone, time?.automatic, time?.synced, network?.ethernetAddress, device?.name, screen.lightOff,
         screen.brightness, screen.sleepAfter, screen.deepAfter, dimming, cascade.sleep, cascade.deep, canPowerOff,
         usbPresent, bluetooth?.on, supplyLow, battery?.percent, energyAvailable, energy == null, awake == null,
+        updatesAvailable, updateStatus?.running, updateStatus?.last, updateStatus?.trial,
+        [for (final o in updateOffers ?? const <UpdateOffer>[]) o.file], updateOffers == null, updateInstalling,
+        updateInstalled, showingUpdate,
         [for (final l in timeLocales) l.name], timeLocale, [for (final d in declared) d.id], values, zones,
-        runningScheme, runningDark, error, open, renaming, editingSetting?.$1, editingSetting?.$2, showingUse,
+        runningScheme, runningDark, matter, [for (final a in matterApplets) a.id], matterPayload?.manual, pairing,
+        error, open, renaming, editingSetting?.$1, editingSetting?.$2, showingUse,
         showingAwake, pickingScheme, pickingTimeFormat, settingTime, pickingZone,
       ];
 }
+
+/// "14:05": when the pairing window closes.
+String _hm(DateTime t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
 /// "388 MB", "1.4 GB".
 String _size(int mb) => mb >= 1024 ? '${(mb / 1024).toStringAsFixed(1)} GB' : '$mb MB';

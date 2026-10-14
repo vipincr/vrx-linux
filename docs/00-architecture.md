@@ -161,6 +161,47 @@ Device Link holds the screen on while a passkey is up and while phones
 can pair. The phone companion's GATT protocol is a separate approval and
 is not part of this.
 
+## Matter
+
+Matter is opt-in (`VRX_MATTER = "1"`, plan 0015): a home app such as Apple
+Home, Google Home or chip-tool pairs the device over its IP network. Linux
+has no Matter stack, so vrx carries rs-matter 0.4.1 in its own process,
+`vrx-matter` (`rust/matter`), and mDNS is Avahi's. The process is
+reachable from the network, so it holds nothing over the device: it runs
+as its own user with no capability (`vrx-matter.service`, G045), and it
+cannot reach `io.vrx.Host` at all. vrxhost connects to it instead, as
+root through the `vrx-matter` group, holds `io.vrx.Matter.Link` (each
+reply a command a home app gave) and answers each with `Done`.
+
+| Endpoint | Device type | What it is |
+|---|---|---|
+| 0 | root node | commissioning, fabrics, the network |
+| 1 | Dimmable Plug-in Unit | On/Off is the screen lit, Level its brightness |
+| 2 | Aggregator | parent of the bridged applets |
+| 3 and up | On/Off Plug-in Unit, bridged | one per applet a person exposed |
+
+What a home app may see is the person's choice, kept in the system's
+settings file `/etc/vrx/settings/vrx.conf`: `matter_screen` (on unless
+`false`) and `matter_expose` (applet ids). Settings > Matter writes it;
+vrxhost reads it fresh for every command and builds the exposed set from
+the registry and that list (`vrx_protocol::matter`, G043). A command for
+anything outside it is refused by name. The screen goes through its
+owners: On/Off is the compositor's own screen-off and wake
+(`VRX_MSG_SCREEN`), Level is the told intent `sys.screen.brightness`,
+which the shell writes through `ScreenSettings`. An applet's command is
+its own intent, told to it alone; handled is Success, a pass or silence
+is Failure. The screen's state reaches a subscribed controller through
+vrxhost's facts (`screen_on`, `brightness`), which the compositor
+reports.
+
+The node is built once at start. When the exposed set changes, vrx-matter
+saves the new layout (endpoint ids kept per applet, never reused), bumps
+`ConfigurationVersion` and exits; systemd starts it again. A debug image
+attests with the SDK's published test chain (VID 0xFFF1), so a home app
+warns that the device is uncertified; a release image refuses Matter until
+factory data loading lands (G042). BLE commissioning (the arbiter with
+Device Link) is not built yet: the QR code offers on-network pairing only.
+
 ## The local models
 
 The Assistant and speech-to-text (plan 0011 D18) run on llama.cpp's

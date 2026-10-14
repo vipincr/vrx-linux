@@ -412,17 +412,6 @@ pub struct LinuxBackend {
     pub applets: crate::applets::Applets,
 }
 
-#[zbus::proxy(
-    interface = "org.freedesktop.login1.Manager",
-    default_service = "org.freedesktop.login1",
-    default_path = "/org/freedesktop/login1"
-)]
-trait Login {
-    fn list_inhibitors(
-        &self,
-    ) -> zbus::Result<Vec<(String, String, String, String, u32, u32)>>;
-}
-
 impl Backend for LinuxBackend {
     fn freeze<'a>(&'a self, applet: &'a str) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(
@@ -438,11 +427,7 @@ impl Backend for LinuxBackend {
 
     fn inhibitor_pids(&self) -> BoxFuture<'_, Vec<u32>> {
         Box::pin(async move {
-            let list = async {
-                let conn = zbus::Connection::system().await?;
-                LoginProxy::new(&conn).await?.list_inhibitors().await
-            };
-            match list.await {
+            match crate::energy::inhibitor_rows().await {
                 Ok(list) => list.into_iter().map(|(.., pid)| pid).collect(),
                 Err(err) => {
                     tracing::debug!(error = %err, "logind inhibitors unread");

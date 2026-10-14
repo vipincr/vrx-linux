@@ -58,12 +58,14 @@ do. The parser refuses an unknown key by name (`rust/protocol/src/manifest.rs`).
 | `[applet.channels]` | `offers`, `opens` (`<applet>.<channel>`) |
 | `[applet.routes]` | named screens; route 0 is the root and is never declared |
 | `[[applet.settings]]` | key, label, category, type, default, options |
+| `[applet.matter]` | what a home app sees once a person exposes the applet (plan 0015 D7): `device_type` (`on_off_plug`), `clusters` (`["on_off"]`), `on_off.command.on` and `.off`, two intents the applet handles told (no `at`) |
 | `[applet.budgets]` | what a walk holds it to: `p95_frame_ms`, `dropped_per_min`, `cpu_ms_per_min`, `peak_mb` (plan 0014 D11); unset ones fall back to the board's `walk-budget` lines |
 
 A grant is a group membership and nothing else (G017): `network`
 (connman), `bluetooth` (BlueZ), `time`, `hostname`, `display`, `power`,
 `usb`, `apps`, `serve`, `gpio`, `i2c`, `spi`, `serial`, `audio`, `camera`,
-`input`, `iio`, `settings`, `ml`, `locale`, `power-stats`. The service
+`input`, `iio`, `settings`, `ml`, `locale`, `power-stats`, `scripts`,
+`matter` (vrx-matter's socket: pairing and what a home app sees). The service
 behind each checks the group itself. An installed applet gets none, runs as
 a dynamic user and may not declare `background`, `fs` or a `sys.` emit
 (G023).
@@ -134,6 +136,21 @@ route: 'alarms')` opens it; an undeclared route opens the root. An intent
 names something that happened or is wanted; handlers are asked in priority
 order and the first `handled` wins. `03-ipc.md` has the chain, the channels
 and the buffer queue.
+
+A Matter command (`[applet.matter]`) arrives the same way: vrxhost tells
+the applet its own intent and nobody else's, and the answer is the home
+app's status. Clock's block arms or disarms every alarm:
+
+```toml
+[applet.matter]
+device_type = "on_off_plug"
+clusters = ["on_off"]
+on_off.command.on = "vrx.clock.alarm.arm"
+on_off.command.off = "vrx.clock.alarm.disarm"
+```
+
+What a home app reads back is the last command it gave: no applet
+publishes its own state to vrxhost yet.
 
 ## Input
 

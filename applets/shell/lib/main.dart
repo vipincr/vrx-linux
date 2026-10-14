@@ -195,6 +195,15 @@ Future<void> main() async {
   // reach BlueZ, so on or off is all it says
   VrxSystem.bluetooth.watch().listen((b) => fact(ShellFacts(bleUp: b.on)), onError: (Object _) {});
   _screen.watch().listen((s) => fact(ShellFacts(brightness: s.brightness)), onError: (Object _) {});
+  // a home app's Level Control (plan 0015 D12): vrxhost tells the shell,
+  // which writes it the way its own slider does
+  VrxBridge.listen().listen((d) {
+    if (d is! VrxIntentDelivery || d.name != 'sys.screen.brightness') return;
+    final position = (d.payload is Map ? (d.payload as Map)['position'] : null) as num?;
+    final id = d.id;
+    if (position != null) _brightness(position.toInt(), settled: true);
+    if (id != null) unawaited(VrxBridge.answer(id, handled: position != null).catchError((Object _) {}));
+  }, onError: (Object err) => debugPrint('shell: listen: $err'));
   unawaited(_screen.dimming().then((d) => fact(ShellFacts(dimming: d))));
   // the release only ("0.1.0077"): the platform after it is Settings >
   // Device's, and wrapped three lines deep in the drawer

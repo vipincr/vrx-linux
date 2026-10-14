@@ -423,15 +423,6 @@ pub fn read_battery(root: &std::path::Path) -> Option<Reading> {
     None
 }
 
-#[zbus::proxy(
-    interface = "org.freedesktop.login1.Manager",
-    default_service = "org.freedesktop.login1",
-    default_path = "/org/freedesktop/login1"
-)]
-trait Login {
-    fn power_off(&self, interactive: bool) -> zbus::Result<()>;
-}
-
 /// Run the battery's rules: on every power-supply change (`changes`) and
 /// once at start. Light caps go to the compositor through `cap`.
 pub async fn battery(
@@ -465,11 +456,7 @@ pub async fn battery(
                         && read_battery(&sysfs).is_some_and(|r| r.discharging)
                     {
                         tracing::warn!("battery critical: powering off");
-                        let off = async {
-                            let conn = zbus::Connection::system().await?;
-                            LoginProxy::new(&conn).await?.power_off(false).await
-                        };
-                        if let Err(err) = off.await {
+                        if let Err(err) = crate::energy::power_off().await {
                             tracing::error!(error = %err, "battery critical: power off failed");
                         }
                     }

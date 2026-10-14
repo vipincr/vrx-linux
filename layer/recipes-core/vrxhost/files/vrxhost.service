@@ -24,6 +24,10 @@ UMask=0007
 # freezer the channel ends an applet holds (D2); without it both read
 # nothing, silently.
 CapabilityBoundingSet=CAP_SYS_PTRACE
+# io.vrx.Matter (plan 0015 D9): vrxhost connects to vrx-matter's socket
+# (/run/vrx-matter, group vrx-matter) as root without CAP_DAC_OVERRIDE, so
+# through the group; vrx-policy makes it on every image
+SupplementaryGroups=vrx-matter
 NoNewPrivileges=yes
 ProtectSystem=strict
 # /data/vrx/energy: the hourly energy summaries (plan 0012 D9); absent
