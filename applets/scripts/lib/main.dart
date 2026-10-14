@@ -444,7 +444,10 @@ class _EditorState extends State<_Editor> {
     final space = ScaledSpacing.of(context);
     final mono = TypeRole.caption(context).copyWith(fontFamily: 'Liberation Mono');
     final save = VrxChip(label: 'Save', filled: true, onTap: () => widget.onSave(_text.text));
-    final field = Padding(
+    // roomy: the kit's keyboard comes up for the field (plan 0013 D6);
+    // short: the field takes no keyboard from the kit and the terminal's
+    // keys (with arrows, Hide and Back) come up on a tap in the text
+    Widget field({required bool roomy}) => Padding(
       padding: EdgeInsets.symmetric(horizontal: space.sm),
       // the text area says what it holds, even empty (plan 0014 D8)
       child: MergeSemantics(
@@ -455,29 +458,34 @@ class _EditorState extends State<_Editor> {
         maxLines: null,
         expands: true,
         style: mono,
-        keyboardType: TextInputType.multiline,
+        keyboardType: roomy ? TextInputType.multiline : TextInputType.none,
         decoration: const InputDecoration(border: InputBorder.none, isDense: true),
         // as the kit's entry: no drag handles over the text (they sit on
         // the lines under a finger); the arrows move the cursor
         enableInteractiveSelection: false,
-        // a tap in the text brings the keyboard up where it is shown on demand
+        // a tap in the text brings the terminal's keys up where they are
+        // shown on demand
         onTap: () {
-          if (!_keys) setState(() => _keys = true);
+          if (!roomy && !_keys) setState(() => _keys = true);
         },
       ),
       )),
     );
-    return LayoutBuilder(builder: (context, box) {
+    return LayoutBuilder(builder: (context, _) {
       // a header, a few lines and the keyboard; on a panel too short for
       // them, the strip steps aside, the header is one row, and the
       // keyboard is the terminal's (shorter, with its own Hide and Back)
       // shown on a tap in the text
-      final roomy = box.maxHeight >= VrxKeyboard.heightOf(context) + 4 * space.touch;
+      // decided on the display, never on this box: the kit's keyboard
+      // takes its share of the box when it comes up, and the decision must
+      // not change because it did
+      final view = View.of(context);
+      final screen = view.physicalSize.height / view.devicePixelRatio - VrxStatusStrip.heightOf(context);
+      final roomy = screen >= VrxKeyboard.heightOf(context) + 4 * space.touch;
       if (roomy) {
         return Column(children: [
           VrxHeader(title: widget.name, onBack: widget.onBack, action: save),
-          Expanded(child: field),
-          VrxKeyboard(controller: _text, onDone: _newLine),
+          Expanded(child: field(roomy: true)),
         ]);
       }
       return VrxNoChrome(
@@ -497,7 +505,7 @@ class _EditorState extends State<_Editor> {
               ),
               Divider(height: space.xs, thickness: Strokes.hairline, color: VrxTheme.of(context).outlineFaint),
             ],
-            Expanded(child: field),
+            Expanded(child: field(roomy: false)),
             if (_keys)
               VrxKeyboard.terminal(
                 onText: (t, {ctrl = false}) => _insert(t),

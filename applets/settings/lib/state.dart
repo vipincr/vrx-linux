@@ -191,6 +191,16 @@ class SettingsView {
   final String? error;
 }
 
+/// How the on-screen keyboard's mode reads (plan 0013 D6).
+String keyboardModeLabel(VrxKeyboardMode mode) => switch (mode) {
+      VrxKeyboardMode.auto => 'Only without a keyboard',
+      VrxKeyboardMode.show => 'Show',
+    };
+
+/// What a tap on "On-screen keyboard" sets.
+VrxKeyboardMode nextKeyboardMode(VrxKeyboardMode mode) =>
+    mode == VrxKeyboardMode.auto ? VrxKeyboardMode.show : VrxKeyboardMode.auto;
+
 /// The screen-off choices, in seconds (0 = never), and how each reads.
 /// The compositor reads `light_off` from the screen's settings file
 /// (/etc/vrx/display/screen.conf, plan 0010 D7); vrx-policy seeds it.
@@ -618,6 +628,15 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
           if (bluetooth?.present ?? false)
             SettingRow(key: 'devicelink', label: 'Device Link', value: linkValue(bluetooth!), kind: RowKind.open),
           if (usbPresent) const SettingRow(key: 'usbport', label: 'USB', value: '', kind: RowKind.open),
+          // when the on-screen keyboard comes up for a text field (plan
+          // 0013 D6): only without a physical keyboard, or always
+          SettingRow(
+            key: 'on_screen_keyboard',
+            label: 'On-screen keyboard',
+            value: keyboardModeLabel(screen.keyboard),
+            kind: RowKind.toggle,
+            widest: _widest(VrxKeyboardMode.values.map(keyboardModeLabel)),
+          ),
           const SettingRow(key: 'manage', label: 'Manage from a browser', value: '', kind: RowKind.open),
           const SettingRow(key: 'licences', label: 'Licences', value: '', kind: RowKind.open),
           const SettingRow(key: 'setup', label: 'Set up again', value: '', kind: RowKind.open),

@@ -126,7 +126,7 @@ void main() {
         device: DeviceState(name: 'vrxboard-cm4', hostname: 'vrxboard-cm4', model: 'Raspberry Pi Compute Module 4 Rev 1.1', version: '0.1.0074 (cm4-bcm2711)', memoryMb: 1843)));
     final keys = harness.view.rows.map((r) => r.key).toList();
     // no network-name row when it equals the name; no serial when unknown
-    expect(keys, ['name', 'model', 'version', 'memory', 'manage', 'licences', 'setup']);
+    expect(keys, ['name', 'model', 'version', 'memory', 'on_screen_keyboard', 'manage', 'licences', 'setup']);
     expect(harness.view.rows.firstWhere((r) => r.key == 'memory').value, '1.8 GB');
     // USB only on a board with a device port
     harness.dispatch(const SettingsFacts(usbPresent: true));
@@ -140,6 +140,17 @@ void main() {
       BluetoothDevice(id: '/org/bluez/hci0/dev_2', name: 'iPhone'),
     ])));
     expect(harness.view.rows.firstWhere((r) => r.key == 'devicelink').value, '2 paired');
+  });
+
+  test('the on-screen keyboard row reads the screen settings and steps between its two modes', () {
+    final harness = StoreHarness(SettingsModel())..dispatch(const SettingsGo(open: Change(SettingsCategory.device)));
+    harness.dispatch(const SettingsFacts(device: DeviceState(name: 'b', hostname: 'b')));
+    SettingRow row() => harness.view.rows.firstWhere((r) => r.key == 'on_screen_keyboard');
+    expect(row().value, 'Only without a keyboard', reason: 'the default (plan 0013 D6)');
+    expect(nextKeyboardMode(VrxKeyboardMode.auto), VrxKeyboardMode.show);
+    harness.dispatch(const SettingsFacts(screen: ScreenState(keyboard: VrxKeyboardMode.show)));
+    expect(row().value, 'Show');
+    expect(nextKeyboardMode(VrxKeyboardMode.show), VrxKeyboardMode.auto);
   });
 
   test('a failure shows until the person moves on', () {

@@ -12,6 +12,27 @@ void main() {
   setUp(() => clock = start);
   ClockModel model() => ClockModel(now: () => clock)..home = Zone.fixed('Asia/Kolkata', 19800);
 
+  // the reduce budget measures the reducer, not the JIT: dispatch each
+  // kind once, untimed, before the timed tests (the shell and Settings do
+  // the same). The gate runs test files side by side, and a first dispatch
+  // compiled there overran 2 ms; the shipped applet is AOT-compiled.
+  setUpAll(() {
+    final m = model()..book.alarms.add(const Alarm(minutes: 7 * 60 + 1, days: daysAll));
+    final h = StoreHarness(m, reduceBudget: const Duration(days: 1));
+    for (final a in <ClockAction>[
+      const ClockOpenTab(ClockTab.alarms),
+      const ClockEditAlarm(0),
+      ClockDo.check,
+      ClockDo.newAlarm,
+      ClockDo.cycleDays,
+      ClockDo.saveDraft,
+      ClockAction.tick,
+      const ClockFacts(h12: true),
+    ]) {
+      h.dispatch(a);
+    }
+  });
+
   test('the face reads the home zone and names the next alarm', () {
     final m = model()..book.alarms.add(const Alarm(minutes: 7 * 60 + 30, days: daysAll));
     final h = StoreHarness(m);
