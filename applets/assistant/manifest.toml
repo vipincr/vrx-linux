@@ -22,8 +22,12 @@ heap_mb = 96
 system = ["ml"]
 
 [applet.intents]
-# the words stt heard, for the question being spoken
-handles = [{ name = "sys.stt.heard", priority = 500 }]
+# stt recording (its microphone is open), then the words it heard, for
+# the question being spoken
+handles = [
+    { name = "sys.stt.listening", priority = 500 },
+    { name = "sys.stt.heard", priority = 500 },
+]
 emits = ["sys.stt.listen"]
 
 [applet.command]

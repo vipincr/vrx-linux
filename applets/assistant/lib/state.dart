@@ -1,6 +1,6 @@
 import 'package:vrx_kit/vrx_kit.dart';
 
-enum AssistantAction { init, ready, typing, asked, piece, answered, failed, listening, heard, cleared, back }
+enum AssistantAction { init, ready, typing, asked, piece, answered, failed, preparing, listening, heard, cleared, back }
 
 /// What a person reads when the spoken question has no words (stt's
 /// sys.stt.heard error, plan 0011 D18).
@@ -16,6 +16,7 @@ class AssistantView {
     required this.partial,
     required this.generating,
     required this.typing,
+    required this.preparing,
     required this.listening,
     required this.canSpeak,
     required this.notice,
@@ -27,6 +28,11 @@ class AssistantView {
   final String partial;
   final bool generating;
   final bool typing;
+
+  /// Asked stt to listen; its microphone is not open yet.
+  final bool preparing;
+
+  /// stt is recording (it said sys.stt.listening).
   final bool listening;
 
   /// A speech model is built into this image and the device can hear.
@@ -44,6 +50,7 @@ class AssistantModel extends StoreModel<AssistantState, AssistantAction, Assista
   String partial = '';
   bool generating = false;
   bool typing = false;
+  bool preparing = false;
   bool listening = false;
   bool canSpeak = false;
   String? notice;
@@ -64,6 +71,7 @@ class AssistantModel extends StoreModel<AssistantState, AssistantAction, Assista
         partial = '';
         notice = null;
       case AssistantAction.asked:
+      case AssistantAction.preparing:
       case AssistantAction.listening:
         notice = null;
       default:
@@ -74,6 +82,7 @@ class AssistantModel extends StoreModel<AssistantState, AssistantAction, Assista
       partial: partial,
       generating: generating,
       typing: typing,
+      preparing: preparing,
       listening: listening,
       canSpeak: canSpeak,
       notice: notice,

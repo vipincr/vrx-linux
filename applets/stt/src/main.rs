@@ -1,6 +1,6 @@
 // stt's process: listen for sys.stt.listen, answer it at once (a told
-// handler has 100 ms), then record, detect, transcribe and send
-// sys.stt.heard. One clip at a time; an ask while one is in progress is
+// handler has 100 ms), then record (saying sys.stt.listening when the
+// first frame arrives), detect, transcribe and send sys.stt.heard. One clip at a time; an ask while one is in progress is
 // answered and joins it (the one answer goes to whoever listens).
 
 use std::io::Read;
@@ -16,7 +16,8 @@ use vrx::service::{notify, Liveness};
 const SOCKET: &str = "/run/vrx-ml/stt.sock";
 
 /// Record until the detector decides; the outcome sys.stt.heard carries.
-fn listen_once() -> Result<String, &'static str> {
+/// [started] runs once, when the microphone's first frame arrives.
+fn listen_once(started: impl FnOnce()) -> Result<String, &'static str> {
     let pcm = std::fs::read_to_string("/proc/asound/pcm").unwrap_or_default();
     if !has_capture(&pcm) {
         return Err("no-microphone");
@@ -36,9 +37,13 @@ fn listen_once() -> Result<String, &'static str> {
     };
     let mut vad = Vad::new();
     let mut frame = vec![0u8; FRAME * 2];
+    let mut started = Some(started);
     let outcome = loop {
         if out.read_exact(&mut frame).is_err() {
             break Err("no-microphone");
+        }
+        if let Some(say) = started.take() {
+            say();
         }
         match vad.frame(&samples(&frame)) {
             Step::More => {}
@@ -94,7 +99,13 @@ fn main() -> ExitCode {
         }
         let busy = Arc::clone(&busy);
         std::thread::spawn(move || {
-            let outcome = listen_once();
+            let outcome = listen_once(|| {
+                if let Err(err) =
+                    intent_send("sys.stt.listening", serde_json::Value::Null)
+                {
+                    log(&format!("sys.stt.listening: {err}"));
+                }
+            });
             if let Err(err) = intent_send("sys.stt.heard", heard(outcome)) {
                 log(&format!("sys.stt.heard: {err}"));
             }

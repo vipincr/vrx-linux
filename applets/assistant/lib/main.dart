@@ -74,23 +74,37 @@ class AssistantApplet extends Applet<AssistantState, AssistantAction, AssistantV
     _finish();
   }
 
+  /// Ask stt to listen. "Listening…" waits for stt to say its microphone
+  /// is open (sys.stt.listening): words spoken before that are not heard,
+  /// so the screen must not claim it earlier (bench, CM4, 2026-10-14).
   Future<void> _speak() async {
-    model.listening = true;
-    events.add(AssistantAction.listening);
+    model.preparing = true;
+    events.add(AssistantAction.preparing);
     try {
       await Intent.send('sys.stt.listen', null);
     } on Object catch (err) {
       model
-        ..listening = false
+        ..preparing = false
         ..notice = VrxWords.of(err, context: 'assistant');
       events.add(AssistantAction.failed);
     }
   }
 
+  /// stt's microphone is open.
+  void recording() {
+    if (!model.preparing) return;
+    model
+      ..preparing = false
+      ..listening = true;
+    events.add(AssistantAction.listening);
+  }
+
   /// stt's answer: the words, or why there are none.
   void heard(Object? payload) {
-    if (!model.listening) return;
-    model.listening = false;
+    if (!model.listening && !model.preparing) return;
+    model
+      ..preparing = false
+      ..listening = false;
     final p = payload is Map ? payload : const {};
     final text = p['text'];
     if (text is String && text.trim().isNotEmpty) {
@@ -217,6 +231,8 @@ class _ConversationState extends State<_Conversation> {
         VrxRow(glyph: VrxSymbols.stop, label: 'Stop the answer', onTap: widget.onStop)
       else if (view.listening)
         const VrxRow(glyph: VrxSymbols.mic, label: 'Listening…')
+      else if (view.preparing)
+        const VrxRow(glyph: VrxSymbols.mic, label: 'Opening the mic…')
       else ...[
         VrxRow(glyph: VrxSymbols.keyboard, label: 'Type a question', onTap: widget.onType),
         if (view.canSpeak) VrxRow(glyph: VrxSymbols.mic, label: 'Speak a question', onTap: widget.onSpeak),
@@ -280,11 +296,15 @@ Future<void> main() async {
   final model = AssistantModel();
   final applet = AssistantApplet(model);
   runApplet(applet, actions: applet.events.stream);
-  // stt's answers: a told handler, answered at once
+  // stt's word: recording, then what it heard; a told handler, answered at
+  // once
   VrxBridge.listen().listen((d) {
-    if (d is VrxIntentDelivery && d.name == 'sys.stt.heard') {
-      final id = d.id;
-      if (id != null) unawaited(VrxBridge.answer(id, handled: true).catchError((Object _) {}));
+    if (d is! VrxIntentDelivery || (d.name != 'sys.stt.listening' && d.name != 'sys.stt.heard')) return;
+    final id = d.id;
+    if (id != null) unawaited(VrxBridge.answer(id, handled: true).catchError((Object _) {}));
+    if (d.name == 'sys.stt.listening') {
+      applet.recording();
+    } else {
       applet.heard(d.payload);
     }
   }, onError: (Object err) => debugPrint('assistant: listen: $err'));

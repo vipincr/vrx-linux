@@ -29,6 +29,10 @@ pub const CAP_MS: u32 = 8_000;
 /// [FLOOR] (a silent room would make breathing speech).
 const FACTOR: f64 = 3.0;
 const FLOOR: f64 = 300.0;
+/// A room whose quietest calibration frame is louder than this was no
+/// room: the person was already speaking when recording began, and the
+/// room is taken to be at [FLOOR].
+const ROOM_MAX: f64 = 1_500.0;
 
 /// What the detector says after a frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,8 +58,10 @@ enum Phase {
 pub struct Vad {
     phase: Phase,
     ms: u32,
-    noise_sum: f64,
-    noise_frames: u32,
+    /// The quietest frame of the calibration window.
+    quietest: f64,
+    /// The calibration window's frames, replayed once the room is known.
+    preroll: Vec<Vec<i16>>,
     threshold: f64,
     loud_run: u32,
     quiet_run: u32,
@@ -74,8 +80,8 @@ impl Vad {
         Self {
             phase: Phase::Calibrating,
             ms: 0,
-            noise_sum: 0.0,
-            noise_frames: 0,
+            quietest: f64::INFINITY,
+            preroll: Vec::new(),
             threshold: FLOOR,
             loud_run: 0,
             quiet_run: 0,
@@ -85,21 +91,47 @@ impl Vad {
     }
 
     /// Feed one [FRAME] of samples.
+    ///
+    /// The first [CALIBRATE_MS] learn the room from their quietest frame
+    /// and are kept, then replayed as if heard after it: speech that began
+    /// while the room was being learnt is detected and starts the clip
+    /// (bench, CM4, 2026-10-14: a question spoken 1.2 s after the tap was
+    /// lost to a mean that counted it as the room). [WAIT_MS] counts from
+    /// the first frame.
     pub fn frame(&mut self, samples: &[i16]) -> Step {
         let level = rms(samples);
         self.ms += FRAME_MS;
-        match self.phase {
-            Phase::Calibrating => {
-                self.noise_sum += level;
-                self.noise_frames += 1;
-                if self.ms >= CALIBRATE_MS {
-                    let noise = self.noise_sum / f64::from(self.noise_frames.max(1));
-                    self.threshold = (noise * FACTOR).max(FLOOR);
-                    self.phase = Phase::Waiting;
-                    self.ms = 0;
-                }
-                Step::More
+        if self.phase != Phase::Calibrating {
+            return self.after_calibration(samples, level);
+        }
+        self.quietest = self.quietest.min(level);
+        self.preroll.push(samples.to_vec());
+        if self.ms < CALIBRATE_MS {
+            return Step::More;
+        }
+        let room = if self.quietest > ROOM_MAX {
+            FLOOR
+        } else {
+            self.quietest
+        };
+        self.threshold = (room * FACTOR).max(FLOOR);
+        self.phase = Phase::Waiting;
+        // replay the window against the room just learnt, keeping time
+        self.ms = 0;
+        for f in std::mem::take(&mut self.preroll) {
+            let l = rms(&f);
+            self.ms += FRAME_MS;
+            match self.after_calibration(&f, l) {
+                Step::More => {}
+                done => return done,
             }
+        }
+        Step::More
+    }
+
+    fn after_calibration(&mut self, samples: &[i16], level: f64) -> Step {
+        match self.phase {
+            Phase::Calibrating => Step::More,
             Phase::Waiting => {
                 if level >= self.threshold {
                     self.loud_run += FRAME_MS;
@@ -354,10 +386,56 @@ mod tests {
     fn a_click_shorter_than_100_ms_is_not_speech_and_silence_gives_up_at_4_s() {
         let mut vad = Vad::new();
         calibrate(&mut vad, 100);
+        let learnt = CALIBRATE_MS.div_ceil(FRAME_MS) * FRAME_MS;
         assert_eq!(run(&mut vad, frames(5000, SPEECH_START_MS - 20)), None);
-        let left = WAIT_MS - (SPEECH_START_MS - 20);
+        // the 4 s count from the first frame, the room's included
+        let left = WAIT_MS - learnt - (SPEECH_START_MS - 20);
         assert_eq!(run(&mut vad, frames(100, left - 20)), None);
         assert_eq!(run(&mut vad, frames(100, 20)), Some(Step::NothingHeard));
+    }
+
+    fn clip_ms(step: Option<Step>) -> u32 {
+        match step {
+            Some(Step::Heard(clip)) => clip.len() as u32 * 1000 / RATE,
+            other => panic!("expected a clip, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn speech_from_the_first_frame_is_heard_whole() {
+        // the person spoke before the room could be learnt: its quietest
+        // frame is speech, so the room is taken to be at the floor
+        let mut vad = Vad::new();
+        assert_eq!(run(&mut vad, frames(5000, 1000)), None);
+        assert_eq!(
+            clip_ms(run(&mut vad, frames(100, QUIET_END_MS))),
+            1000 + QUIET_END_MS
+        );
+    }
+
+    #[test]
+    fn speech_100_ms_in_is_heard_from_its_start() {
+        let mut vad = Vad::new();
+        assert_eq!(run(&mut vad, frames(100, 100)), None);
+        assert_eq!(run(&mut vad, frames(5000, 1000)), None);
+        assert_eq!(
+            clip_ms(run(&mut vad, frames(100, QUIET_END_MS))),
+            1000 + QUIET_END_MS,
+            "the clip starts with the speech, not the room before it"
+        );
+    }
+
+    #[test]
+    fn a_question_starting_inside_the_window_takes_the_quiet_before_it_as_the_room() {
+        // a mean over the window would make the room loud and the speech
+        // never cross 3x it (bench, CM4, 2026-10-14)
+        let mut vad = Vad::new();
+        assert_eq!(run(&mut vad, frames(150, 160)), None);
+        assert_eq!(run(&mut vad, frames(1200, 1500)), None);
+        assert_eq!(
+            clip_ms(run(&mut vad, frames(150, QUIET_END_MS))),
+            1500 + QUIET_END_MS
+        );
     }
 
     #[test]

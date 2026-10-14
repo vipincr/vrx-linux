@@ -31,6 +31,15 @@ void main() {
     h.assertView((v) => v.notice == null);
   });
 
+  test('preparing to listen clears the notice and is not yet listening', () {
+    final m = AssistantModel()
+      ..notice = 'Nothing was heard.'
+      ..preparing = true;
+    final h = StoreHarness(m);
+    h.dispatch(AssistantAction.preparing);
+    h.assertView((v) => v.preparing && !v.listening && v.notice == null);
+  });
+
   test('every reason stt gives has a sentence', () {
     expect(heardSentence('nothing-heard'), 'Nothing was heard.');
     expect(heardSentence('no-microphone'), 'This device has no microphone.');

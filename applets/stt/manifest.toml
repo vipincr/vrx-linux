@@ -4,7 +4,9 @@
 # 250 ms to learn the room, 100 ms of speech to start, 900 ms of quiet to
 # end, 4 s waiting, 8 s at most), has the local whisper-server write it
 # down through /run/vrx-ml/stt.sock (the ml grant), and answers
-# sys.stt.heard with the text, or with why there is none.
+# sys.stt.heard with the text, or with why there is none. Once the
+# microphone delivers its first frame it says sys.stt.listening, so the
+# asker shows "Listening…" when it is true.
 [applet]
 id = "stt"
 name = "Speech to text"
@@ -28,7 +30,9 @@ system = ["audio", "ml"]
 
 [applet.intents]
 handles = [{ name = "sys.stt.listen", priority = 500 }]
-emits = ["sys.stt.heard"]
+# listening: the microphone is open (the first frame arrived), so the
+# asker can say so; heard: the text, or why there is none
+emits = ["sys.stt.listening", "sys.stt.heard"]
 
 [applet.command]
 enabled = false

@@ -47,6 +47,9 @@ void main() {
       final m = ready()..notice = heardSentence('engine');
       await expectCleanLayout(tester, AssistantApplet(m), display: display);
     });
+    testWidgets('assistant starting the microphone on ${display.name}', (tester) async {
+      await expectCleanLayout(tester, AssistantApplet(ready()..preparing = true), display: display);
+    });
     testWidgets('assistant typing on ${display.name}', (tester) async {
       await expectCleanLayout(tester, AssistantApplet(ready()..typing = true), display: display);
     });
