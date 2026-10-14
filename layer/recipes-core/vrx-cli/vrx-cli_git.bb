@@ -19,7 +19,7 @@ inherit cargo
 SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master"
 # the first commit with `vrx unit`; bumped with vrxhost's when rust/cli or
 # rust/protocol changes
-SRCREV = "c2d4cf75999e008c9eb6a2337e7ae0a8fcc24339"
+SRCREV = "c924a8e17d59682acff596c78fb4f7369669bcb9"
 
 CARGO_SRC_DIR = "rust/cli"
 CARGO_LOCK_PATH = "${S}/Cargo.lock"
