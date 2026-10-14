@@ -30,6 +30,24 @@ void main() {
     });
     // an applet over its power budget (plan 0012 D11): the longest name
     // a built-in has, behind the screen
+    // the battery's zones (plan 0012 D10) and an alarm that cannot ring
+    // through a power-off (D15)
+    testWidgets('shell battery low on ${display.name}', (tester) async {
+      final m = model()
+        ..batteryZone = 'warn'
+        ..batteryShown = 15;
+      await expectCleanLayout(tester, ShellApplet(m), display: display);
+    });
+    testWidgets('shell battery critical on ${display.name}', (tester) async {
+      final m = model()
+        ..batteryZone = 'critical'
+        ..batteryShown = 5;
+      await expectCleanLayout(tester, ShellApplet(m), display: display);
+    });
+    testWidgets('shell power question with an alarm set on ${display.name}', (tester) async {
+      final m = model(power: true)..nextWake = DateTime(2026, 10, 14, 7).millisecondsSinceEpoch ~/ 1000;
+      await expectCleanLayout(tester, ShellApplet(m), display: display);
+    });
     testWidgets('shell power alert on ${display.name}', (tester) async {
       final m = model()
         ..alerts = const [PowerAlert(applet: 'web', name: 'Web requests', background: true, percent: 41.5)];

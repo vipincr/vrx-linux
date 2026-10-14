@@ -72,6 +72,9 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
     // strip, inside the shell's region (so its input is the shell's and
     // the app below moves down), until the person answers
     final alert = view.drawer || view.askingPower ? null : view.alert;
+    // the battery's zone (plan 0012 D10): a sentence under the strip
+    // until it charges; critical takes the place of a power alert
+    final battery = view.drawer || view.askingPower ? null : view.batteryNotice;
     final strip = VrxShellRegion(
       full: view.drawer || view.askingPower,
       child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -80,7 +83,10 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
           onUp: view.drawer ? _toggle : null,
           child: VrxStatusStrip(facts: facts),
         ),
-        if (alert != null) PowerAlertBand(alert: alert, onAnswer: _answer),
+        if (battery != null)
+          VrxBanner(text: battery, signal: view.batteryCritical ? VrxSignal.error : VrxSignal.warning)
+        else if (alert != null)
+          PowerAlertBand(alert: alert, onAnswer: _answer),
       ]),
     );
     // the drawer is an overlay of its own (a scrim and a panel) over the
@@ -130,6 +136,9 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
                 child: VrxList(children: [
                   // no arrow of its own: the strip's Back closes it
                   const VrxHeader(title: 'Power'),
+                  // an alarm that cannot ring through a power-off is said
+                  // before it, whole (plan 0012 D15, the evrx-rt lesson)
+                  if (view.powerOffNote != null) VrxBanner(text: view.powerOffNote!, signal: VrxSignal.warning),
                   VrxRow(glyph: VrxSymbols.restart_alt, label: 'Restart', onTap: () => _power(VrxSystem.power.reboot)),
                   VrxRow(
                       glyph: VrxSymbols.power_settings_new,
@@ -221,6 +230,15 @@ Future<void> main() async {
     });
   }, onError: (Object _) {});
   VrxSystem.powerSupply.watch().listen((b) => fact(() => model.battery = b), onError: (Object _) {});
+  // the battery's zone and the next wake, vrxhost's (plan 0012 D10, D15)
+  AppletsService.installed?.facts().listen(
+      (f) => fact(() {
+            model.batteryZone = f.batteryZone;
+            model.batteryShown = f.battery;
+            model.nextWake = f.nextWake;
+          }),
+      onError: (Object _) {});
+  unawaited(_screen.cascade().then((c) => fact(() => model.wakeAlarm = c.wakeAlarm)));
   // applets over their power budget (plan 0012 D11), from vrxhost
   if (AppletsService.installed != null) {
     VrxEnergy.service.alerts().listen((a) => fact(() => model.alerts = a), onError: (Object _) {});

@@ -13,6 +13,9 @@ class ShellView {
     this.bleUp = false,
     required this.canGoBack,
     this.alert,
+    this.batteryNotice,
+    this.batteryCritical = false,
+    this.powerOffNote,
   });
 
   /// The drawer is open (the shell asks for the whole screen).
@@ -35,6 +38,15 @@ class ShellView {
   /// An applet over its power budget, waiting for the person (plan 0012
   /// D11): a band under the strip with Not now and Stop.
   final PowerAlert? alert;
+
+  /// The battery's zone in words (plan 0012 D10), under the strip until
+  /// it charges; critical says the device is about to turn off.
+  final String? batteryNotice;
+  final bool batteryCritical;
+
+  /// Said beside Power off when an alarm is set and nothing can wake the
+  /// board for it (no RTC): it will not ring while the device is off.
+  final String? powerOffNote;
 }
 
 /// The shell's model: facts from the services, the drawer's state.
@@ -70,6 +82,28 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
   /// The power alerts vrxhost raised (plan 0012 D11); the first open one
   /// is shown.
   List<PowerAlert> alerts = const [];
+
+  /// vrxhost's battery zone ('', 'warn', 'critical') and charge as shown
+  /// (plan 0012 D10), and the next time an applet asked to wake for (0:
+  /// none) with whether an RTC can wake the board for it (plan 0012 D15).
+  String batteryZone = '';
+  int batteryShown = -1;
+  int nextWake = 0;
+  bool wakeAlarm = false;
+
+  String? get batteryNotice => switch (batteryZone) {
+        'warn' => 'The battery is low (${batteryShown < 0 ? '' : '$batteryShown %'}). The screen is dimmer until it charges.'
+            .replaceFirst(' ()', ''),
+        'critical' => 'The battery is almost empty. The device turns off in 30 seconds unless it charges.',
+        _ => null,
+      };
+
+  String? get powerOffNote {
+    if (nextWake <= 0 || wakeAlarm) return null;
+    final t = DateTime.fromMillisecondsSinceEpoch(nextWake * 1000);
+    return 'An alarm is set for ${VrxTimeFormat.hm(t.hour * 60 + t.minute, h24: h24)}. '
+        'It will not ring while the device is off.';
+  }
 
   String get clockText {
     if (!clockValid) return '--:--';
@@ -126,6 +160,9 @@ class ShellModel extends StoreModel<ShellState, ShellAction, ShellView> {
       bleUp: bleUp,
       canGoBack: depth > 1,
       alert: alerts.where((a) => a.open).firstOrNull,
+      batteryNotice: batteryNotice,
+      batteryCritical: batteryZone == 'critical',
+      powerOffNote: powerOffNote,
     );
   }
 

@@ -43,6 +43,32 @@ void main() {
     h.assertView((v) => v.brightness == 30);
   });
 
+  test('the battery is said by zone, and an alarm before a power-off only without a timed wake (plan 0012 D10, D15)', () {
+    final model = ShellModel(now: () => DateTime(2026, 10, 13, 22).millisecondsSinceEpoch);
+    final h = StoreHarness(model);
+    expect(h.view.batteryNotice, isNull, reason: 'no battery, or above its zones');
+    model
+      ..batteryZone = 'warn'
+      ..batteryShown = 14;
+    h.dispatch(ShellAction.factsChanged);
+    expect(h.view.batteryNotice, 'The battery is low (14 %). The screen is dimmer until it charges.');
+    expect(h.view.batteryCritical, isFalse);
+    model.batteryZone = 'critical';
+    h.dispatch(ShellAction.factsChanged);
+    expect(h.view.batteryNotice, contains('turns off in 30 seconds'));
+    expect(h.view.batteryCritical, isTrue);
+    model.batteryZone = '';
+    h.dispatch(ShellAction.factsChanged);
+    expect(h.view.batteryNotice, isNull, reason: 'on a charger the zone clears');
+    expect(h.view.powerOffNote, isNull, reason: 'no alarm set');
+    model.nextWake = DateTime(2026, 10, 14, 7).millisecondsSinceEpoch ~/ 1000;
+    h.dispatch(ShellAction.factsChanged);
+    expect(h.view.powerOffNote, 'An alarm is set for 07:00. It will not ring while the device is off.');
+    model.wakeAlarm = true;
+    h.dispatch(ShellAction.factsChanged);
+    expect(h.view.powerOffNote, isNull, reason: 'an RTC wakes the board for it');
+  });
+
   test('an open power alert is shown until it is answered (plan 0012 D11)', () {
     final model = ShellModel();
     final h = StoreHarness(model);

@@ -255,6 +255,10 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
         }));
       case 'light_off':
         unawaited(_ask(context, () => _screen.setLightOff(model.nextLightOff)));
+      case 'sleep_after':
+        unawaited(_ask(context, () => _screen.setSleepAfter(model.nextSleepAfter)));
+      case 'deep_after':
+        unawaited(_ask(context, () => _screen.setDeepAfter(model.nextDeepAfter)));
       case 'scheme':
         _go(context, () => model.pickingScheme = true);
       case 'polarity':
@@ -392,6 +396,7 @@ Future<void> main() async {
   VrxSystem.device.watch().listen((d) => fact(() => model.device = d), onError: failed);
   _screen.watch().listen((s) => fact(() => model.screen = s), onError: failed);
   unawaited(_screen.dimming().then((d) => fact(() => model.dimming = d)));
+  unawaited(_screen.cascade().then((c) => fact(() => model.cascade = c)));
   VrxSystem.power.watchSupplyLow().listen((low) => fact(() => model.supplyLow = low), onError: failed);
   VrxSystem.usb.watch().listen((u) => fact(() => model.usbPresent = u.present), onError: failed);
   VrxSystem.bluetooth.watch().listen((b) => fact(() => model.bluetooth = b), onError: failed);

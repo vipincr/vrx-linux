@@ -78,6 +78,12 @@ void main() {
     'set the time': () => model()
       ..open = SettingsCategory.time
       ..settingTime = SettingTime.time,
+    // plan 0012 D13, D14: a board that offers both later steps, with the
+    // longest values they take
+    'display with sleep and deep sleep': () => model()
+      ..open = SettingsCategory.display
+      ..cascade = const VrxCascade(sleep: true, deep: true, wakeAlarm: true)
+      ..screen = const ScreenState(brightness: 40, lightOff: 600, sleepAfter: 1800, deepAfter: 7200),
     // plan 0012 D12: the longest names and values a ranking holds
     'battery use': () => model()
       ..energyAvailable = true

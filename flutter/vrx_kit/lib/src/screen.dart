@@ -47,10 +47,34 @@ const backlightRoot = '/sys/class/backlight';
 /// over black, or not at all (no slider is offered then).
 enum VrxDimming { backlight, alpha, none }
 
+/// The cascade's steps this board offers after the screen goes off (plan
+/// 0012 D13, D14), as the compositor says them in /run/vrx-ui/screen:
+/// sleep where a person can wake the board from it and it saves enough,
+/// deep sleep (a halt) where an RTC can wake the board for an alarm.
+@immutable
+class VrxCascade {
+  const VrxCascade({this.sleep = false, this.deep = false, this.wakeAlarm = false});
+
+  /// "Sleep after" is offered.
+  final bool sleep;
+
+  /// "Power off when idle" is offered.
+  final bool deep;
+
+  /// An RTC can wake the board on a timer: an alarm rings through a
+  /// power-off.
+  final bool wakeAlarm;
+}
+
 /// The screen's settings now.
 @immutable
 class ScreenState {
-  const ScreenState({this.brightness = ScreenSettings.defaultBrightness, this.lightOff = ScreenSettings.defaultLightOff});
+  const ScreenState({
+    this.brightness = ScreenSettings.defaultBrightness,
+    this.lightOff = ScreenSettings.defaultLightOff,
+    this.sleepAfter = 0,
+    this.deepAfter = 0,
+  });
 
   /// The slider's position, 0 to 100 (0 is the dimmest, never dark).
   final int brightness;
@@ -58,11 +82,22 @@ class ScreenState {
   /// Seconds without input before the screen goes off; 0 is never.
   final int lightOff;
 
-  @override
-  bool operator ==(Object other) => other is ScreenState && other.brightness == brightness && other.lightOff == lightOff;
+  /// Seconds without input before the system sleeps, and before deep
+  /// sleep (a power-off the board wakes from); 0 is never. The compositor
+  /// takes a step set no later than the one before it as never.
+  final int sleepAfter;
+  final int deepAfter;
 
   @override
-  int get hashCode => Object.hash(brightness, lightOff);
+  bool operator ==(Object other) =>
+      other is ScreenState &&
+      other.brightness == brightness &&
+      other.lightOff == lightOff &&
+      other.sleepAfter == sleepAfter &&
+      other.deepAfter == deepAfter;
+
+  @override
+  int get hashCode => Object.hash(brightness, lightOff, sleepAfter, deepAfter);
 }
 
 /// The screen's settings, each in its one home: the backlight's sysfs
@@ -110,6 +145,25 @@ class ScreenSettings {
     }
   }
 
+  VrxCascade? _cascade;
+
+  /// The cascade's steps this board offers; none when the compositor has
+  /// not said. Read once, like [dimming].
+  Future<VrxCascade> cascade() async => _cascade ??= await _readCascade();
+
+  Future<VrxCascade> _readCascade() async {
+    try {
+      final v = parseSettings(await File(capsPath).readAsString());
+      return VrxCascade(
+        sleep: (v['sleep'] ?? 'none') != 'none',
+        deep: (v['deep'] ?? 'none') != 'none',
+        wakeAlarm: v['wakealarm'] == 'yes',
+      );
+    } on FileSystemException {
+      return const VrxCascade();
+    }
+  }
+
   /// The first backlight Linux has (the one the compositor dims).
   Future<Directory?> _backlight() async {
     final root = Directory(backlights);
@@ -153,7 +207,13 @@ class ScreenSettings {
       case VrxDimming.none:
         brightness = defaultBrightness;
     }
-    return ScreenState(brightness: brightness, lightOff: lightOff);
+    int seconds(String key) => math.max(0, int.tryParse(raw[key] ?? '') ?? 0);
+    return ScreenState(
+      brightness: brightness,
+      lightOff: lightOff,
+      sleepAfter: seconds('sleep_after'),
+      deepAfter: seconds('deep_after'),
+    );
   }
 
   /// The settings now, and again whenever they change: screen.conf by
@@ -186,6 +246,11 @@ class ScreenSettings {
   }
 
   Future<void> setLightOff(int seconds) => _setConf('light_off', '${math.max(0, seconds)}');
+
+  /// The cascade's later steps (plan 0012 D13): seconds from the last
+  /// input, 0 never.
+  Future<void> setSleepAfter(int seconds) => _setConf('sleep_after', '${math.max(0, seconds)}');
+  Future<void> setDeepAfter(int seconds) => _setConf('deep_after', '${math.max(0, seconds)}');
 
   /// Set the brightness. While a slider moves ([settled] false) at most
   /// one write in [dragInterval], the last position always written; on

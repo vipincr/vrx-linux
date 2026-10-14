@@ -53,6 +53,28 @@ void main() {
     expect(lightOffLabel(45), '45 s');
   });
 
+  test('the cascade rows: only where the board offers them, each later than the step before (plan 0012 D13)', () {
+    final model = SettingsModel()..open = SettingsCategory.display;
+    final h = StoreHarness(model);
+    Iterable<String> keys() => h.view.rows.map((r) => r.key);
+    expect(keys(), isNot(contains('sleep_after')), reason: 'no sleep offered: no row (the CM4)');
+    expect(keys(), isNot(contains('deep_after')), reason: 'no timed wake: no power off when idle');
+    model
+      ..cascade = const VrxCascade(sleep: true, deep: true, wakeAlarm: true)
+      ..screen = const ScreenState(lightOff: 600);
+    h.dispatch(SettingsAction.factsChanged);
+    SettingRow row(String key) => h.view.rows.firstWhere((r) => r.key == key);
+    expect(row('sleep_after').value, 'Never');
+    expect(row('deep_after').value, 'Never');
+    expect(model.nextSleepAfter, 1800, reason: 'later than the screen goes off (10 min)');
+    model.screen = const ScreenState(lightOff: 600, sleepAfter: 1800);
+    expect(model.nextDeepAfter, 3600, reason: 'later than sleep');
+    model.screen = const ScreenState(lightOff: 600, sleepAfter: 1800, deepAfter: 7200);
+    h.dispatch(SettingsAction.factsChanged);
+    expect(row('deep_after').value, 'After 2 h');
+    expect(model.nextDeepAfter, 0, reason: 'the last choice wraps to never');
+  });
+
     test('the colour scheme: offered on a colour panel, pending until a restart', () {
     final model = SettingsModel()..open = SettingsCategory.display;
     final h = StoreHarness(model);

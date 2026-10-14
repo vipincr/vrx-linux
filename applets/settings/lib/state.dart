@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:vrx_kit/vrx_kit.dart';
 
 /// Everything settings reacts to.
@@ -116,8 +118,21 @@ const lightOffChoices = [0, 30, 60, 120, 300, 600];
 String lightOffLabel(int seconds) => switch (seconds) {
       0 => 'Never',
       < 60 => '$seconds s',
-      _ => '${seconds ~/ 60} min',
+      < 3600 => '${seconds ~/ 60} min',
+      _ => '${seconds ~/ 3600} h',
     };
+
+/// The cascade's later steps (plan 0012 D13), in seconds from the last
+/// input (0 = never): sleep and deep sleep come after the screen goes off.
+const cascadeChoices = [0, 300, 600, 1800, 3600, 7200];
+
+/// The next of [cascadeChoices] after [now] that comes later than
+/// [after] (0 = never is always a choice).
+int nextCascade(int now, int after) {
+  final allowed = [for (final c in cascadeChoices) if (c == 0 || c > after) c];
+  final i = allowed.indexOf(now);
+  return allowed[(i + 1) % allowed.length];
+}
 
 /// The settings model: the system's facts as its state, the rows derived
 /// from them. Rows a device cannot offer are not offered (plan 0008 D12):
@@ -132,6 +147,11 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
   /// The screen's settings and how the compositor dims (plan 0010).
   ScreenState screen = const ScreenState();
   VrxDimming dimming = VrxDimming.none;
+
+  /// The cascade's steps the board offers after the screen (plan 0012
+  /// D13, D14): no "Sleep after" where sleep is not worth it or nothing
+  /// can wake the board, no "Power off when idle" without a timed wake.
+  VrxCascade cascade = const VrxCascade();
   bool canPowerOff = false;
 
   /// The board has a USB device port (a UDC): the USB row.
@@ -259,6 +279,12 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
 
   String get _screenOffText => lightOff == 0 ? 'Stays on' : 'Off after ${lightOffLabel(lightOff)}';
 
+  /// What a tap on "Sleep after" sets: a step later than the screen's.
+  int get nextSleepAfter => nextCascade(screen.sleepAfter, lightOff);
+
+  /// What a tap on "Power off when idle" sets: later than sleep's too.
+  int get nextDeepAfter => nextCascade(screen.deepAfter, math.max(lightOff, cascade.sleep ? screen.sleepAfter : 0));
+
   /// What a tap on the light-off row sets: the next choice.
   int get nextLightOff {
     final i = lightOffChoices.indexOf(lightOff);
@@ -308,6 +334,21 @@ class SettingsModel extends StoreModel<SettingsState, SettingsAction, SettingsVi
             value: lightOffLabel(lightOff),
             kind: RowKind.toggle,
           ),
+          // the cascade's later steps, where the board offers them
+          if (cascade.sleep)
+            SettingRow(
+              key: 'sleep_after',
+              label: 'Sleep after',
+              value: lightOffLabel(screen.sleepAfter),
+              kind: RowKind.toggle,
+            ),
+          if (cascade.deep)
+            SettingRow(
+              key: 'deep_after',
+              label: 'Power off when idle',
+              value: screen.deepAfter == 0 ? 'Never' : 'After ${lightOffLabel(screen.deepAfter)}',
+              kind: RowKind.toggle,
+            ),
           // the scheme, on a panel that draws one; it changes at the next boot
           if (runningScheme > 0) ...[
             SettingRow(key: 'scheme', label: 'Colour scheme', value: VrxColors.schemeName(chosenScheme), kind: RowKind.open),
