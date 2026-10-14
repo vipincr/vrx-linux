@@ -13,9 +13,9 @@ void main() {
   ];
   final cases = <String, WebModel Function()>{
     'history': () => WebModel()..history = [...history],
-    'request': () => WebModel()..compose(history[1]),
+    'request': () => WebModel()..reduce(const WebState(), WebCompose(history[1])),
     'address': () => WebModel()
-      ..compose(history[1])
+      ..reduce(const WebState(), WebCompose(history[1]))
       ..field = WebField.url,
     'waiting': () => WebModel()
       ..sent = history[2]

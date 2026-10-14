@@ -1,6 +1,70 @@
 import 'package:vrx_kit/vrx_kit.dart';
 
-enum WebAction { init, editing, sent, answered, failed, back, historyLoaded }
+/// Everything Web requests reacts to (plan 0013 D1: the reducer is the
+/// only writer): a signal, or what happened, as data.
+sealed class WebAction {
+  const WebAction();
+
+  static const init = WebSignal.init;
+  static const back = WebSignal.back;
+}
+
+enum WebSignal implements WebAction { init, back }
+
+/// The kept requests, read from their file.
+final class WebHistory implements WebAction {
+  const WebHistory(this.requests);
+
+  final List<WebRequest> requests;
+}
+
+/// A new request opened: from one to change and send again, or empty.
+final class WebCompose implements WebAction {
+  const WebCompose([this.from]);
+
+  final WebRequest? from;
+}
+
+/// The request being written changed; its field screen closes.
+final class WebDraft implements WebAction {
+  const WebDraft(this.draft);
+
+  final WebRequest draft;
+}
+
+/// A field's screen opened (address, header, body).
+final class WebEditField implements WebAction {
+  const WebEditField(this.field);
+
+  final WebField field;
+}
+
+/// A request went out; it heads the history.
+final class WebSent implements WebAction {
+  const WebSent(this.request);
+
+  final WebRequest request;
+}
+
+/// The request ended: its response, or why there is none.
+final class WebAnswered implements WebAction {
+  const WebAnswered({this.response, this.error});
+
+  final WebResponse? response;
+  final String? error;
+}
+
+/// A request that was not sent, and why.
+final class WebRefused implements WebAction {
+  const WebRefused(this.error);
+
+  final String error;
+}
+
+/// [history] with [r] at its top, once, at most [historyMax] long: what
+/// the reducer keeps and what the file saves.
+List<WebRequest> remembered(List<WebRequest> history, WebRequest r) =>
+    [r, for (final h in history) if (h != r) h].take(historyMax).toList();
 
 /// What is kept of a response body: enough to read on a panel.
 const bodyLimit = 64 * 1024;
@@ -134,20 +198,6 @@ class WebModel extends StoreModel<WebState, WebAction, WebView> {
   WebResponse? response;
   String? error;
 
-  /// Remember [r] at the top of the history, once.
-  void remember(WebRequest r) {
-    history
-      ..remove(r)
-      ..insert(0, r);
-    if (history.length > historyMax) history.removeRange(historyMax, history.length);
-  }
-
-  /// A new request: from [from] (to change and send again) or empty.
-  void compose([WebRequest? from]) {
-    draft = from ?? const WebRequest();
-    editing = true;
-    field = WebField.none;
-  }
 
   @override
   WebState get initial => const WebState();
@@ -157,16 +207,44 @@ class WebModel extends StoreModel<WebState, WebAction, WebView> {
 
   @override
   WebView reduce(WebState state, WebAction action) {
-    if (action == WebAction.back) {
-      if (field != WebField.none) {
+    switch (action) {
+      case WebHistory(:final requests):
+        history = requests.take(historyMax).toList();
+      case WebCompose(:final from):
+        draft = from ?? const WebRequest();
+        editing = true;
         field = WebField.none;
-      } else if (editing) {
+      case WebDraft(draft: final d):
+        draft = d;
+        field = WebField.none;
+      case WebEditField(field: final f):
+        field = f;
+      case WebSent(:final request):
         editing = false;
-      } else {
-        sent = null;
+        field = WebField.none;
+        sent = request;
+        busy = true;
         response = null;
         error = null;
-      }
+        history = remembered(history, request);
+      case WebAnswered(response: final res, error: final err):
+        busy = false;
+        if (res != null) response = res;
+        if (err != null) error = err;
+      case WebRefused(error: final err):
+        error = err;
+      case WebSignal.back:
+        if (field != WebField.none) {
+          field = WebField.none;
+        } else if (editing) {
+          editing = false;
+        } else {
+          sent = null;
+          response = null;
+          error = null;
+        }
+      case WebSignal.init:
+        break;
     }
     return WebView(
       history: List.unmodifiable(history),
@@ -182,6 +260,19 @@ class WebModel extends StoreModel<WebState, WebAction, WebView> {
 
   @override
   WebState get snapshot => const WebState();
+
+  /// The history is its own file; the snapshot carries nothing.
+  @override
+  void restore(WebState snapshot) {}
+
+  @override
+  WebAction get backAction => WebAction.back;
+
+  @override
+  bool get atRoot => field == WebField.none && !editing && sent == null;
+
+  @override
+  Object? get fingerprint => [history, editing, draft, field, sent, busy, response?.status, response?.body, error];
 }
 
 class WebState {

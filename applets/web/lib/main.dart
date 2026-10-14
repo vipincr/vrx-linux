@@ -37,20 +37,11 @@ class WebApplet extends Applet<WebState, WebAction, WebView> {
     if (r.url.isEmpty || _client != null) return;
     final header = r.header.isEmpty ? null : parseHeader(r.header);
     if (r.header.isNotEmpty && header == null) {
-      model.error = 'The header is written "Name: value".';
-      _events.add(WebAction.failed);
+      _events.add(const WebRefused('The header is written "Name: value".'));
       return;
     }
-    model
-      ..editing = false
-      ..field = WebField.none
-      ..sent = r
-      ..busy = true
-      ..response = null
-      ..error = null
-      ..remember(r);
-    _events.add(WebAction.sent);
-    unawaited(_saveHistory());
+    _events.add(WebSent(r));
+    unawaited(_saveHistory(remembered(model.history, r)));
     final client = _client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
     final watch = Stopwatch()..start();
     try {
@@ -71,24 +62,20 @@ class WebApplet extends Applet<WebState, WebAction, WebView> {
       final headers = <(String, String)>[];
       res.headers.forEach((k, v) => headers.add((k, v.join(', '))));
       headers.sort((a, b) => a.$1.compareTo(b.$1));
-      model.response = WebResponse(
+      _events.add(WebAnswered(response: WebResponse(
         status: res.statusCode,
         reason: res.reasonPhrase,
         headers: headers,
         body: utf8.decode(bytes.length > bodyLimit ? bytes.sublist(0, bodyLimit) : bytes, allowMalformed: true),
         millis: watch.elapsedMilliseconds,
         truncated: truncated,
-      );
-      _events.add(WebAction.answered);
+      )));
     } on Object catch (err) {
       // a Stop closes the client under the request: that is no failure
-      model.error = _client == null ? 'Stopped.' : VrxWords.of(err, context: 'web');
-      _events.add(WebAction.failed);
+      _events.add(WebAnswered(error: _client == null ? 'Stopped.' : VrxWords.of(err, context: 'web')));
     } finally {
-      model.busy = false;
       _client = null;
       client.close(force: true);
-      _events.add(WebAction.answered);
     }
   }
 
@@ -98,17 +85,12 @@ class WebApplet extends Applet<WebState, WebAction, WebView> {
     c?.close(force: true);
   }
 
-  Future<void> _saveHistory() async {
+  Future<void> _saveHistory(List<WebRequest> history) async {
     try {
-      await VrxFile.writeAtomic(_historyPath, jsonEncode([for (final r in model.history) r.toJson()]));
+      await VrxFile.writeAtomic(_historyPath, jsonEncode([for (final r in history) r.toJson()]));
     } on Object catch (err) {
       debugPrint('web: cannot save history: $err');
     }
-  }
-
-  void _change(void Function() change) {
-    change();
-    _events.add(WebAction.editing);
   }
 
   @override
@@ -127,23 +109,20 @@ class WebApplet extends Applet<WebState, WebAction, WebView> {
         initial: initial,
         hint: hint,
         onBack: () => _events.add(WebAction.back),
-        onDone: (t) => _change(() {
-          model.draft = switch (view.field) {
-            WebField.url => d.copyWith(url: t.trim()),
-            WebField.header => d.copyWith(header: t.trim()),
-            _ => d.copyWith(body: t),
-          };
-          model.field = WebField.none;
-        }),
+        onDone: (t) => _events.add(WebDraft(switch (view.field) {
+          WebField.url => d.copyWith(url: t.trim()),
+          WebField.header => d.copyWith(header: t.trim()),
+          _ => d.copyWith(body: t),
+        })),
       );
     } else if (view.editing) {
       body = VrxList(children: [
         VrxHeader(title: 'Request', onBack: () => _events.add(WebAction.back)),
-        VrxRow(label: 'Method', value: d.method, onTap: () => _change(() => model.draft = d.nextMethod())),
-        VrxRow(label: 'Address', value: d.url.isEmpty ? 'None yet' : d.url, onTap: () => _change(() => model.field = WebField.url)),
-        VrxRow(label: 'Header', value: d.header.isEmpty ? 'None' : d.header, onTap: () => _change(() => model.field = WebField.header)),
+        VrxRow(label: 'Method', value: d.method, onTap: () => _events.add(WebDraft(d.nextMethod()))),
+        VrxRow(label: 'Address', value: d.url.isEmpty ? 'None yet' : d.url, onTap: () => _events.add(const WebEditField(WebField.url))),
+        VrxRow(label: 'Header', value: d.header.isEmpty ? 'None' : d.header, onTap: () => _events.add(const WebEditField(WebField.header))),
         if (d.sendsBody)
-          VrxRow(label: 'Body', value: d.body.isEmpty ? 'Empty' : d.body, onTap: () => _change(() => model.field = WebField.body)),
+          VrxRow(label: 'Body', value: d.body.isEmpty ? 'Empty' : d.body, onTap: () => _events.add(const WebEditField(WebField.body))),
         VrxRow(glyph: VrxSymbols.send, label: 'Send', onTap: d.url.trim().isEmpty ? null : () => unawaited(send(d))),
       ]);
     } else if (view.sent != null) {
@@ -152,19 +131,19 @@ class WebApplet extends Applet<WebState, WebAction, WebView> {
         onBack: () => _events.add(WebAction.back),
         onAgain: () => unawaited(send(view.sent!)),
         onStop: stop,
-        onChange: () => _change(() => model.compose(view.sent)),
+        onChange: () => _events.add(WebCompose(view.sent)),
       );
     } else {
       body = VrxList(children: [
         const VrxHeader(title: 'Web requests', onBack: Nav.pop),
-        VrxRow(glyph: VrxSymbols.add, label: 'New request', onTap: () => _change(model.compose)),
+        VrxRow(glyph: VrxSymbols.add, label: 'New request', onTap: () => _events.add(const WebCompose())),
         // a tap sends it again; its hold opens it to change first
         for (final r in view.history)
           VrxRow(
             label: splitUrl(r.url).$1,
             detail: '${r.method} ${splitUrl(r.url).$2.isEmpty ? '/' : splitUrl(r.url).$2}${r.header.isEmpty ? '' : ' · ${r.header}'}',
             onTap: () => unawaited(send(r)),
-            onLongPress: () => _change(() => model.compose(r)),
+            onLongPress: () => _events.add(WebCompose(r)),
           ),
         if (view.history.isNotEmpty) const _Note('Press and hold a request to change it before sending.'),
       ]);
@@ -242,10 +221,9 @@ Future<void> main() async {
   try {
     final f = File(_historyPath);
     if (await f.exists()) {
-      model.history = [for (final r in jsonDecode(await f.readAsString()) as List) WebRequest.fromJson(r)].take(historyMax).toList();
+      _events.add(WebHistory([for (final r in jsonDecode(await f.readAsString()) as List) WebRequest.fromJson(r)]));
     }
   } on Object catch (err) {
     debugPrint('web: history unreadable: $err');
   }
-  _events.add(WebAction.historyLoaded);
 }

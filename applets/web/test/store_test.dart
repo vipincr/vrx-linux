@@ -14,17 +14,19 @@ void main() {
   // plan 0011 Part D: the last eight requests, kept whole
   test('history keeps eight whole requests, newest first, once each', () {
     final m = WebModel();
+    final h = StoreHarness(m);
     for (var i = 0; i < 12; i++) {
-      m.remember(WebRequest(url: 'https://h$i'));
+      h.dispatch(WebSent(WebRequest(url: 'https://h$i')));
     }
     const post = WebRequest(method: 'POST', url: 'https://h10', header: 'Accept: application/json', body: '{}');
-    m
-      ..remember(post)
-      ..remember(const WebRequest(url: 'https://h10'));
+    h
+      ..dispatch(const WebSent(post))
+      ..dispatch(const WebSent(WebRequest(url: 'https://h10')));
     expect(m.history.length, historyMax);
     expect(m.history.first, const WebRequest(url: 'https://h10'));
     expect(m.history[1], post, reason: 'a POST to the same address is another request');
     expect(m.history.where((r) => r == post).length, 1);
+    expect(remembered(m.history, post).first, post, reason: 'the file keeps what the reducer keeps');
   });
 
   test('a request round-trips; an old address-only entry is a GET', () {
@@ -43,11 +45,15 @@ void main() {
   });
 
   test('back leaves the field, then the request screen, then the response', () {
-    final m = WebModel()
-      ..sent = const WebRequest(url: 'https://example.com')
-      ..compose()
-      ..field = WebField.url;
-    final h = StoreHarness(m);
+    final h = StoreHarness(WebModel())
+      ..dispatch(const WebSent(WebRequest(url: 'https://example.com')))
+      ..dispatch(const WebAnswered(error: 'Stopped.'))
+      ..dispatch(const WebCompose())
+      ..dispatch(const WebEditField(WebField.url));
+    h.verify(
+      fresh: WebModel.new,
+      probes: const [WebAction.back, WebCompose(), WebDraft(WebRequest(method: 'POST')), WebRefused('x')],
+    );
     h.dispatch(WebAction.back);
     h.assertView((v) => v.editing && v.field == WebField.none);
     h.dispatch(WebAction.back);
