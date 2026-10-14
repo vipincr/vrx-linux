@@ -6,6 +6,7 @@ library;
 import 'dart:async';
 import 'dart:io' show File, FileSystemException;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import 'channel.dart';
@@ -13,6 +14,7 @@ import 'components.dart';
 import 'frames.dart';
 import 'host.dart';
 import 'input.dart';
+import 'motion.dart';
 import 'nav.dart';
 import 'scale.dart';
 import 'screen.dart';
@@ -60,12 +62,35 @@ void runApplet<S, A, V>(
   Stream<A>? actions,
 }) {
   WidgetsFlutterBinding.ensureInitialized();
+  // touch samples aligned to frame time (plan 0017 D12), so a drag that a
+  // finger moves 1:1 steps evenly over a panel clocked differently from the
+  // display; the offset is the overlay's, measured on the board. Here and not
+  // in AppletHost: a test that pumps AppletHost sends its pointer events
+  // straight through
+  GestureBinding.instance
+    ..resamplingEnabled = true
+    ..samplingOffset = const Duration(milliseconds: vrxSamplingOffsetMs);
   final host = AppletsService.install();
   Store.keeper ??= LogindScreenKeeper();
   // frame timings while vrxhost's profiling switch is on (plan 0014 D5)
   if (host != null) VrxFrameTimings(host).start();
   runApp(AppletHost<S, A, V>(applet: applet, actions: actions));
 }
+
+/// A short file read once before the first frame; '' when absent.
+String _bootRead(String path) {
+  try {
+    // vrx-allow: two short files, read once before the first frame
+    return File(path).readAsStringSync();
+  } on FileSystemException {
+    return '';
+  }
+}
+
+/// The display class the image declares (`/usr/lib/vrx/display-class`);
+/// anything absent or malformed is the colour LCD.
+VrxDisplayClass bootClass({String classFile = '/usr/lib/vrx/display-class'}) =>
+    vrxClassNames[_bootRead(classFile).trim()] ?? VrxDisplayClass.lcdColour;
 
 /// The colours this boot draws with (plan 0009 D4, D5): the display class
 /// the image declares and the scheme and polarity snapshotted at boot, so
@@ -75,23 +100,23 @@ VrxColors bootColors({
   String classFile = '/usr/lib/vrx/display-class',
   String themeFile = '/run/vrx/theme.conf',
 }) {
-  String read(String path) {
-    try {
-      // vrx-allow: two short files, read once before the first frame
-      return File(path).readAsStringSync();
-    } on FileSystemException {
-      return '';
-    }
-  }
-
-  final cls = vrxClassNames[read(classFile).trim()] ?? VrxDisplayClass.lcdColour;
-  final theme = parseSettings(read(themeFile));
+  final theme = parseSettings(_bootRead(themeFile));
   return VrxColors.resolve(
-    displayClass: cls,
+    displayClass: bootClass(classFile: classFile),
     scheme: int.tryParse(theme['scheme'] ?? '') ?? vrxDefaultScheme,
     dark: theme['polarity'] != 'light',
   );
 }
+
+/// The motion tier this build has (plan 0017 D5): `/usr/lib/vrx/motion-tier`,
+/// which vrx-theme writes from `VRX_UI_MOTION` or the display class (G053:
+/// the one file the tier is read from), the class's own when the file is
+/// absent.
+VrxTier bootTier({
+  String tierFile = '/usr/lib/vrx/motion-tier',
+  String classFile = '/usr/lib/vrx/display-class',
+}) =>
+    VrxMotion.tierFrom(_bootRead(tierFile), bootClass(classFile: classFile));
 
 /// The applet's root widget: owns the [Store], rebuilds the view on
 /// every published view model. `runApplet` mounts it; tests may pump
@@ -102,6 +127,7 @@ class AppletHost<S, A, V> extends StatefulWidget {
     required this.applet,
     this.actions,
     this.colors,
+    this.tier,
     this.screen,
     this.input,
   });
@@ -112,6 +138,10 @@ class AppletHost<S, A, V> extends StatefulWidget {
   /// The colours; the boot's ([bootColors]) when none are given (tests
   /// and shots pass their own).
   final VrxColors? colors;
+
+  /// The motion tier; the build's ([bootTier]) when null (tests and shots
+  /// pass their own).
+  final VrxTier? tier;
 
   /// Where the input facts and the keyboard mode are read (plan 0013 D6,
   /// D7); the board's when null (tests pass their own).
@@ -129,6 +159,7 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
   late final Store<S, A, V> _store = Store<S, A, V>(widget.applet);
   // read once: the scheme changes at the next boot, never under an applet
   late final VrxColors _boot = bootColors();
+  late final VrxTier _tier = widget.tier ?? bootTier();
   StreamSubscription<V>? _views;
   StreamSubscription<A>? _actions;
   late final ScreenSettings _screen = widget.screen ?? ScreenSettings();
@@ -197,11 +228,14 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
       // dialogs too: the input root wraps the navigator, and the
       // navigator sits below the shell's strip; the scale is the
       // display's, read before the strip takes its share
-      builder: (context, child) => VrxScale.install(
-        child: VrxInsets(
-          child: VrxInputRoot(
-            child: _RefusalBand(
-              child: VrxKeyboardHost(settings: _screen, child: child ?? const SizedBox.shrink()),
+      builder: (context, child) => VrxMotionScope(
+        tier: _tier,
+        child: VrxScale.install(
+          child: VrxInsets(
+            child: VrxInputRoot(
+              child: _RefusalBand(
+                child: VrxKeyboardHost(settings: _screen, child: child ?? const SizedBox.shrink()),
+              ),
             ),
           ),
         ),

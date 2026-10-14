@@ -1,0 +1,187 @@
+# vrx's motion overlay (plan 0017 D4). The vendored vrx-ui-standard.toml is evrx-rt's and stays untouched (G018
+# pins its hash); this file is ours and adds what vrx needs beside it. `cargo xtask ui-standard` reads both and
+# writes lib/src/ui_standard.g.dart; the gate fails when this file's hash is not the one in PIN.
+#
+# What the overlay MAY do: add micro rows, say which spring set each row reads, set the tier of each display class,
+# fix the engine's tolerance, state a ceiling per row, and carry vrx's input constants. It may not redefine a key
+# of the vendored file (the generator refuses it); a vendored row vrx replaces is named in [superseded] and left
+# out of the generated table, so a row has one definition in the generated code.
+#
+# What it may NOT hold: a duration, a curve or a stiffness outside [springs] of the vendored file. A component
+# names a micro row; the spring set and token come from here and from the standard, never from the component.
+
+# --- which spring set a row reads (D13) ----------------------------------------------------------------------
+# The owner, 2026-10-14: "Expressive for moving things": whatever travels across the screen bounces (expressive,
+# up to 9.5 % overshoot); a control that changes in place is crisp (standard, 0.15 %). A closing drawer stays
+# standard: an overshoot would push the panel up through the status strip.
+[set]
+none = "standard"
+press = "standard"
+select = "standard"
+handle = "standard"
+key = "standard"
+list = "standard"
+modal = "expressive"
+banner = "standard"
+wheel = "expressive"
+value = "standard"
+focus = "standard"
+screen = "expressive"
+applet = "expressive"
+overscroll = "expressive"
+drawer_open = "expressive"
+drawer_close = "standard"
+
+# --- vendored rows vrx replaces --------------------------------------------------------------------------------
+# The standard's [micro.drawer] names the token `spatial`; vrx opens on spatial_fast (D7) and closes on a different
+# set from the one it opens on, which one row cannot say. drawer_open and drawer_close below replace it.
+[superseded]
+drawer = "replaced by drawer_open and drawer_close (plan 0017 D7, D13)"
+
+# --- rows the standard lacks -----------------------------------------------------------------------------------
+
+[micro.drawer_open]
+token = "spatial_fast"
+follow = "effects"
+moves = "follows the finger 1:1, then flings open on the expressive spatial fast spring, bouncing past its stop; the scrim rides effects"
+still = "opens in one paint"
+
+[micro.drawer_close]
+token = "spatial_fast"
+follow = "effects"
+moves = "flings shut on the standard spatial fast spring, never bouncing (a closing overshoot would cross the strip)"
+still = "shuts in one paint"
+
+# an applet's entrance when it comes to the front (D8): the page colour is there from the first paint, the content
+# rises shift_px and fades in on effects
+[micro.applet]
+token = "spatial"
+follow = "effects"
+shift_px = 24
+moves = "the content (header and body) rises shift_px on spatial default with an effects fade at full, slides without fading at light"
+still = "the content is there at the first paint"
+
+# what a list does past its end (D10): iOS-style, the content follows the finger through BouncingScrollPhysics'
+# friction and returns on this token
+[micro.overscroll]
+token = "spatial"
+follow = "spatial"
+moves = "the content travels past its end with friction and springs back on spatial default"
+still = "a list stops dead at its end (clamping)"
+
+# --- tier of each display class (D5) ---------------------------------------------------------------------------
+# The build's tier. A machine whose renderer cannot afford its class's tier lowers it with VRX_UI_MOTION; the
+# Reduce motion row only ever takes motion away on top of this, so an epaper class stays still.
+#
+# The owner's decision, 2026-10-14 (plan 0017 D5): the standard's tier contract says "no reduce-motion setting";
+# vrx has one (Settings > Display > Reduce motion), which makes a full or light tier behave as still for travel.
+# The vendored sentence stays in the vendored file.
+[tier_of_class]
+lcd_colour = "full"
+lcd_grey = "light"
+epaper_grey = "still"
+epaper_mono = "still"
+
+# --- the light tier's scale limit (D5) ---------------------------------------------------------------------------
+# At light a scale animates only up to this far from rest, in permille of the element's size: a press (970) and
+# nothing bigger; a key preview (1300) and a modal's growth (800) land at once. PROVISIONAL, tier none: the
+# standard's tier contract says "larger than the board's limit" and names no number, and no machine runs lcd_grey
+# yet. What closes it: the first lcd_grey board's renderer.
+[light]
+scale_limit_permille = 100
+
+# --- the engine's tolerance (D3) --------------------------------------------------------------------------------
+# Flutter's default is 1e-3 in the simulation's own units, which keeps a spring running about twice as long as
+# anyone can see (spatial over the drawer's 360 px: done at 0.54 s, at half a pixel and 5 px/s at 0.26 s).
+[tolerance]
+distance_px = 0.5
+velocity_px_per_s = 5.0
+# a unit-less value (opacity): one 8-bit step, and a step per fifth of a second
+alpha_step = 0.00392157
+alpha_velocity = 0.02
+
+# --- the ceilings (D11) ------------------------------------------------------------------------------------------
+# One per row a person waits on, at the reference travel on the 480 px reference display. arrive_ms: the position
+# first comes within 10 % of the target. settle_ms: it is within tolerance for good. A token swap or a stiffness
+# edit that exceeds either fails the kit's ceiling test (G051). `use` is token (default) or follow.
+# Integrated before these were written (spring, set, travel): press 91/115 ms; drawer open 83/397; drawer close
+# 91/190; screen 153/355; applet 153/244; modal 153/301; banner in 129/230, out 91/169; list row 98/149.
+[ceiling.press]
+row = "press"
+travel_px = 3
+arrive_ms = 100
+settle_ms = 250
+
+[ceiling.drawer_open]
+row = "drawer_open"
+travel_px = 300
+arrive_ms = 120
+settle_ms = 450
+
+[ceiling.drawer_close]
+row = "drawer_close"
+travel_px = 300
+arrive_ms = 120
+settle_ms = 300
+
+[ceiling.screen]
+row = "screen"
+travel_px = 48
+arrive_ms = 170
+settle_ms = 400
+
+[ceiling.applet]
+row = "applet"
+travel_px = 24
+arrive_ms = 170
+settle_ms = 300
+
+[ceiling.modal]
+row = "modal"
+travel_px = 40
+arrive_ms = 180
+settle_ms = 500
+
+[ceiling.banner_in]
+row = "banner"
+travel_px = 40
+arrive_ms = 150
+settle_ms = 300
+
+[ceiling.banner_out]
+row = "banner"
+use = "follow"
+travel_px = 40
+arrive_ms = 120
+settle_ms = 250
+
+[ceiling.list]
+row = "list"
+travel_px = 8
+arrive_ms = 110
+settle_ms = 250
+
+[ceiling.select]
+row = "select"
+travel_px = 120
+arrive_ms = 150
+settle_ms = 300
+
+[ceiling.overscroll]
+row = "overscroll"
+travel_px = 60
+arrive_ms = 170
+settle_ms = 400
+
+[ceiling.key]
+row = "key"
+travel_px = 12
+arrive_ms = 100
+settle_ms = 250
+
+# --- input (D12) ---------------------------------------------------------------------------------------------------
+# GestureBinding.samplingOffset, in ms. Flutter's default is -38, which would eat most of the 50 ms input-to-screen
+# budget. PROVISIONAL, tier none: one 60 Hz frame, not yet measured. What closes it: `libinput record` on the
+# disp28a touch device for its report interval, then latency-settings.walk decides (plan 0017 D12).
+[input]
+sampling_offset_ms = -16

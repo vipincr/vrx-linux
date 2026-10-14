@@ -1,7 +1,8 @@
 // `cargo xtask ui-standard`: vrx_kit's tables from the vrx UI standard
-// (plan 0009 D1). The file is evrx-rt's, vendored unchanged at the commit
-// standard/PIN names; this reads it and writes
-// flutter/vrx_kit/lib/src/ui_standard.g.dart. Nothing here computes a
+// (plan 0009 D1) and vrx's motion overlay (plan 0017 D4). The standard is
+// evrx-rt's, vendored unchanged at the commit standard/PIN names; the
+// overlay, standard/vrx-motion.toml, is ours and adds beside it. This reads
+// both and writes flutter/vrx_kit/lib/src/ui_standard.g.dart. Nothing here computes a
 // colour: the schemes were generated in evrx-rt (make_ui_schemes.py) and
 // are copied, so the C runtime and the Flutter kit draw the same values.
 // The gate (G018) checks the pin and that the Dart file is current.
@@ -17,6 +18,10 @@ fn kit(repo: &Path) -> PathBuf {
 
 pub fn standard_path(repo: &Path) -> PathBuf {
     kit(repo).join("standard/vrx-ui-standard.toml")
+}
+
+pub fn overlay_path(repo: &Path) -> PathBuf {
+    kit(repo).join("standard/vrx-motion.toml")
 }
 
 pub fn pin_path(repo: &Path) -> PathBuf {
@@ -121,9 +126,417 @@ fn greys(v: &Value, what: &str, count: usize) -> Result<Vec<u8>, String> {
         .collect()
 }
 
+fn num(v: &Value, what: &str) -> Result<f64, String> {
+    v.as_float()
+        .or_else(|| v.as_integer().map(|i| i as f64))
+        .ok_or_else(|| format!("{what}: not a number"))
+}
+
+fn opt_num(row: &Value, key: &str, what: &str) -> Result<Option<f64>, String> {
+    row.get(key)
+        .map(|v| num(v, &format!("{what}.{key}")))
+        .transpose()
+}
+
+/// A Dart string literal for `s` (single quotes; the standard's prose has
+/// no `$` or `\`, and a stray one is escaped rather than trusted).
+fn dart_str(s: &str) -> String {
+    let body = s
+        .replace('\\', "\\\\")
+        .replace('\'', "\\'")
+        .replace('$', "\\$");
+    format!("'{body}'")
+}
+
+/// The overlay's top-level tables, and no others: a typo is refused.
+const OVERLAY_TABLES: &[&str] = &[
+    "set",
+    "superseded",
+    "micro",
+    "tier_of_class",
+    "light",
+    "tolerance",
+    "ceiling",
+    "input",
+];
+
+/// The motion half of the generated file (plan 0017 D4): both spring sets,
+/// every micro row of the standard plus the overlay's, the tiers and the
+/// class-to-tier map, the engine's tolerance, the ceilings and the input
+/// constants. The overlay adds; a key the standard already has is refused.
+fn motion(w: &mut String, doc: &Value, overlay: &Value) -> Result<(), String> {
+    let overlay_tables = overlay.as_table().ok_or("vrx-motion.toml: not a table")?;
+    for name in overlay_tables.keys() {
+        if !OVERLAY_TABLES.contains(&name.as_str()) {
+            return Err(format!(
+                "vrx-motion.toml: [{name}] is not a table the overlay may carry"
+            ));
+        }
+    }
+    // the allow-list holds no table the standard has but `micro`, which adds
+    // rows beside the standard's (a row it already has is refused below)
+
+    // --- the spring sets: stiffness at mass 1, and the damping coefficient
+    // Flutter's SpringDescription takes (ratio x 2 sqrt(k m))
+    let springs = doc.get("springs").ok_or("the standard has no [springs]")?;
+    let mass = springs
+        .get("mass")
+        .and_then(Value::as_integer)
+        .ok_or("springs.mass: not an integer")? as f64;
+    let sets = ["standard", "expressive"];
+    let tokens: Vec<String> = table(springs, "standard")?.keys().cloned().collect();
+    let _ = writeln!(
+        w,
+        "// [springs.*], at mass {mass:?}: both sets, the same six tokens"
+    );
+    let _ = writeln!(w, "enum VrxSpringSet {{");
+    for set in sets {
+        let _ = writeln!(w, "  {set},");
+    }
+    let _ = writeln!(w, "}}");
+    let _ = writeln!(w);
+    let _ = writeln!(w, "enum VrxSpringToken {{");
+    for t in &tokens {
+        let _ = writeln!(w, "  {},", camel(t));
+    }
+    let _ = writeln!(w, "}}");
+    let _ = writeln!(w);
+    let _ = writeln!(
+        w,
+        "/// A spring: stiffness at mass 1 and Flutter's damping coefficient."
+    );
+    let _ = writeln!(w, "class VrxSpringRow {{");
+    let _ = writeln!(w, "  const VrxSpringRow(this.stiffness, this.damping);");
+    let _ = writeln!(w, "  final double stiffness;");
+    let _ = writeln!(w, "  final double damping;");
+    let _ = writeln!(w, "}}");
+    let _ = writeln!(w);
+    let _ = writeln!(w, "const double vrxSpringMass = {mass:?};");
+    let _ = writeln!(w);
+    let _ = writeln!(
+        w,
+        "const Map<VrxSpringSet, Map<VrxSpringToken, VrxSpringRow>> vrxSprings = {{"
+    );
+    for set in sets {
+        let rows = table(springs, set)?;
+        if rows.keys().ne(tokens.iter()) {
+            return Err(format!(
+                "springs.{set}: its tokens are not those of springs.standard"
+            ));
+        }
+        let _ = writeln!(w, "  VrxSpringSet.{set}: {{");
+        for (key, spring) in rows {
+            let k = num(
+                spring
+                    .get("stiffness")
+                    .ok_or_else(|| format!("springs.{set}.{key}: no stiffness"))?,
+                &format!("springs.{set}.{key}.stiffness"),
+            )?;
+            let ratio = num(
+                spring
+                    .get("damping")
+                    .ok_or_else(|| format!("springs.{set}.{key}: no damping"))?,
+                &format!("springs.{set}.{key}.damping"),
+            )?;
+            let _ = writeln!(
+                w,
+                "    VrxSpringToken.{}: VrxSpringRow({k:?}, {:.5}),",
+                camel(key),
+                ratio * 2.0 * (k * mass).sqrt()
+            );
+        }
+        let _ = writeln!(w, "  }},");
+    }
+    let _ = writeln!(w, "}};");
+    let _ = writeln!(w);
+
+    // --- the micro rows: the standard's (less the superseded) and the overlay's
+    let vendored = table(doc, "micro")?;
+    let superseded: Vec<&String> = overlay
+        .get("superseded")
+        .and_then(Value::as_table)
+        .map(|t| t.keys().collect())
+        .unwrap_or_default();
+    for name in &superseded {
+        if !vendored.contains_key(name.as_str()) {
+            return Err(format!(
+                "[superseded] {name}: the standard has no such micro row"
+            ));
+        }
+    }
+    let added = overlay
+        .get("micro")
+        .and_then(Value::as_table)
+        .cloned()
+        .unwrap_or_default();
+    for name in added.keys() {
+        if vendored.contains_key(name) {
+            return Err(format!("vrx-motion.toml: [micro.{name}] redefines a row of the standard (name it in [superseded] to replace it)"));
+        }
+    }
+    let mut rows: Vec<(&String, &Value)> = vendored
+        .iter()
+        .filter(|(k, _)| !superseded.contains(k))
+        .collect();
+    rows.extend(added.iter());
+    let set_of = table(overlay, "set")?;
+    for (name, _) in &rows {
+        if !set_of.contains_key(name.as_str()) {
+            return Err(format!(
+                "vrx-motion.toml: [set] has no entry for the micro row {name:?}"
+            ));
+        }
+    }
+    for name in set_of.keys() {
+        if !rows.iter().any(|(r, _)| *r == name) {
+            return Err(format!(
+                "vrx-motion.toml: [set] names {name:?}, which is no micro row"
+            ));
+        }
+    }
+    let token_ok = |t: &str, what: &str| -> Result<(), String> {
+        if tokens.iter().any(|x| x == t) {
+            Ok(())
+        } else {
+            Err(format!("{what}: {t:?} is not a spring token"))
+        }
+    };
+    let _ = writeln!(
+        w,
+        "/// The micro rows (the standard's, and the overlay's), by name."
+    );
+    let _ = writeln!(w, "enum VrxMicro {{");
+    for (name, _) in &rows {
+        let _ = writeln!(w, "  {},", camel(name));
+    }
+    let _ = writeln!(w, "}}");
+    let _ = writeln!(w);
+    let _ = writeln!(w, "/// What a thing a person acts on does: its tokens (read from [set]'s spring set), scale in");
+    let _ = writeln!(
+        w,
+        "/// permille of its own size, and the distances of an arrival."
+    );
+    let _ = writeln!(w, "class VrxMicroRow {{");
+    let _ = writeln!(w, "  const VrxMicroRow({{");
+    let _ = writeln!(w, "    required this.set,");
+    let _ = writeln!(w, "    required this.token,");
+    let _ = writeln!(w, "    required this.follow,");
+    let _ = writeln!(w, "    this.scalePermille,");
+    let _ = writeln!(w, "    this.shiftPx,");
+    let _ = writeln!(w, "    this.shiftMm,");
+    let _ = writeln!(w, "    this.staggerMs,");
+    let _ = writeln!(w, "    required this.moves,");
+    let _ = writeln!(w, "    required this.still,");
+    let _ = writeln!(w, "  }});");
+    let _ = writeln!(w, "  final VrxSpringSet set;");
+    let _ = writeln!(w, "  final VrxSpringToken token;");
+    let _ = writeln!(w, "  final VrxSpringToken follow;");
+    let _ = writeln!(w, "  final int? scalePermille;");
+    let _ = writeln!(w, "  final double? shiftPx;");
+    let _ = writeln!(w, "  final double? shiftMm;");
+    let _ = writeln!(w, "  final int? staggerMs;");
+    let _ = writeln!(w, "  final String moves;");
+    let _ = writeln!(w, "  final String still;");
+    let _ = writeln!(w, "}}");
+    let _ = writeln!(w);
+    let _ = writeln!(w, "const Map<VrxMicro, VrxMicroRow> vrxMicro = {{");
+    for (name, row) in &rows {
+        let what = format!("micro.{name}");
+        let set = set_of[name.as_str()]
+            .as_str()
+            .filter(|s| sets.contains(s))
+            .ok_or_else(|| format!("[set].{name}: not standard or expressive"))?;
+        let token = str_of(row, "token").map_err(|e| format!("{what}: {e}"))?;
+        let follow = str_of(row, "follow").map_err(|e| format!("{what}: {e}"))?;
+        token_ok(token, &format!("{what}.token"))?;
+        token_ok(follow, &format!("{what}.follow"))?;
+        let mut extra = String::new();
+        if let Some(v) = row.get("scale") {
+            let _ = write!(
+                extra,
+                " scalePermille: {},",
+                v.as_integer()
+                    .ok_or_else(|| format!("{what}.scale: not an integer"))?
+            );
+        }
+        if let Some(v) = opt_num(row, "shift_px", &what)? {
+            let _ = write!(extra, " shiftPx: {v:?},");
+        }
+        if let Some(v) = opt_num(row, "shift_mm", &what)? {
+            let _ = write!(extra, " shiftMm: {v:?},");
+        }
+        if let Some(v) = row.get("stagger_ms") {
+            let _ = write!(
+                extra,
+                " staggerMs: {},",
+                v.as_integer()
+                    .ok_or_else(|| format!("{what}.stagger_ms: not an integer"))?
+            );
+        }
+        let _ = writeln!(
+            w,
+            "  VrxMicro.{}: VrxMicroRow(set: VrxSpringSet.{set}, token: VrxSpringToken.{}, follow: VrxSpringToken.{},{extra} moves: {}, still: {}),",
+            camel(name),
+            camel(token),
+            camel(follow),
+            dart_str(str_of(row, "moves").map_err(|e| format!("{what}: {e}"))?),
+            dart_str(str_of(row, "still").map_err(|e| format!("{what}: {e}"))?),
+        );
+    }
+    let _ = writeln!(w, "}};");
+    let _ = writeln!(w);
+
+    // --- the tiers and the class's tier
+    let tiers: Vec<&String> = table(doc, "tier")?.keys().collect();
+    let _ = writeln!(
+        w,
+        "/// What a build promises (the standard's [tier.*]); the engine applies it."
+    );
+    let _ = writeln!(w, "enum VrxTier {{");
+    for t in &tiers {
+        let _ = writeln!(w, "  {},", camel(t));
+    }
+    let _ = writeln!(w, "}}");
+    let _ = writeln!(w);
+    let _ = writeln!(w, "const Map<String, VrxTier> vrxTierNames = {{");
+    for t in &tiers {
+        let _ = writeln!(w, "  '{t}': VrxTier.{},", camel(t));
+    }
+    let _ = writeln!(w, "}};");
+    let _ = writeln!(w);
+    let by_class = table(overlay, "tier_of_class")?;
+    let classes = table(doc, "class")?;
+    if by_class.keys().ne(classes.keys()) {
+        return Err("vrx-motion.toml: [tier_of_class] must name every display class of the standard, in its order".into());
+    }
+    let _ = writeln!(
+        w,
+        "/// The tier each display class gets from the build (D5)."
+    );
+    let _ = writeln!(w, "const Map<VrxDisplayClass, VrxTier> vrxTierOfClass = {{");
+    for (class, tier) in by_class {
+        let tier = tier
+            .as_str()
+            .filter(|t| tiers.iter().any(|x| x.as_str() == *t))
+            .ok_or_else(|| {
+                format!("[tier_of_class].{class}: not a tier of the standard")
+            })?;
+        let _ = writeln!(
+            w,
+            "  VrxDisplayClass.{}: VrxTier.{},",
+            camel(class),
+            camel(tier)
+        );
+    }
+    let _ = writeln!(w, "}};");
+    let _ = writeln!(w);
+
+    // --- the light tier's scale limit (D5)
+    let light = table(overlay, "light")?;
+    let _ = writeln!(
+        w,
+        "/// At the light tier a scale animates up to this far from rest, in permille (plan 0017 D5)."
+    );
+    let _ = writeln!(
+        w,
+        "const int vrxLightScaleLimitPermille = {};",
+        light
+            .get("scale_limit_permille")
+            .and_then(Value::as_integer)
+            .ok_or("[light].scale_limit_permille: not an integer")?
+    );
+    let _ = writeln!(w);
+
+    // --- tolerance (D3)
+    let tol = table(overlay, "tolerance")?;
+    let _ = writeln!(
+        w,
+        "// [tolerance]: pixels, never Flutter's default 1e-3 (plan 0017 D3)"
+    );
+    for (key, name) in [
+        ("distance_px", "vrxToleranceDistancePx"),
+        ("velocity_px_per_s", "vrxToleranceVelocityPxPerS"),
+        ("alpha_step", "vrxToleranceAlphaStep"),
+        ("alpha_velocity", "vrxToleranceAlphaVelocity"),
+    ] {
+        let v = num(
+            tol.get(key)
+                .ok_or_else(|| format!("[tolerance] has no {key}"))?,
+            &format!("tolerance.{key}"),
+        )?;
+        let _ = writeln!(w, "const double {name} = {v:?};");
+    }
+    let _ = writeln!(w);
+
+    // --- ceilings (D11)
+    let _ = writeln!(
+        w,
+        "/// A row's ceiling at its reference travel (plan 0017 D11, G051)."
+    );
+    let _ = writeln!(w, "class VrxCeiling {{");
+    let _ = writeln!(w, "  const VrxCeiling(this.name, this.row, this.useFollow, this.travelPx, this.arriveMs, this.settleMs);");
+    let _ = writeln!(w, "  final String name;");
+    let _ = writeln!(w, "  final VrxMicro row;");
+    let _ = writeln!(w, "  final bool useFollow;");
+    let _ = writeln!(w, "  final double travelPx;");
+    let _ = writeln!(w, "  final int arriveMs;");
+    let _ = writeln!(w, "  final int settleMs;");
+    let _ = writeln!(w, "}}");
+    let _ = writeln!(w);
+    let _ = writeln!(w, "const List<VrxCeiling> vrxCeilings = [");
+    for (name, c) in table(overlay, "ceiling")? {
+        let what = format!("ceiling.{name}");
+        let row = str_of(c, "row").map_err(|e| format!("{what}: {e}"))?;
+        if !rows.iter().any(|(r, _)| r.as_str() == row) {
+            return Err(format!("{what}: row {row:?} is no micro row"));
+        }
+        let follow = match c.get("use").and_then(Value::as_str) {
+            None | Some("token") => false,
+            Some("follow") => true,
+            Some(other) => {
+                return Err(format!("{what}.use: {other:?} is not token or follow"))
+            }
+        };
+        let travel = num(
+            c.get("travel_px")
+                .ok_or_else(|| format!("{what}: no travel_px"))?,
+            &what,
+        )?;
+        let _ = writeln!(
+            w,
+            "  VrxCeiling('{name}', VrxMicro.{}, {follow}, {travel:?}, {}, {}),",
+            camel(row),
+            int_of(c, "arrive_ms").map_err(|e| format!("{what}: {e}"))?,
+            int_of(c, "settle_ms").map_err(|e| format!("{what}: {e}"))?,
+        );
+    }
+    let _ = writeln!(w, "];");
+    let _ = writeln!(w);
+
+    // --- input (D12)
+    let input = table(overlay, "input")?;
+    let _ = writeln!(
+        w,
+        "/// GestureBinding.samplingOffset, in ms (plan 0017 D12; provisional until measured)."
+    );
+    let _ = writeln!(
+        w,
+        "const int vrxSamplingOffsetMs = {};",
+        input
+            .get("sampling_offset_ms")
+            .and_then(Value::as_integer)
+            .ok_or("[input].sampling_offset_ms: not an integer")?
+    );
+    let _ = writeln!(w);
+    Ok(())
+}
+
 /// The Dart source for the standard's text.
-pub fn generate(text: &str, commit: &str) -> Result<String, String> {
+pub fn generate(text: &str, overlay_text: &str, commit: &str) -> Result<String, String> {
     let doc: Value = text.parse().map_err(|e| format!("the standard: {e}"))?;
+    let overlay: Value = overlay_text
+        .parse()
+        .map_err(|e| format!("vrx-motion.toml: {e}"))?;
     let colour = doc.get("colour").ok_or("the standard has no [colour]")?;
 
     // the slots, in the file's order: the order is the index (plan 0062 D1)
@@ -219,33 +632,7 @@ pub fn generate(text: &str, commit: &str) -> Result<String, String> {
         }
         let _ = writeln!(w);
     }
-    // the standard springs: stiffness at mass 1, and the damping
-    // coefficient Flutter's SpringDescription takes (ratio x 2 sqrt(k m))
-    let springs = doc.get("springs").ok_or("the standard has no [springs]")?;
-    let mass = springs
-        .get("mass")
-        .and_then(Value::as_integer)
-        .ok_or("springs.mass: not an integer")? as f64;
-    let _ = writeln!(w, "// [springs.standard], at mass {mass:?}");
-    for (key, spring) in table(springs, "standard")? {
-        let k = spring
-            .get("stiffness")
-            .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)))
-            .ok_or_else(|| format!("springs.standard.{key}: no stiffness"))?;
-        let ratio = spring
-            .get("damping")
-            .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)))
-            .ok_or_else(|| format!("springs.standard.{key}: no damping"))?;
-        let name = camel(&format!("_{key}"));
-        let _ = writeln!(w, "const double vrxSpring{name}Stiffness = {k:?};");
-        let _ = writeln!(
-            w,
-            "const double vrxSpring{name}Damping = {:.5};",
-            ratio * 2.0 * (k * mass).sqrt()
-        );
-    }
-    let _ = writeln!(w, "const double vrxSpringMass = {mass:?};");
-    let _ = writeln!(w);
+    motion(w, &doc, &overlay)?;
 
     // the schemes, numbered 1.. in the file's [schemes] order
     let schemes = table(&doc, "schemes")?;
@@ -405,12 +792,23 @@ pub fn generate(text: &str, commit: &str) -> Result<String, String> {
     Ok(out)
 }
 
-/// The Dart the vendored standard should produce, and whether the pin holds.
-pub fn expected(repo: &Path) -> Result<String, String> {
+/// The overlay's text, and its hash.
+fn overlay_text(repo: &Path) -> Result<(String, String), String> {
+    let path = overlay_path(repo);
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok((text, crate::fonts::sha256(&path)?))
+}
+
+/// The Dart the vendored standard and the overlay should produce, and
+/// whether the pin holds. [repin] rewrites the overlay's line in PIN first
+/// (the overlay is ours: `cargo xtask ui-standard` is how an edit of it is
+/// recorded); the vendored file's hash is never rewritten.
+pub fn expected(repo: &Path, repin: bool) -> Result<String, String> {
     let path = standard_path(repo);
     let text =
         std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let pin = std::fs::read_to_string(pin_path(repo))
+    let mut pin = std::fs::read_to_string(pin_path(repo))
         .map_err(|e| format!("standard/PIN: {e}"))?;
     let want = pin_field(&pin, "sha256").ok_or("standard/PIN has no sha256")?;
     let got = crate::fonts::sha256(&path)?;
@@ -419,13 +817,31 @@ pub fn expected(repo: &Path) -> Result<String, String> {
             "standard/vrx-ui-standard.toml hashes to {got}, standard/PIN says {want}: the file was edited, or the pin not bumped with it"
         ));
     }
+    let (overlay, overlay_got) = overlay_text(repo)?;
+    if repin && pin_field(&pin, "overlay_sha256").as_deref() != Some(overlay_got.as_str())
+    {
+        pin = pin
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("overlay_sha256"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        pin.push_str(&format!("\noverlay_sha256 = \"{overlay_got}\"\n"));
+        std::fs::write(pin_path(repo), &pin).map_err(|e| format!("standard/PIN: {e}"))?;
+    }
+    let overlay_want =
+        pin_field(&pin, "overlay_sha256").ok_or("standard/PIN has no overlay_sha256")?;
+    if overlay_got != overlay_want {
+        return Err(format!(
+            "standard/vrx-motion.toml hashes to {overlay_got}, standard/PIN says {overlay_want}: run `cargo xtask ui-standard` to record the edit"
+        ));
+    }
     let commit = pin_field(&pin, "commit").ok_or("standard/PIN has no commit")?;
-    generate(&text, &commit)
+    generate(&text, &overlay, &commit)
 }
 
 /// `cargo xtask ui-standard`.
 pub fn run(repo: &Path) -> Result<(), String> {
-    let dart = expected(repo)?;
+    let dart = expected(repo, true)?;
     let path = dart_path(repo);
     std::fs::write(&path, dart).map_err(|e| format!("{}: {e}", path.display()))?;
     println!("ui-standard: wrote {}", path.display());
@@ -434,7 +850,7 @@ pub fn run(repo: &Path) -> Result<(), String> {
 
 /// The gate: the pin holds and the Dart file is current.
 pub fn is_current(repo: &Path) -> Result<bool, String> {
-    let want = expected(repo)?;
+    let want = expected(repo, false)?;
     Ok(std::fs::read_to_string(dart_path(repo)).is_ok_and(|have| have == want))
 }
 
@@ -459,6 +875,27 @@ body = 9.9
 mass = 1
 [springs.standard]
 spatial = { stiffness = 700, damping = 0.9 }
+effects = { stiffness = 1600, damping = 1.0 }
+[springs.expressive]
+spatial = { stiffness = 380, damping = 0.8 }
+effects = { stiffness = 1600, damping = 1.0 }
+
+[micro.press]
+token = "spatial"
+follow = "spatial"
+scale = 970
+moves = "sinks"
+still = "inverts"
+[micro.drawer]
+token = "spatial"
+follow = "effects"
+moves = "slides"
+still = "one paint"
+
+[tier.still]
+promise = "nothing"
+[tier.full]
+promise = "all"
 
 [colour]
 slot = [
@@ -485,9 +922,43 @@ light = [255, 32, 0, 255]
 light = [255, 0, 0, 255]
 "##;
 
+    const OVERLAY: &str = r##"
+[set]
+press = "standard"
+drawer_open = "expressive"
+[superseded]
+drawer = "replaced"
+[micro.drawer_open]
+token = "spatial"
+follow = "effects"
+shift_px = 24
+moves = "opens"
+still = "one paint"
+[tier_of_class]
+lcd_colour = "full"
+[light]
+scale_limit_permille = 100
+[tolerance]
+distance_px = 0.5
+velocity_px_per_s = 5
+alpha_step = 0.004
+alpha_velocity = 0.02
+[ceiling.drawer_open]
+row = "drawer_open"
+travel_px = 300
+arrive_ms = 120
+settle_ms = 450
+[input]
+sampling_offset_ms = -16
+"##;
+
+    fn with(overlay_edit: impl Fn(&str) -> String) -> Result<String, String> {
+        generate(MINI, &overlay_edit(OVERLAY), "abc")
+    }
+
     #[test]
     fn the_tables_come_out_in_slot_order_with_the_on_mask_derived() {
-        let dart = generate(MINI, "abc").unwrap();
+        let dart = generate(MINI, OVERLAY, "abc").unwrap();
         assert!(dart
             .contains("enum VrxSlot {\n  page,\n  text,\n  primary,\n  onPrimary,\n}"));
         // primary (index 2) is followed by on_primary
@@ -499,17 +970,107 @@ light = [255, 0, 0, 255]
         // the physical numbers, and Flutter's damping coefficient from the ratio
         assert!(dart.contains("const double vrxSpacingMmXs = 1.0;"));
         assert!(dart.contains("const double vrxTypePtBody = 9.9;"));
-        assert!(dart.contains("const double vrxSpringSpatialDamping = 47.62352;"));
+        assert!(dart.contains("VrxSpringToken.spatial: VrxSpringRow(700.0, 47.62352)"));
+        // the expressive set beside it: 0.8 x 2 x sqrt(380)
+        assert!(dart.contains("VrxSpringToken.spatial: VrxSpringRow(380.0, 31.189"));
+    }
+
+    #[test]
+    fn the_motion_tables_come_out_of_both_files_g050() {
+        let dart = generate(MINI, OVERLAY, "abc").unwrap();
+        // a vendored row keeps its tokens and reads the set the overlay says
+        assert!(dart.contains("VrxMicro.press: VrxMicroRow(set: VrxSpringSet.standard, token: VrxSpringToken.spatial, follow: VrxSpringToken.spatial, scalePermille: 970,"));
+        // an overlay row is added; a superseded vendored row is gone
+        assert!(dart
+            .contains("VrxMicro.drawerOpen: VrxMicroRow(set: VrxSpringSet.expressive"));
+        assert!(!dart.contains("VrxMicro.drawer:"));
+        assert!(dart.contains("  drawerOpen,\n"));
+        assert!(dart.contains("VrxDisplayClass.lcdColour: VrxTier.full"));
+        assert!(dart.contains("const double vrxToleranceDistancePx = 0.5;"));
+        assert!(dart.contains(
+            "VrxCeiling('drawer_open', VrxMicro.drawerOpen, false, 300.0, 120, 450)"
+        ));
+        assert!(dart.contains("const int vrxSamplingOffsetMs = -16;"));
+    }
+
+    #[test]
+    fn the_overlay_adds_and_never_redefines() {
+        // a row the standard has
+        let err =
+            with(|o| o.replace("[micro.drawer_open]", "[micro.press]")).unwrap_err();
+        assert!(err.contains("redefines a row of the standard"), "{err}");
+        // a table the standard has
+        let err = with(|o| format!("{o}\n[springs]\nmass = 2\n")).unwrap_err();
+        assert!(err.contains("may carry"), "{err}");
+        // a table the overlay may not carry
+        let err = with(|o| format!("{o}\n[colour]\nx = 1\n")).unwrap_err();
+        assert!(
+            err.contains("not a table the overlay may carry")
+                || err.contains("redefines"),
+            "{err}"
+        );
+        // superseding a row that is not there
+        let err =
+            with(|o| o.replace("drawer = \"replaced\"", "nothing = \"x\"")).unwrap_err();
+        assert!(err.contains("no such micro row"), "{err}");
+    }
+
+    #[test]
+    fn every_row_has_a_set_and_every_set_a_row() {
+        let err = with(|o| o.replace("press = \"standard\"\n", "")).unwrap_err();
+        assert!(
+            err.contains("no entry for the micro row \"press\""),
+            "{err}"
+        );
+        let err =
+            with(|o| o.replace("[superseded]", "ghost = \"standard\"\n[superseded]"))
+                .unwrap_err();
+        assert!(err.contains("no micro row"), "{err}");
+        let err = with(|o| o.replace("press = \"standard\"", "press = \"snappy\""))
+            .unwrap_err();
+        assert!(err.contains("not standard or expressive"), "{err}");
+    }
+
+    #[test]
+    fn tiers_ceilings_and_tokens_are_checked() {
+        let err = with(|o| o.replace("lcd_colour = \"full\"", "lcd_colour = \"fast\""))
+            .unwrap_err();
+        assert!(err.contains("not a tier"), "{err}");
+        let err = with(|o| {
+            o.replace(
+                "[tier_of_class]\nlcd_colour",
+                "[tier_of_class]\nlcd_neon = \"still\"\nlcd_colour",
+            )
+        })
+        .unwrap_err();
+        assert!(err.contains("every display class"), "{err}");
+        let err = with(|o| o.replace("row = \"drawer_open\"", "row = \"nowhere\""))
+            .unwrap_err();
+        assert!(err.contains("no micro row"), "{err}");
+        let err = with(|o| {
+            o.replace(
+                "token = \"spatial\"\nfollow = \"effects\"\nshift",
+                "token = \"swift\"\nfollow = \"effects\"\nshift",
+            )
+        })
+        .unwrap_err();
+        assert!(err.contains("not a spring token"), "{err}");
     }
 
     #[test]
     fn a_short_scheme_or_a_gap_in_the_numbering_is_refused() {
         let short = MINI.replace(r##""#A0C9FF", "#203147"]"##, r##""#A0C9FF"]"##);
-        assert!(generate(&short, "abc").unwrap_err().contains("3 colours"));
+        assert!(generate(&short, OVERLAY, "abc")
+            .unwrap_err()
+            .contains("3 colours"));
         let gap = MINI.replace("[schemes.1]", "[schemes.2]");
-        assert!(generate(&gap, "abc").unwrap_err().contains("numbered"));
+        assert!(generate(&gap, OVERLAY, "abc")
+            .unwrap_err()
+            .contains("numbered"));
         let bad = MINI.replace("#105EB1", "105EB1");
-        assert!(generate(&bad, "abc").unwrap_err().contains("#RRGGBB"));
+        assert!(generate(&bad, OVERLAY, "abc")
+            .unwrap_err()
+            .contains("#RRGGBB"));
     }
 
     #[test]

@@ -25,6 +25,7 @@ import 'scale.dart';
 import 'shell.dart';
 import 'symbols.dart';
 import 'theme.dart';
+import 'ui_standard.g.dart';
 
 /// The screen's own name with a back chevron: full width × the touch
 /// minimum, hairline under, chevron left, title at LIST past a touch
@@ -121,8 +122,8 @@ class VrxList extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView.builder(
       itemCount: children.length,
-      // paged feel: no scrollbar ever, and the physics snapps a page
-      // per gesture (custom ScrollPhysics lands with the walk tests)
+      // no scrollbar ever; the end of the list bounces (VrxScrollBehavior's
+      // one physics, plan 0017 D10)
       padding: EdgeInsets.zero,
       itemBuilder: (context, i) => children[i],
     );
@@ -590,13 +591,18 @@ class VrxPress extends StatefulWidget {
 }
 
 class _VrxPressState extends State<VrxPress> with SingleTickerProviderStateMixin {
-  late final AnimationController _scale = AnimationController.unbounded(
-    vsync: this,
-    value: 1.0,
-  );
+  // the sink is a scale: its tolerance is half a pixel over a full-width row
+  // of the 480 px reference display (plan 0017 D3)
+  late final VrxSpringValue _scale = VrxSpringValue(vsync: this, value: 1.0, unit: VrxUnit.fractionOf(480));
   bool _held = false;
   bool _focused = false;
   bool _hovered = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scale.mode = VrxMotion.of(context);
+  }
 
   @override
   void dispose() {
@@ -607,14 +613,13 @@ class _VrxPressState extends State<VrxPress> with SingleTickerProviderStateMixin
   void _set(bool held) {
     if (_held == held) return;
     setState(() => _held = held);
-    // retarget keeps velocity: animateWith re-seeds from the current
-    // position, mid-flight continuity by construction
-    _scale.animateWith(
-      MotionTokens.simulate(
-        MotionTokens.spatialFast,
-        _scale.value,
-        held ? 0.97 : 1.0,
-      ),
+    // micro.press: the sink and the release retarget from where the spring
+    // is, with the velocity it has (D1); a mode that refuses a scale
+    // (still, reduced) leaves it at rest, the inversion alone
+    final sink = _scale.mode.allowsScale(vrxMicro[VrxMicro.press]!.scalePermille!);
+    _scale.springTo(
+      held && sink ? vrxMicro[VrxMicro.press]!.scalePermille! / 1000 : 1.0,
+      VrxSpring.micro(VrxMicro.press),
     );
   }
 
@@ -696,7 +701,11 @@ class _VrxPressState extends State<VrxPress> with SingleTickerProviderStateMixin
                 widget.onLongPress!();
               },
         onSecondaryTap: widget.onLongPress,
-        child: ScaleTransition(scale: _scale, child: child),
+        child: ListenableBuilder(
+          listenable: _scale,
+          child: child,
+          builder: (context, child) => Transform.scale(scale: _scale.value, child: child),
+        ),
       ),
     );
     return MergeSemantics(child: Semantics(button: true, enabled: enabled, label: widget.label, child: control));

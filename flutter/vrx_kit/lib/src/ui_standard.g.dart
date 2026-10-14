@@ -121,20 +121,171 @@ const double vrxTypePtMicro = 6.6;
 const double vrxTypePtClock = 42.1;
 const double vrxTypePtCode = 8.5;
 
-// [springs.standard], at mass 1.0
-const double vrxSpringSpatialFastStiffness = 1400.0;
-const double vrxSpringSpatialFastDamping = 67.34983;
-const double vrxSpringSpatialStiffness = 700.0;
-const double vrxSpringSpatialDamping = 47.62352;
-const double vrxSpringSpatialSlowStiffness = 300.0;
-const double vrxSpringSpatialSlowDamping = 31.17691;
-const double vrxSpringEffectsFastStiffness = 3800.0;
-const double vrxSpringEffectsFastDamping = 123.28828;
-const double vrxSpringEffectsStiffness = 1600.0;
-const double vrxSpringEffectsDamping = 80.00000;
-const double vrxSpringEffectsSlowStiffness = 800.0;
-const double vrxSpringEffectsSlowDamping = 56.56854;
+// [springs.*], at mass 1.0: both sets, the same six tokens
+enum VrxSpringSet {
+  standard,
+  expressive,
+}
+
+enum VrxSpringToken {
+  spatialFast,
+  spatial,
+  spatialSlow,
+  effectsFast,
+  effects,
+  effectsSlow,
+}
+
+/// A spring: stiffness at mass 1 and Flutter's damping coefficient.
+class VrxSpringRow {
+  const VrxSpringRow(this.stiffness, this.damping);
+  final double stiffness;
+  final double damping;
+}
+
 const double vrxSpringMass = 1.0;
+
+const Map<VrxSpringSet, Map<VrxSpringToken, VrxSpringRow>> vrxSprings = {
+  VrxSpringSet.standard: {
+    VrxSpringToken.spatialFast: VrxSpringRow(1400.0, 67.34983),
+    VrxSpringToken.spatial: VrxSpringRow(700.0, 47.62352),
+    VrxSpringToken.spatialSlow: VrxSpringRow(300.0, 31.17691),
+    VrxSpringToken.effectsFast: VrxSpringRow(3800.0, 123.28828),
+    VrxSpringToken.effects: VrxSpringRow(1600.0, 80.00000),
+    VrxSpringToken.effectsSlow: VrxSpringRow(800.0, 56.56854),
+  },
+  VrxSpringSet.expressive: {
+    VrxSpringToken.spatialFast: VrxSpringRow(800.0, 33.94113),
+    VrxSpringToken.spatial: VrxSpringRow(380.0, 31.18974),
+    VrxSpringToken.spatialSlow: VrxSpringRow(200.0, 22.62742),
+    VrxSpringToken.effectsFast: VrxSpringRow(3800.0, 123.28828),
+    VrxSpringToken.effects: VrxSpringRow(1600.0, 80.00000),
+    VrxSpringToken.effectsSlow: VrxSpringRow(800.0, 56.56854),
+  },
+};
+
+/// The micro rows (the standard's, and the overlay's), by name.
+enum VrxMicro {
+  none,
+  press,
+  select,
+  handle,
+  key,
+  list,
+  modal,
+  banner,
+  wheel,
+  value,
+  focus,
+  screen,
+  drawerOpen,
+  drawerClose,
+  applet,
+  overscroll,
+}
+
+/// What a thing a person acts on does: its tokens (read from [set]'s spring set), scale in
+/// permille of its own size, and the distances of an arrival.
+class VrxMicroRow {
+  const VrxMicroRow({
+    required this.set,
+    required this.token,
+    required this.follow,
+    this.scalePermille,
+    this.shiftPx,
+    this.shiftMm,
+    this.staggerMs,
+    required this.moves,
+    required this.still,
+  });
+  final VrxSpringSet set;
+  final VrxSpringToken token;
+  final VrxSpringToken follow;
+  final int? scalePermille;
+  final double? shiftPx;
+  final double? shiftMm;
+  final int? staggerMs;
+  final String moves;
+  final String still;
+}
+
+const Map<VrxMicro, VrxMicroRow> vrxMicro = {
+  VrxMicro.none: VrxMicroRow(set: VrxSpringSet.standard, token: VrxSpringToken.effects, follow: VrxSpringToken.effects, moves: 'draws nothing, so nothing moves', still: 'the same'),
+  VrxMicro.press: VrxMicroRow(set: VrxSpringSet.standard, token: VrxSpringToken.spatialFast, follow: VrxSpringToken.spatialFast, scalePermille: 970, moves: 'the fill inverts at once, never faded, and the control sinks to 0.97 scale and back on spatial fast', still: 'the inversion, as before'),
+  VrxMicro.select: VrxMicroRow(set: VrxSpringSet.standard, token: VrxSpringToken.spatial, follow: VrxSpringToken.effects, moves: 'the selection indicator slides to the new cell on spatial default', still: 'the cell inverts'),
+  VrxMicro.handle: VrxMicroRow(set: VrxSpringSet.standard, token: VrxSpringToken.effects, follow: VrxSpringToken.effects, moves: 'the handle follows the finger (LVGL\'s own drag), and a step by key glides it to the new value, a slider\'s over LVGL\'s animation time and a knob\'s arc on the value row\'s token', still: 'the new value'),
+  VrxMicro.key: VrxMicroRow(set: VrxSpringSet.standard, token: VrxSpringToken.spatialFast, follow: VrxSpringToken.effectsFast, scalePermille: 1300, moves: 'a pressed key pops a magnified preview above it on spatial fast, gone on lift; layer changes cross-fade on effects fast', still: 'the key inverts'),
+  VrxMicro.list: VrxMicroRow(set: VrxSpringSet.standard, token: VrxSpringToken.effects, follow: VrxSpringToken.effects, shiftPx: 8.0, staggerMs: 16, moves: 'rows enter staggered, 16 ms apart, on effects default with a short rise', still: 'rows appear'),
+  VrxMicro.modal: VrxMicroRow(set: VrxSpringSet.expressive, token: VrxSpringToken.spatial, follow: VrxSpringToken.effects, scalePermille: 800, moves: 'grows from its source on spatial default, the scrim on effects default; leaves the same way', still: 'appears, one paint'),
+  VrxMicro.banner: VrxMicroRow(set: VrxSpringSet.standard, token: VrxSpringToken.spatial, follow: VrxSpringToken.spatialFast, moves: 'slides in from its edge on spatial default, leaves on spatial fast', still: 'appears'),
+  VrxMicro.wheel: VrxMicroRow(set: VrxSpringSet.expressive, token: VrxSpringToken.spatial, follow: VrxSpringToken.spatial, moves: 'a body: drag, fling, detents, spring', still: 'steps a key per swipe'),
+  VrxMicro.value: VrxMicroRow(set: VrxSpringSet.standard, token: VrxSpringToken.effects, follow: VrxSpringToken.effects, moves: 'a changed value of a knob or a progress ring eases on effects default; a live meter is not eased, since a level that trails the sound is wrong', still: 'the new value'),
+  VrxMicro.focus: VrxMicroRow(set: VrxSpringSet.standard, token: VrxSpringToken.spatialFast, follow: VrxSpringToken.spatialFast, moves: 'the focus ring moves between controls on spatial fast', still: 'moves'),
+  VrxMicro.screen: VrxMicroRow(set: VrxSpringSet.expressive, token: VrxSpringToken.spatial, follow: VrxSpringToken.effects, shiftMm: 10.0, moves: 'a shared-axis slide: the new screen in from the side, the old one out as a picture, on spatial default; a light image slides without fading', still: 'replaces, one paint'),
+  VrxMicro.drawerOpen: VrxMicroRow(set: VrxSpringSet.expressive, token: VrxSpringToken.spatialFast, follow: VrxSpringToken.effects, moves: 'follows the finger 1:1, then flings open on the expressive spatial fast spring, bouncing past its stop; the scrim rides effects', still: 'opens in one paint'),
+  VrxMicro.drawerClose: VrxMicroRow(set: VrxSpringSet.standard, token: VrxSpringToken.spatialFast, follow: VrxSpringToken.effects, moves: 'flings shut on the standard spatial fast spring, never bouncing (a closing overshoot would cross the strip)', still: 'shuts in one paint'),
+  VrxMicro.applet: VrxMicroRow(set: VrxSpringSet.expressive, token: VrxSpringToken.spatial, follow: VrxSpringToken.effects, shiftPx: 24.0, moves: 'the content (header and body) rises shift_px on spatial default with an effects fade at full, slides without fading at light', still: 'the content is there at the first paint'),
+  VrxMicro.overscroll: VrxMicroRow(set: VrxSpringSet.expressive, token: VrxSpringToken.spatial, follow: VrxSpringToken.spatial, moves: 'the content travels past its end with friction and springs back on spatial default', still: 'a list stops dead at its end (clamping)'),
+};
+
+/// What a build promises (the standard's [tier.*]); the engine applies it.
+enum VrxTier {
+  still,
+  light,
+  full,
+}
+
+const Map<String, VrxTier> vrxTierNames = {
+  'still': VrxTier.still,
+  'light': VrxTier.light,
+  'full': VrxTier.full,
+};
+
+/// The tier each display class gets from the build (D5).
+const Map<VrxDisplayClass, VrxTier> vrxTierOfClass = {
+  VrxDisplayClass.lcdColour: VrxTier.full,
+  VrxDisplayClass.lcdGrey: VrxTier.light,
+  VrxDisplayClass.epaperGrey: VrxTier.still,
+  VrxDisplayClass.epaperMono: VrxTier.still,
+};
+
+/// At the light tier a scale animates up to this far from rest, in permille (plan 0017 D5).
+const int vrxLightScaleLimitPermille = 100;
+
+// [tolerance]: pixels, never Flutter's default 1e-3 (plan 0017 D3)
+const double vrxToleranceDistancePx = 0.5;
+const double vrxToleranceVelocityPxPerS = 5.0;
+const double vrxToleranceAlphaStep = 0.00392157;
+const double vrxToleranceAlphaVelocity = 0.02;
+
+/// A row's ceiling at its reference travel (plan 0017 D11, G051).
+class VrxCeiling {
+  const VrxCeiling(this.name, this.row, this.useFollow, this.travelPx, this.arriveMs, this.settleMs);
+  final String name;
+  final VrxMicro row;
+  final bool useFollow;
+  final double travelPx;
+  final int arriveMs;
+  final int settleMs;
+}
+
+const List<VrxCeiling> vrxCeilings = [
+  VrxCeiling('press', VrxMicro.press, false, 3.0, 100, 250),
+  VrxCeiling('drawer_open', VrxMicro.drawerOpen, false, 300.0, 120, 450),
+  VrxCeiling('drawer_close', VrxMicro.drawerClose, false, 300.0, 120, 300),
+  VrxCeiling('screen', VrxMicro.screen, false, 48.0, 170, 400),
+  VrxCeiling('applet', VrxMicro.applet, false, 24.0, 170, 300),
+  VrxCeiling('modal', VrxMicro.modal, false, 40.0, 180, 500),
+  VrxCeiling('banner_in', VrxMicro.banner, false, 40.0, 150, 300),
+  VrxCeiling('banner_out', VrxMicro.banner, true, 40.0, 120, 250),
+  VrxCeiling('list', VrxMicro.list, false, 8.0, 110, 250),
+  VrxCeiling('select', VrxMicro.select, false, 120.0, 150, 300),
+  VrxCeiling('overscroll', VrxMicro.overscroll, false, 60.0, 170, 400),
+  VrxCeiling('key', VrxMicro.key, false, 12.0, 100, 250),
+];
+
+/// GestureBinding.samplingOffset, in ms (plan 0017 D12; provisional until measured).
+const int vrxSamplingOffsetMs = -16;
 
 /// One scheme: a seed hue and a harmony rule, each slot in light and dark (0xAARRGGBB).
 class VrxSchemeRow {

@@ -952,10 +952,10 @@ struct Homed {
     /// Path suffixes of the home; empty: nowhere in these trees.
     home: &'static [&'static str],
     why: &'static str,
-    /// A line with this is not the form: `/proc/self/fdinfo` is a
+    /// A line with any of these is not the form: `/proc/self/fdinfo` is a
     /// descriptor's own seals (bridge.rs's buffer check), `props[` a read
     /// of BlueZ's properties.
-    unless: Option<&'static str>,
+    unless: &'static [&'static str],
 }
 
 /// G037 (plan 0014 D4): the per-applet counters have one reader,
@@ -995,48 +995,141 @@ const ADVERTISING: &[&str] = &[
 const ONE_ARBITER: &str = "G044: who advertises on Bluetooth is vrxhost's arbiter's decision (plan 0015 D4): Device Link asks io.vrx.Host.PairingWindow, vrx-matter asks over its link";
 const ARBITER_HOME: &[&str] = &["rust/host/src/bt_arbiter.rs"];
 
+/// G050 (plan 0017 D2, D3, D10): motion has one engine. Every spring,
+/// curve, animated widget and scroll physics lives in the kit's motion.dart;
+/// everything else names a micro row and gets the engine's, with its
+/// tolerance in pixels and the build's tier. Comments never match.
+const MOTION_HOME: &[&str] = &["flutter/vrx_kit/lib/src/motion.dart"];
+const ONE_ENGINE: &str = "G050: motion has one engine (plan 0017 D2): name a micro row and let VrxMotion (flutter/vrx_kit/lib/src/motion.dart) run it, never an AnimationController, a Curve, an Animated widget, a hand duration or a scroll physics";
+const ENGINE_FORMS: &[&str] = &[
+    "AnimationController",
+    "SpringSimulation(",
+    "ScrollSpringSimulation(",
+    "FrictionSimulation(",
+    "ClampingScrollSimulation(",
+    "BouncingScrollSimulation(",
+    "CurvedAnimation",
+    "Curves.",
+    "extends Curve",
+    "TweenAnimationBuilder",
+    "PageRouteBuilder",
+    "AnimatedAlign",
+    "AnimatedBuilder",
+    "AnimatedContainer",
+    "AnimatedCrossFade",
+    "AnimatedDefaultTextStyle",
+    "AnimatedFractionallySizedBox",
+    "AnimatedList",
+    "AnimatedModalBarrier",
+    "AnimatedOpacity",
+    "AnimatedPadding",
+    "AnimatedPhysicalModel",
+    "AnimatedPositioned",
+    "AnimatedRotation",
+    "AnimatedScale",
+    "AnimatedSize",
+    "AnimatedSlide",
+    "AnimatedSwitcher",
+    "AnimatedWidget",
+    // a duration given to a scroll animation is a hand-tuned curve
+    ".animateTo(",
+    ".animateToItem(",
+    ".animateToPage(",
+    ".nextPage(",
+    ".previousPage(",
+    // any scroll physics but the engine's, named or subclassed
+    "ScrollPhysics",
+];
+
+/// G053 (plan 0017 D5): motion is decided in two places only, the build's
+/// tier (a file vrx-theme writes, read once at boot) and the Reduce motion
+/// row (Flutter's `disableAnimations`, read by the engine). Nothing else
+/// slows, stops or reads either.
+const DECIDED_TWICE: &str = "G053: motion is decided in two places only (plan 0017 D5): the build's tier, read from /usr/lib/vrx/motion-tier at boot (applet.dart), and the Reduce motion row, read as MediaQuery's disableAnimations by the engine (motion.dart)";
+
 const HOMED: &[Homed] = &[
+    Homed {
+        ext: "dart",
+        needles: ENGINE_FORMS,
+        home: MOTION_HOME,
+        why: ONE_ENGINE,
+        unless: &[],
+    },
+    Homed {
+        ext: "dart",
+        needles: &[
+            "disableAnimations",
+            "disableAnimationsOf",
+            "maybeDisableAnimationsOf",
+        ],
+        home: MOTION_HOME,
+        why: DECIDED_TWICE,
+        unless: &[],
+    },
+    Homed {
+        ext: "dart",
+        needles: &["motion-tier"],
+        home: &["flutter/vrx_kit/lib/src/applet.dart"],
+        why: DECIDED_TWICE,
+        unless: &[],
+    },
+    Homed {
+        ext: "dart",
+        needles: &["timeDilation"],
+        home: &[],
+        why: DECIDED_TWICE,
+        unless: &[],
+    },
+    // a `physics:` argument is the engine's two named constants, or nothing:
+    // the behaviour installs the rest
+    Homed {
+        ext: "dart",
+        needles: &["physics:"],
+        home: MOTION_HOME,
+        why: ONE_ENGINE,
+        unless: &["vrxPagedPhysics", "vrxWheelPhysics"],
+    },
     Homed {
         ext: "rs",
         needles: COUNTER_FILES,
         home: &["rust/host/src/counters.rs"],
         why: ONE_READER,
-        unless: Some("/proc/self/fdinfo"),
+        unless: &["/proc/self/fdinfo"],
     },
     Homed {
         ext: "rs",
         needles: BLUEZ_WINDOW,
         home: ARBITER_HOME,
         why: ONE_ARBITER,
-        unless: None,
+        unless: &[],
     },
     Homed {
         ext: "rs",
         needles: ADVERTISING,
         home: ARBITER_HOME,
         why: ONE_ARBITER,
-        unless: None,
+        unless: &[],
     },
     Homed {
         ext: "rs",
         needles: &["run_peripheral"],
         home: &["rust/matter/src/ble.rs"],
         why: ONE_ARBITER,
-        unless: None,
+        unless: &[],
     },
     Homed {
         ext: "dart",
         needles: BLUEZ_WINDOW,
         home: &[],
         why: ONE_ARBITER,
-        unless: Some("props["),
+        unless: &["props["],
     },
     Homed {
         ext: "dart",
         needles: ADVERTISING,
         home: &[],
         why: ONE_ARBITER,
-        unless: None,
+        unless: &[],
     },
 ];
 
@@ -1069,17 +1162,26 @@ pub fn one_home(roots: &[PathBuf]) -> Vec<Violation> {
             &text
         };
         let (kept, _) = views(ext, body);
+        // a name stands on word boundaries at its alphanumeric ends: a
+        // needle that ends in punctuation (`Curves.`, `Foo(`) is a prefix by
+        // its nature, and one that starts with it (`.animateTo(`) is free
+        // of a boundary before
         let names = |line: &str, needle: &str| {
             line.match_indices(needle).any(|(at, _)| {
-                !line[at + needle.len()..]
+                let first = needle.chars().next().is_some_and(ident_char);
+                let last = needle.chars().next_back().is_some_and(ident_char);
+                let before = line[..at].chars().next_back().is_some_and(ident_char);
+                let after = line[at + needle.len()..]
                     .chars()
                     .next()
-                    .is_some_and(|c| c.is_alphanumeric() || c == '_')
+                    .is_some_and(ident_char);
+                let prefix_form = first && !last && before;
+                !(prefix_form || (last && after))
             })
         };
         for (n, line) in kept.lines().enumerate() {
             for rule in &rules {
-                if rule.unless.is_some_and(|u| line.contains(u)) {
+                if rule.unless.iter().any(|u| line.contains(u)) {
                     continue;
                 }
                 for needle in rule.needles {
@@ -1296,6 +1398,111 @@ mod tests {
             "a counter's name in a reply is not the file"
         );
         assert_eq!((found[0].needle, found[0].line), ("io.pressure", 1));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// G050 (plan 0017 D2, D10): every form of hand-rolled motion is refused
+    /// outside the engine's file, one negative per pattern; the engine's own
+    /// file, comments and the two named physics constants pass.
+    #[test]
+    fn motion_has_one_engine_g050() {
+        let dir = std::env::temp_dir().join(format!("vrx-g050-{}", std::process::id()));
+        let kit = dir.join("flutter/vrx_kit/lib/src");
+        let applet = dir.join("applets/a/lib");
+        for d in [&kit, &applet] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let every = ENGINE_FORMS.join(" ");
+        std::fs::write(
+            kit.join("motion.dart"),
+            format!("final x = {every}; physics: Foo();\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            kit.join("fine.dart"),
+            "// AnimationController and Curves.easeOut in a comment\nfinal l = ListView(physics: vrxPagedPhysics);\nfinal w = ListWheelScrollView(physics: vrxWheelPhysics);\nfinal v = value.springTo(1, spring);\n",
+        )
+        .unwrap();
+        assert!(
+            one_home(std::slice::from_ref(&dir)).is_empty(),
+            "the engine, comments and the named constants pass"
+        );
+        for form in ENGINE_FORMS {
+            let line = format!("final x = {form}(thing);\n");
+            std::fs::write(applet.join("main.dart"), &line).unwrap();
+            let found = one_home(std::slice::from_ref(&dir));
+            assert!(
+                found
+                    .iter()
+                    .any(|v| v.needle == *form && v.why == ONE_ENGINE),
+                "{form} outside the engine passes: {found:?}"
+            );
+        }
+        for line in [
+            "ListView(physics: const ClampingScrollPhysics())",
+            "ListView(physics: custom)",
+            "class P extends Curve { }",
+        ] {
+            std::fs::write(applet.join("main.dart"), format!("final x = {line};\n"))
+                .unwrap();
+            let found = one_home(std::slice::from_ref(&dir));
+            assert!(
+                found.iter().any(|v| v.why == ONE_ENGINE),
+                "{line} passes: {found:?}"
+            );
+        }
+        std::fs::write(
+            kit.join("fine.dart"),
+            "var a = AnimatedFoo();\nfinal c = Curved();\n",
+        )
+        .unwrap();
+        std::fs::write(
+            applet.join("main.dart"),
+            "final c = MyCurves.x; final d = Duration(seconds: 1);\n",
+        )
+        .unwrap();
+        assert!(
+            one_home(std::slice::from_ref(&dir)).is_empty(),
+            "a name that merely contains a form, and a duration for a timer, pass"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// G053 (plan 0017 D5): the tier is read from one file in one place, the
+    /// Reduce motion flag by the engine alone, and nothing dilates time.
+    #[test]
+    fn motion_is_decided_in_two_places_g053() {
+        let dir = std::env::temp_dir().join(format!("vrx-g053-{}", std::process::id()));
+        let kit = dir.join("flutter/vrx_kit/lib/src");
+        let applet = dir.join("applets/a/lib");
+        for d in [&kit, &applet] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(
+            kit.join("motion.dart"),
+            "final r = MediaQuery.maybeDisableAnimationsOf(c) ?? false;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            kit.join("applet.dart"),
+            "const f = '/usr/lib/vrx/motion-tier';\n",
+        )
+        .unwrap();
+        assert!(one_home(std::slice::from_ref(&dir)).is_empty());
+        for line in [
+            "final r = MediaQuery.disableAnimationsOf(context);",
+            "final r = MediaQuery.of(context).disableAnimations;",
+            "final r = platformDispatcher.accessibilityFeatures.disableAnimations;",
+            "final f = File('/usr/lib/vrx/motion-tier');",
+            "timeDilation = 0.5;",
+        ] {
+            std::fs::write(applet.join("main.dart"), format!("{line}\n")).unwrap();
+            let found = one_home(std::slice::from_ref(&dir));
+            assert!(
+                found.iter().any(|v| v.why == DECIDED_TWICE),
+                "{line} passes: {found:?}"
+            );
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

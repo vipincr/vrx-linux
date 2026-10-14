@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'components.dart';
+import 'motion.dart';
 import 'scale.dart';
 import 'symbols.dart';
 import 'theme.dart';
@@ -25,19 +26,21 @@ class VrxWheel extends StatelessWidget {
   /// The wheel's width; two touch minimums when not given.
   final double? width;
 
-  /// Turn [c] to the nearest row showing [i] (the wheels loop).
-  static void turnTo(FixedExtentScrollController c, int count, int i) {
+  /// Turn [c] to the nearest row showing [i] (the wheels loop), on the
+  /// wheel row's spring (plan 0017 D2: no hand-tuned duration).
+  void _turnTo(BuildContext context, int i) {
     final now = c.selectedItem;
     var d = i - now % count;
     if (d > count ~/ 2) d -= count;
     if (d < -(count ~/ 2)) d += count;
-    unawaited(c.animateToItem(now + d, duration: const Duration(milliseconds: 200), curve: Curves.easeOut));
+    unawaited(vrxTurnWheel(c, now + d, itemExtent: ScaledSpacing.of(context).touch, mode: VrxMotion.of(context)));
   }
+
+  FixedExtentScrollController get c => controller;
 
   @override
   Widget build(BuildContext context) {
     final touch = ScaledSpacing.of(context).touch;
-    final c = controller;
     return Focus(
       onKeyEvent: (node, event) {
         if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
@@ -47,7 +50,7 @@ class VrxWheel extends StatelessWidget {
           _ => 0,
         };
         if (step == 0) return KeyEventResult.ignored;
-        turnTo(c, count, (c.selectedItem + step) % count);
+        _turnTo(context, (c.selectedItem + step) % count);
         return KeyEventResult.handled;
       },
       child: SizedBox(
@@ -58,11 +61,11 @@ class VrxWheel extends StatelessWidget {
           // nearly flat: every row a tap can pick keeps the 9mm minimum
           diameterRatio: 40,
           perspective: 0.0001,
-          physics: const FixedExtentScrollPhysics(),
+          physics: vrxWheelPhysics,
           childDelegate: ListWheelChildLoopingListDelegate(children: [
             for (var i = 0; i < count; i++)
               VrxPress(
-                onTap: () => turnTo(c, count, i),
+                onTap: () => _turnTo(context, i),
                 child: Center(child: Text(label(i), style: TypeRole.title(context))),
               ),
           ]),

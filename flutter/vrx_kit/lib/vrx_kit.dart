@@ -48,4 +48,4 @@ export 'src/words.dart';
 // the slot names applets may say; the display class and the tables stay
 // the kit's (an applet never knows what panel it is on: plan 0009 D4,
 // evrx-rt docs/13)
-export 'src/ui_standard.g.dart' show VrxSlot;
+export 'src/ui_standard.g.dart' show VrxSlot, VrxTier;

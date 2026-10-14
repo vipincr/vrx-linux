@@ -12,7 +12,6 @@ library;
 import 'dart:async';
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart' show MaterialScrollBehavior;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
@@ -157,24 +156,6 @@ class _VrxInputRootState extends State<VrxInputRoot> {
       ),
     );
   }
-}
-
-/// Scrolling on vrx: no scrollbar drawn over the content (Flutter's
-/// desktop default on Linux painted one across Home's tiles), and a mouse
-/// or touchpad drags a list as a finger does; the wheel scrolls too.
-class VrxScrollBehavior extends MaterialScrollBehavior {
-  const VrxScrollBehavior();
-
-  @override
-  Set<PointerDeviceKind> get dragDevices => const {
-        PointerDeviceKind.touch,
-        PointerDeviceKind.mouse,
-        PointerDeviceKind.trackpad,
-        PointerDeviceKind.stylus,
-      };
-
-  @override
-  Widget buildScrollbar(BuildContext context, Widget child, ScrollableDetails details) => child;
 }
 
 /// A vertical swipe on [child]: at least [Gestures.swipeMin] of travel

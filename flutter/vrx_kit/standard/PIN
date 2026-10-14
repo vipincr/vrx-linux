@@ -3,7 +3,12 @@
 # updating both lines, and running `cargo xtask ui-standard`. The gate (G018) refuses a file that
 # does not hash to this, and a generated file that is stale.
 #
+# vrx-motion.toml (plan 0017 D4) is NOT vendored: it is vrx's own overlay beside the standard, adding the rows and
+# constants vrx needs (it may not redefine a key of the vendored file). Its hash is recorded below by
+# `cargo xtask ui-standard`, and the gate refuses an edit that was not regenerated.
+#
 # The commit was a local integration commit when pinned (2026-10-13); evrx-rt's GitHub main had not
 # caught up to it.
 commit = "aca6d21a12add74132ddb38afa4b825ccbe1bf24"
 sha256 = "d9d7e8b4a1d1d0d430f1e2222fbf6299caef9ea2273f6c881c58245aed10bbb5"
+overlay_sha256 = "54755b8a019fc3f5a0963e3419ee861c5f1e1a0825777f7fd7670e5a70860a42"

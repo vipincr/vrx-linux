@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import 'components.dart';
 import 'metrics.dart';
+import 'motion.dart';
 import 'scale.dart';
 import 'slider.dart';
 import 'symbols.dart';
@@ -281,7 +282,7 @@ class VrxSetupStep extends StatelessWidget {
 /// D9). The swipe chain is Flutter's gesture arena: a drag goes to the
 /// innermost scrollable that claims it (a list, a wheel), then outwards;
 /// a vertical drag nothing inside claims pages this body, a client height
-/// at a time ([PageScrollPhysics] pages by the viewport on any scroll
+/// at a time ([vrxPagedPhysics] pages by the viewport on any scroll
 /// position). A body that fits does not move. [builder] gets the client's
 /// constraints, so a body can fill it when it fits.
 class VrxPaged extends StatelessWidget {
@@ -293,7 +294,7 @@ class VrxPaged extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, box) => SingleChildScrollView(
-        physics: const PageScrollPhysics(),
+        physics: vrxPagedPhysics,
         child: builder(context, box),
       ),
     );
