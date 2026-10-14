@@ -2,7 +2,61 @@ import 'dart:typed_data';
 
 import 'package:vrx_kit/vrx_kit.dart';
 
-enum RecorderAction { init, listed, recording, stopped, playing, failed, tick, level, opened }
+/// Everything Recorder reacts to (plan 0013 D1: the reducer is the only
+/// writer): a signal, or what happened, as data.
+sealed class RecorderAction {
+  const RecorderAction();
+
+  static const init = RecorderSignal.init;
+  static const stopped = RecorderSignal.stopped;
+  static const back = RecorderSignal.back;
+}
+
+/// [stopped]: the take or the playback ended.
+enum RecorderSignal implements RecorderAction { init, stopped, back }
+
+/// What the device can do, and the takes on disk (null fields: unchanged).
+final class RecorderListed implements RecorderAction {
+  const RecorderListed({this.devices, this.recordings});
+
+  final SoundDevices? devices;
+  final List<Recording>? recordings;
+}
+
+/// A take started ([play] null), or a take's playback ([play] its name).
+final class RecorderStarted implements RecorderAction {
+  const RecorderStarted({this.play});
+
+  final String? play;
+}
+
+/// The clock of the take or playback, in seconds.
+final class RecorderTick implements RecorderAction {
+  const RecorderTick(this.elapsed);
+
+  final double elapsed;
+}
+
+/// arecord's meter, 0 to 100.
+final class RecorderLevel implements RecorderAction {
+  const RecorderLevel(this.level);
+
+  final int level;
+}
+
+/// One sentence about what did not happen.
+final class RecorderError implements RecorderAction {
+  const RecorderError(this.sentence);
+
+  final String sentence;
+}
+
+/// A take's screen opened (its name), or closed (null).
+final class RecorderOpen implements RecorderAction {
+  const RecorderOpen(this.name);
+
+  final String? name;
+}
 
 /// The longest take (arecord's -d): an hour, said when it is reached.
 const takeLimitSeconds = 3600;
@@ -125,7 +179,36 @@ class RecorderModel extends StoreModel<RecorderState, RecorderAction, RecorderVi
 
   @override
   RecorderView reduce(RecorderState state, RecorderAction action) {
-    if (action == RecorderAction.opened) error = null;
+    switch (action) {
+      case RecorderListed(devices: final d, recordings: final list):
+        if (d != null) devices = d;
+        if (list != null) recordings = list;
+      case RecorderStarted(:final play):
+        if (play == null) {
+          recording = true;
+        } else {
+          playing = play;
+        }
+        error = null;
+        elapsed = 0;
+        level = 0;
+      case RecorderTick(elapsed: final t):
+        elapsed = t;
+      case RecorderLevel(level: final l):
+        level = l;
+      case RecorderError(:final sentence):
+        error = sentence;
+      case RecorderOpen(:final name):
+        opened = name;
+        error = null;
+      case RecorderSignal.stopped:
+        recording = false;
+        playing = null;
+      case RecorderSignal.back:
+        opened = null;
+      case RecorderSignal.init:
+        break;
+    }
     final shown = [for (final r in recordings) if (r.name == opened) r];
     // a take deleted (or gone) closes its screen
     if (shown.isEmpty) opened = null;
@@ -143,6 +226,20 @@ class RecorderModel extends StoreModel<RecorderState, RecorderAction, RecorderVi
 
   @override
   RecorderState get snapshot => const RecorderState();
+
+  /// The takes are files, listed again at every start; nothing is kept.
+  @override
+  void restore(RecorderState snapshot) {}
+
+  @override
+  RecorderAction get backAction => RecorderAction.back;
+
+  @override
+  bool get atRoot => opened == null;
+
+  @override
+  Object? get fingerprint =>
+      [devices.capture, devices.playback, [for (final r in recordings) r.name], recording, playing, elapsed, error, level, opened];
 }
 
 class RecorderState {

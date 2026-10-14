@@ -45,10 +45,7 @@ class RecorderApplet extends Applet<RecorderState, RecorderAction, RecorderView>
       ..reset()
       ..start();
     // the elapsed time is whole seconds: once a second is the most it changes
-    _clock = VrxTicker(const Duration(seconds: 1), () {
-      model.elapsed = _watch.elapsedMilliseconds / 1000;
-      _events.add(RecorderAction.tick);
-    });
+    _clock = VrxTicker(const Duration(seconds: 1), () => _events.add(RecorderTick(_watch.elapsedMilliseconds / 1000)));
   }
 
   Future<void> _run(List<String> cmd, {required void Function() onEnd, bool meter = false}) async {
@@ -60,10 +57,7 @@ class RecorderApplet extends Applet<RecorderState, RecorderAction, RecorderView>
         final chunk = String.fromCharCodes(d);
         final level = meter ? meterPercent(chunk) : null;
         if (level != null) {
-          if (level != model.level) {
-            model.level = level;
-            _events.add(RecorderAction.level);
-          }
+          if (level != model.level) _events.add(RecorderLevel(level));
           return;
         }
         err.write(chunk);
@@ -73,12 +67,12 @@ class RecorderApplet extends Applet<RecorderState, RecorderAction, RecorderView>
       // a stop is SIGINT: arecord closes the file properly on it
       if (code != 0 && code != -2 && code != 130 && err.isNotEmpty) {
         debugPrint('recorder: ${cmd.first}: ${err.toString().trim()}');
-        model.error = VrxWords.audio(err.toString());
+        _events.add(RecorderError(VrxWords.audio(err.toString())));
       } else if (meter && model.elapsed >= takeLimitSeconds - 1) {
-        model.error = 'Recordings stop at one hour.';
+        _events.add(const RecorderError('Recordings stop at one hour.'));
       }
     } on Object catch (e) {
-      model.error = VrxWords.of(e, context: 'recorder: ${cmd.first}');
+      _events.add(RecorderError(VrxWords.of(e, context: 'recorder: ${cmd.first}')));
     }
     _process = null;
     _tick(false);
@@ -91,37 +85,21 @@ class RecorderApplet extends Applet<RecorderState, RecorderAction, RecorderView>
     final now = DateTime.now();
     String two(int n) => n.toString().padLeft(2, '0');
     final name = 'rec-${now.year}${two(now.month)}${two(now.day)}-${two(now.hour)}${two(now.minute)}${two(now.second)}.wav';
-    model
-      ..recording = true
-      ..error = null
-      ..elapsed = 0;
+    _events.add(const RecorderStarted());
     _tick(true);
-    _events.add(RecorderAction.recording);
-    model.level = 0;
     await _run(
       ['arecord', '-f', 'S16_LE', '-r', '44100', '-c', '1', '-t', 'wav', '-V', 'mono', '-d', '$takeLimitSeconds', '$recordingsDir/$name'],
       meter: true,
-      onEnd: () {
-        model.recording = false;
-        _events.add(RecorderAction.stopped);
-      },
+      onEnd: () => _events.add(RecorderAction.stopped),
     );
-    model.recordings = await listRecordings();
-    _events.add(RecorderAction.listed);
+    _events.add(RecorderListed(recordings: await listRecordings()));
   }
 
   Future<void> play(String name) async {
     if (_process != null) return;
-    model
-      ..playing = name
-      ..error = null
-      ..elapsed = 0;
+    _events.add(RecorderStarted(play: name));
     _tick(true);
-    _events.add(RecorderAction.playing);
-    await _run(['aplay', '-q', '$recordingsDir/$name'], onEnd: () {
-      model.playing = null;
-      _events.add(RecorderAction.stopped);
-    });
+    await _run(['aplay', '-q', '$recordingsDir/$name'], onEnd: () => _events.add(RecorderAction.stopped));
   }
 
   void stop() => _process?.kill(ProcessSignal.sigint);
@@ -130,15 +108,13 @@ class RecorderApplet extends Applet<RecorderState, RecorderAction, RecorderView>
     try {
       await File('$recordingsDir/$name').delete();
     } on FileSystemException catch (e) {
-      model.error = VrxWords.of(e, context: 'recorder: delete');
+      _events.add(RecorderError(VrxWords.of(e, context: 'recorder: delete')));
     }
-    model.recordings = await listRecordings();
-    _events.add(RecorderAction.listed);
+    _events.add(RecorderListed(recordings: await listRecordings()));
   }
 
   void _open(String? name) {
-    model.opened = name;
-    _events.add(RecorderAction.opened);
+    _events.add(RecorderOpen(name));
   }
 
   @override
@@ -298,10 +274,11 @@ Future<void> main() async {
   runApplet(RecorderApplet(model), actions: _events.stream);
   try {
     final pcm = File('/proc/asound/pcm');
-    model.devices = await pcm.exists() ? SoundDevices.parse(await pcm.readAsString()) : const SoundDevices(playback: false, capture: false);
-    model.recordings = await listRecordings();
+    _events.add(RecorderListed(
+      devices: await pcm.exists() ? SoundDevices.parse(await pcm.readAsString()) : const SoundDevices(playback: false, capture: false),
+      recordings: await listRecordings(),
+    ));
   } on Object catch (err) {
-    model.error = VrxWords.of(err, context: 'recorder: list');
+    _events.add(RecorderError(VrxWords.of(err, context: 'recorder: list')));
   }
-  _events.add(RecorderAction.listed);
 }

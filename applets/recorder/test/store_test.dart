@@ -63,4 +63,24 @@ void main() {
     expect(VrxWords.audio('arecord: pcm_write:2058: write error: No space left on device'), contains('no room left'));
     expect(VrxWords.audio('arecord: main:850: audio open error: No such device'), contains('not answering'));
   });
+
+  test("a take, its meter, its screen and Back go through the store, and its promises hold (plan 0013 D1, D2)", () {
+    const take = Recording(name: 'rec-1.wav', seconds: 3);
+    final h = StoreHarness(RecorderModel())
+      ..dispatch(const RecorderListed(devices: SoundDevices(playback: true, capture: true), recordings: [take]))
+      ..dispatch(const RecorderStarted())
+      ..dispatch(const RecorderLevel(40))
+      ..dispatch(const RecorderTick(2));
+    h.assertView((v) => v.recording && v.level == 40 && v.elapsed == 2);
+    h
+      ..dispatch(RecorderAction.stopped)
+      ..dispatch(const RecorderOpen('rec-1.wav'));
+    h.assertView((v) => !v.recording && v.level == 0 && v.opened?.name == 'rec-1.wav');
+    h.verify(
+      fresh: RecorderModel.new,
+      probes: const [RecorderAction.back, RecorderAction.stopped, RecorderError('x'), RecorderOpen(null)],
+    );
+    h.dispatch(const RecorderListed(recordings: []));
+    h.assertView((v) => v.opened == null, because: 'a deleted take closes its screen');
+  });
 }
