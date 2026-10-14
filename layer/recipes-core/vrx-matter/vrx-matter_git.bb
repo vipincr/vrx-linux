@@ -19,7 +19,7 @@ SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master \
            file://vrx-matter-bluetooth.conf \
            file://vrx-matter-bluetooth.service.conf \
            "
-SRCREV = "4d0d7a9b1d82ac2d82aeab3aa3ddaacb1b0faf21"
+SRCREV = "b0a248d166d9e9e9f903cd28ebdf804e191ce942"
 
 CARGO_SRC_DIR = "rust/matter"
 CARGO_LOCK_PATH = "${S}/Cargo.lock"
