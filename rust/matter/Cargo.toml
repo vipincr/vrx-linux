@@ -32,6 +32,12 @@ zlink = { version = "0.7.1", default-features = false, features = ["tokio", "ser
 # rs-matter: pinned, 0.x (plan 0015 D2); its Avahi mDNS and its BlueZ
 # GATT peripheral (BLE commissioning) are the zbus feature
 rs-matter = { version = "=0.4.1", default-features = false, features = ["os", "rustcrypto", "log", "zbus"] }
+# rs-matter runs on embassy-time's std driver; its timer queue is supplied by
+# embassy-executor's integrated queue unless a generic one is chosen, and we
+# run no embassy executor, so the generic queue is named here. Without it a
+# GNU ld link fails: undefined __embassy_time_queue_item_from_waker
+# (the 2026-10-14 cm4 build; ld64 on macOS dead-strips the reference).
+embassy-time = { version = "0.5", features = ["std", "generic-queue-64"] }
 async-io = "2"
 embassy-futures = "0.1"
 log = "0.4"

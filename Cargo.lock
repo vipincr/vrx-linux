@@ -2530,6 +2530,7 @@ version = "0.1.0"
 dependencies = [
  "async-io",
  "embassy-futures",
+ "embassy-time",
  "log",
  "rand",
  "rs-matter",
