@@ -50,3 +50,6 @@ FILES:${PN} += "${FLUTTER_INSTALL_DIR}"
 # flutter-vrx is the runtime that hosts the bundle; vrx_kit draws its
 # icons from the system's Material Symbols and its text in Roboto
 RDEPENDS:${PN} += "flutter-vrx ttf-material-symbols ttf-roboto"
+# vrx_kit's locale service asks glibc's own tool (`locale -a`, `locale
+# t_fmt`, plan 0011 D7); without it Settings listed no locales (0.1.0112)
+RDEPENDS:${PN} += "glibc-utils"
