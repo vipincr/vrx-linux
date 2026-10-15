@@ -32,6 +32,10 @@ class ShellApplet extends Applet<ShellState, ShellAction, ShellView> {
   @override
   ShellState get snapshot => model.snapshot;
 
+  // the strip's plane is above every applet's: below the strip it is clear
+  @override
+  bool get overlay => true;
+
   void _open() => _events.add(ShellAction.drawerOpened);
   void _close() => _events.add(ShellAction.drawerClosed);
 

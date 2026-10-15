@@ -50,6 +50,13 @@ abstract class Applet<S, A, V> extends StoreModel<S, A, V> {
   /// while it runs (a warm tile, a resident): the kit follows vrxhost's
   /// route events for it.
   bool get followsRoutes => false;
+
+  /// The applet's plane sits above the focused applet's (the shell, whose
+  /// manifest holds `roles.shell`): it paints only what it draws, so the kit
+  /// puts no page colour under it and gives it no entrance or screen slide,
+  /// both of which fill the page. An overlay that filled the page hid every
+  /// applet behind its strip (the 0.1.0112 bench).
+  bool get overlay => false;
 }
 
 /// Run an applet: the entry point of every applet's `main`.
@@ -245,24 +252,20 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
         ),
       ),
       // an applet comes to the front with its own entrance (D8); a screen
-      // change inside it slides (D6)
-      home: VrxEntrance(
-        child: VrxInput.install(
-          modality: _modality,
-          child: AppletScope<A>(
-            onAction: _store.dispatch,
-            child: VrxSwitch(
-              screen: widget.applet.screen,
-              depth: widget.applet.depth,
-              child: Builder(
-                builder: (context) => widget.applet.build(context, _store.view),
-              ),
-            ),
-          ),
-        ),
-      ),
+      // change inside it slides (D6); an overlay has neither (both fill the
+      // page it must leave clear)
+      home: widget.applet.overlay ? _scoped(_body()) : VrxEntrance(child: _scoped(_switched())),
     );
   }
+
+  Widget _body() => Builder(builder: (context) => widget.applet.build(context, _store.view));
+
+  Widget _switched() => VrxSwitch(screen: widget.applet.screen, depth: widget.applet.depth, child: _body());
+
+  Widget _scoped(Widget child) => VrxInput.install(
+        modality: _modality,
+        child: AppletScope<A>(onAction: _store.dispatch, child: child),
+      );
 }
 
 /// A refused navigation, said over whatever screen is up (plan 0011 D2):
