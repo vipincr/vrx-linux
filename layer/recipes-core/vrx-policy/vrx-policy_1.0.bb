@@ -31,9 +31,13 @@ def vrx_grant_groups(d):
     return "; ".join("-r -f %s" % g for g in groups)
 
 USERADD_PACKAGES = "${PN}"
-GROUPADD_PARAM:${PN} = "${@vrx_grant_groups(d)}"
-# parse-time read: re-parse when the mapping changes
+VRX_GRANT_GROUPS = "${@vrx_grant_groups(d)}"
+# parse-time read: re-parse when the mapping changes, and hash the groups it
+# yields rather than the call, or the preinst keeps the old list (G071: three
+# grants were missing on 0.1.0112 and camerad could not start)
 VRX_POLICY_GRANTS_STAMP := "${@bb.parse.mark_dependency(d, d.getVar('VRX_GRANTS_CONF'))}"
+VRX_GRANT_GROUPS[vardepvalue] = "${VRX_GRANT_GROUPS}"
+GROUPADD_PARAM:${PN} = "${VRX_GRANT_GROUPS}"
 
 do_configure[noexec] = "1"
 do_compile[noexec] = "1"
