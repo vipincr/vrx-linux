@@ -1,5 +1,6 @@
 /// Wheels for a time and a date (plan 0011 D14): Clock's picker, moved
-/// into the kit so Settings > Time sets the clock with the same control.
+/// into the kit so Settings > Time sets the clock with the same control,
+/// and the wheel sets the keyboard shows for a date or a time field.
 /// A finger drags a wheel; a tap picks a row; a mouse wheel turns it; with
 /// it focused, the arrow keys step it. Rows keep the touch minimum.
 library;
@@ -17,11 +18,15 @@ import 'theme.dart';
 
 /// One looping wheel of [count] rows labelled by [label].
 class VrxWheel extends StatelessWidget {
-  const VrxWheel({super.key, required this.controller, required this.count, required this.label, this.width});
+  const VrxWheel(
+      {super.key, required this.controller, required this.count, required this.label, this.width, this.onChanged});
 
   final FixedExtentScrollController controller;
   final int count;
   final String Function(int i) label;
+
+  /// The row now chosen (0 to [count] - 1), as the wheel settles on it.
+  final void Function(int i)? onChanged;
 
   /// The wheel's width; two touch minimums when not given.
   final double? width;
@@ -62,6 +67,7 @@ class VrxWheel extends StatelessWidget {
           diameterRatio: 40,
           perspective: 0.0001,
           physics: vrxWheelPhysics,
+          onSelectedItemChanged: onChanged == null ? null : (i) => onChanged!(i % count),
           childDelegate: ListWheelChildLoopingListDelegate(children: [
             for (var i = 0; i < count; i++)
               VrxPress(
@@ -76,8 +82,8 @@ class VrxWheel extends StatelessWidget {
 }
 
 /// The band the chosen row sits in, with the wheels over it.
-class _Wheels extends StatelessWidget {
-  const _Wheels({required this.children});
+class VrxWheelBand extends StatelessWidget {
+  const VrxWheelBand({super.key, required this.children});
 
   final List<Widget> children;
 
@@ -92,6 +98,87 @@ class _Wheels extends StatelessWidget {
         Row(mainAxisAlignment: MainAxisAlignment.center, children: children),
       ]),
     );
+  }
+}
+
+/// Hour and minute wheels; [read] gives minutes after midnight.
+class VrxTimeWheels extends StatelessWidget {
+  const VrxTimeWheels({super.key, required this.hours, required this.minutes, this.onChanged});
+
+  final FixedExtentScrollController hours;
+  final FixedExtentScrollController minutes;
+
+  /// A wheel moved.
+  final VoidCallback? onChanged;
+
+  /// Minutes after midnight, from the two wheels.
+  static int read(FixedExtentScrollController hours, FixedExtentScrollController minutes) =>
+      (hours.selectedItem % 24) * 60 + minutes.selectedItem % 60;
+
+  @override
+  Widget build(BuildContext context) {
+    String two(int i) => i.toString().padLeft(2, '0');
+    return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+      VrxWheel(controller: hours, count: 24, label: two, onChanged: (_) => onChanged?.call()),
+      Text(':', style: TypeRole.title(context)),
+      VrxWheel(controller: minutes, count: 60, label: two, onChanged: (_) => onChanged?.call()),
+    ]);
+  }
+}
+
+/// Day, month and year wheels; [read] gives the date (a day past the
+/// month's end is its last day: 31 February is the 28th or 29th).
+class VrxDateWheels extends StatelessWidget {
+  const VrxDateWheels({super.key, required this.day, required this.month, required this.year, this.onChanged});
+
+  /// The first year offered; the wheel holds [years] of them.
+  static const firstYear = 2024;
+  static const years = 40;
+  static const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  final FixedExtentScrollController day;
+  final FixedExtentScrollController month;
+  final FixedExtentScrollController year;
+
+  /// A wheel moved.
+  final VoidCallback? onChanged;
+
+  /// The three wheels' controllers, at [date].
+  static (FixedExtentScrollController, FixedExtentScrollController, FixedExtentScrollController) at(DateTime date) => (
+        FixedExtentScrollController(initialItem: date.day - 1),
+        FixedExtentScrollController(initialItem: date.month - 1),
+        FixedExtentScrollController(initialItem: (date.year - firstYear).clamp(0, years - 1)),
+      );
+
+  static DateTime read(
+      FixedExtentScrollController day, FixedExtentScrollController month, FixedExtentScrollController year) {
+    final y = firstYear + year.selectedItem % years;
+    final m = month.selectedItem % 12 + 1;
+    final d = (day.selectedItem % 31 + 1).clamp(1, DateUtils.getDaysInMonth(y, m));
+    return DateTime(y, m, d);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gap = ScaledSpacing.of(context).md;
+    void moved(int _) => onChanged?.call();
+    // three wheels in shares of the width, a gutter apart, so the narrowest
+    // panel holds them (the layout check found them touching)
+    return Row(children: [
+      Expanded(
+          flex: 5,
+          child: VrxWheel(controller: day, count: 31, label: (i) => '${i + 1}', width: double.infinity, onChanged: moved)),
+      SizedBox(width: gap),
+      Expanded(
+          flex: 5,
+          child: VrxWheel(controller: month, count: 12, label: (i) => months[i], width: double.infinity, onChanged: moved)),
+      SizedBox(width: gap),
+      Expanded(
+        flex: 6,
+        child: VrxWheel(
+            controller: year, count: years, label: (i) => '${firstYear + i}', width: double.infinity, onChanged: moved),
+      ),
+    ]);
   }
 }
 
@@ -122,21 +209,10 @@ class _VrxTimePickerState extends State<VrxTimePicker> {
 
   @override
   Widget build(BuildContext context) {
-    String two(int i) => i.toString().padLeft(2, '0');
     return Column(children: [
       VrxHeader(title: widget.title, onBack: widget.onBack),
-      Expanded(
-        child: _Wheels(children: [
-          VrxWheel(controller: _hours, count: 24, label: two),
-          Text(':', style: TypeRole.title(context)),
-          VrxWheel(controller: _mins, count: 60, label: two),
-        ]),
-      ),
-      VrxRow(
-        glyph: VrxSymbols.check,
-        label: 'Set',
-        onTap: () => widget.onSet((_hours.selectedItem % 24) * 60 + _mins.selectedItem % 60),
-      ),
+      Expanded(child: VrxWheelBand(children: [VrxTimeWheels(hours: _hours, minutes: _mins)])),
+      VrxRow(glyph: VrxSymbols.check, label: 'Set', onTap: () => widget.onSet(VrxTimeWheels.read(_hours, _mins))),
     ]);
   }
 }
@@ -145,10 +221,6 @@ class _VrxTimePickerState extends State<VrxTimePicker> {
 /// end is its last day: 31 February is the 28th or 29th).
 class VrxDatePicker extends StatefulWidget {
   const VrxDatePicker({super.key, this.title = 'Date', required this.date, required this.onBack, required this.onSet});
-
-  /// The first year offered; the wheel holds [years] of them.
-  static const firstYear = 2024;
-  static const years = 40;
 
   final String title;
   final DateTime date;
@@ -160,55 +232,28 @@ class VrxDatePicker extends StatefulWidget {
 }
 
 class _VrxDatePickerState extends State<VrxDatePicker> {
-  static const _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  late final _day = FixedExtentScrollController(initialItem: widget.date.day - 1);
-  late final _month = FixedExtentScrollController(initialItem: widget.date.month - 1);
-  late final _year = FixedExtentScrollController(
-      initialItem: (widget.date.year - VrxDatePicker.firstYear).clamp(0, VrxDatePicker.years - 1));
+  late final (FixedExtentScrollController, FixedExtentScrollController, FixedExtentScrollController) _w =
+      VrxDateWheels.at(widget.date);
 
   @override
   void dispose() {
-    _day.dispose();
-    _month.dispose();
-    _year.dispose();
+    _w.$1.dispose();
+    _w.$2.dispose();
+    _w.$3.dispose();
     super.dispose();
-  }
-
-  void _set() {
-    final y = VrxDatePicker.firstYear + _year.selectedItem % VrxDatePicker.years;
-    final m = _month.selectedItem % 12 + 1;
-    final last = DateUtils.getDaysInMonth(y, m);
-    final d = (_day.selectedItem % 31 + 1).clamp(1, last);
-    widget.onSet(DateTime(y, m, d));
   }
 
   @override
   Widget build(BuildContext context) {
-    final space = ScaledSpacing.of(context);
     return Column(children: [
       VrxHeader(title: widget.title, onBack: widget.onBack),
       Expanded(
-        // three wheels in shares of the width, a gutter apart, so the
-        // narrowest panel holds them (the layout check found them touching)
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: space.inset),
-          child: _Wheels(children: [
-            Expanded(flex: 5, child: VrxWheel(controller: _day, count: 31, label: (i) => '${i + 1}', width: double.infinity)),
-            SizedBox(width: space.md),
-            Expanded(flex: 5, child: VrxWheel(controller: _month, count: 12, label: (i) => _months[i], width: double.infinity)),
-            SizedBox(width: space.md),
-            Expanded(
-              flex: 6,
-              child: VrxWheel(
-                  controller: _year,
-                  count: VrxDatePicker.years,
-                  label: (i) => '${VrxDatePicker.firstYear + i}',
-                  width: double.infinity),
-            ),
-          ]),
+          padding: EdgeInsets.symmetric(horizontal: ScaledSpacing.of(context).inset),
+          child: VrxWheelBand(children: [Expanded(child: VrxDateWheels(day: _w.$1, month: _w.$2, year: _w.$3))]),
         ),
       ),
-      VrxRow(glyph: VrxSymbols.check, label: 'Set', onTap: _set),
+      VrxRow(glyph: VrxSymbols.check, label: 'Set', onTap: () => widget.onSet(VrxDateWheels.read(_w.$1, _w.$2, _w.$3))),
     ]);
   }
 }

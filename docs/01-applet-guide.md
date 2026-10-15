@@ -176,21 +176,48 @@ The on-screen keyboard belongs to the field typed into (owner, 2026-10-15).
 Every text entry is the kit's `VrxTextField` (G072: the scan refuses a bare
 `TextField`, `TextFormField` or `EditableText` outside the kit's
 `text_input.dart`, and no `vrx-allow` excuses one). Focused, the field hands
-the applet root's `VrxKeyboardSlot` a `VrxKeyboard` that edits its own
-controller, and takes it back when focus leaves; the slot only gives the
-keyboard its place under the screen. Whether a focused field shows it is
-one decision for every field, `VrxKeyboardPolicy`: never while the
-compositor reports a physical keyboard plugged in (`keyboard=1` in
-`/run/vrx-ui/screen`, udev's `ID_INPUT_KEYBOARD`), unless Settings > Device
-> On-screen keyboard says Show. A key press decides nothing; plugging a
-keyboard in or out does, while the field keeps focus. A physical keyboard
-types through the platform's text input. A field that brings its own keys
-(the Scripts editor's terminal keys on a short panel) declares
-`keyboardType: TextInputType.none` and gets none. A screen that sizes
-itself around the keyboard decides on the display, never on its layout
-box: the keyboard takes its share of the box when it comes up, and a
-layout that changes because it did would put it away again. Check:
-`flutter/vrx_kit/test/text_input_test.dart`.
+the applet root's `VrxKeyboardSlot` the keyboard for what it holds, typing
+into its own controller, and takes it back when focus leaves; the slot only
+gives the keyboard its place under the screen.
+
+A field says what it holds with `kind:` (`VrxInputKind`, HTML's input
+types), and the kind picks the keys and filters what either keyboard types:
+
+| Kind | Keyboard | Holds |
+|---|---|---|
+| `text`, `password`, `search` | letters (Enter is Search on `search`; dots on `password`) | anything |
+| `email` | letters, `@` `.` `_` on the bottom row, no space bar | no space |
+| `url` | letters, `/` `.` `.com` on the bottom row, Enter is Go | no space |
+| `tel` | the phone grid with its letters, `+` `-` `*` `#` | digits, `+*#()-` and space |
+| `number`, `decimal` | the number pad: four keys across, faces half a key tall (`decimal` adds the point) | digits and `-` (and `.`) |
+| `date`, `time`, `datetime`, `month`, `week` | the kit's wheels, writing the HTML value as they turn (`2026-10-15`, `14:30`, `2026-10-15T14:30`, `2026-10`, `2026-W42`) | that form |
+| `gamepad` | a D-pad, A B X Y, Select and Start; A submits the field | (keys, not text) |
+| `none` | none: the field brings its own keys (the Scripts editor) | anything |
+
+Every keyboard is the same height, so a screen sized around one fits all.
+The gamepad sends key events: the D-pad the arrow keys (focus moves through
+Flutter's own shortcuts), A Flutter's game button A (which activates the
+focused control), B game button B (Back, as Escape is), X, Y, Select and
+Start their game buttons for the applet to bind (`Focus.onKeyEvent`,
+`Shortcuts`); a held direction repeats. `VrxKeyboard.press` and `release`
+send the same keys from code.
+
+Whether a focused field shows its keyboard is one decision for every field,
+`VrxKeyboardPolicy`: never while the compositor reports a physical keyboard
+plugged in (`keyboard=1` in `/run/vrx-ui/screen`, udev's
+`ID_INPUT_KEYBOARD`), unless Settings > Device > On-screen keyboard says
+Show. A key press decides nothing; plugging a keyboard in or out does, while
+the field keeps focus. A physical keyboard types through the platform's text
+input. In the exceptional case, code shows a keyboard with no field
+(`VrxKeyboardSlot.show(context, kind: VrxInputKind.gamepad)`, or a text kind
+with an editor of its own) or puts any keyboard away
+(`VrxKeyboardSlot.dismiss(context)`; a dismissed field's keyboard returns on
+a tap). A screen that sizes itself around the keyboard decides on the
+display, never on its layout box: the keyboard takes its share of the box
+when it comes up, and a layout that changes because it did would put it
+away again. Check: `flutter/vrx_kit/test/keyboards_test.dart`,
+`text_input_test.dart`, and the per-display keyboard cases in vrx_check's
+`layout_test.dart`.
 
 The touch floor is the hardware's (G034). The compositor says `touch=1` or
 `0` from udev's classification of the input devices, and `AppletHost`

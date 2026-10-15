@@ -146,7 +146,11 @@ class _VrxInputRootState extends State<VrxInputRoot> {
       child: CallbackShortcuts(
         // only when the focused widget left Escape alone (the terminal
         // sends it to the shell)
-        bindings: {const SingleActivator(LogicalKeyboardKey.escape): () => VrxBack.invoke()},
+        // B on a gamepad (the kit's own, or a controller's) is Back too
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.escape): () => VrxBack.invoke(),
+          const SingleActivator(LogicalKeyboardKey.gameButtonB): () => VrxBack.invoke(),
+        },
         child: Focus(
           focusNode: _node,
           child: VrxHandsScope(hands: _hands, child: widget.child),

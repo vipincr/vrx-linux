@@ -458,7 +458,7 @@ class _EditorState extends State<_Editor> {
         maxLines: null,
         expands: true,
         style: mono,
-        keyboardType: roomy ? TextInputType.multiline : TextInputType.none,
+        kind: roomy ? VrxInputKind.text : VrxInputKind.none,
         decoration: const InputDecoration(border: InputBorder.none, isDense: true),
         // a tap in the text brings the terminal's keys up where they are
         // shown on demand

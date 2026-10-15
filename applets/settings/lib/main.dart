@@ -87,6 +87,12 @@ class SettingsApplet extends Applet<SettingsState, SettingsAction, SettingsView>
       body = VrxTextEntry(
         title: decl?.label ?? key,
         initial: decl == null ? '' : model.valueOf(applet, decl),
+        // a number setting brings the number pad
+        kind: switch (decl?.type) {
+          'int' => VrxInputKind.number,
+          'float' => VrxInputKind.decimal,
+          _ => VrxInputKind.text,
+        },
         onBack: () => _go(context, const SettingsGo(editingSetting: Change(null))),
         onDone: (text) {
           _go(context, const SettingsGo(editingSetting: Change(null)));

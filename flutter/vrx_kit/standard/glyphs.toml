@@ -157,6 +157,14 @@ domains = ["action"]
 [glyph.keyboard_hide]
 purpose = "Hide the on-screen keyboard"
 domains = ["action"]
+[glyph.search]
+purpose = "The keyboard's Enter on a search field: run the search"
+domains = ["action"]
+
+[glyph.arrow_forward]
+purpose = "The keyboard's Enter on an address field: go there"
+domains = ["action"]
+
 [glyph.keyboard_return]
 purpose = "The keyboard's Enter"
 domains = ["action"]

@@ -130,7 +130,7 @@ void main() {
     await _host(
       tester,
       await tester.runAsync(() => _settings()) as ScreenSettings,
-      VrxTextField(controller: TextEditingController(), autofocus: true, keyboardType: TextInputType.none),
+      VrxTextField(controller: TextEditingController(), autofocus: true, kind: VrxInputKind.none),
     );
     expect(find.byType(VrxKeyboard), findsNothing);
   });

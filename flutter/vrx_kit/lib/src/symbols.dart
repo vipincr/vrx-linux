@@ -4,7 +4,7 @@
 
 // ignore_for_file: constant_identifier_names, non_constant_identifier_names
 
-/// vrx's glyphs (80): the ones the purpose table lists, each for
+/// vrx's glyphs (82): the ones the purpose table lists, each for
 /// what its row says. The font is the whole Material Symbols set,
 /// installed system-wide (ttf-material-symbols); only these are named.
 /// A manifest's display.icon is one with the applet-icon domain.
@@ -32,6 +32,9 @@ abstract final class VrxSymbols {
 
   /// Back: the screen before this one (navigation).
   static const IconData arrow_back = IconData(0xe5c4, fontFamily: _family);
+
+  /// The keyboard's Enter on an address field: go there (action).
+  static const IconData arrow_forward = IconData(0xe5c8, fontFamily: _family);
 
   /// Up: the top of a list, or send what was typed upward (navigation, action).
   static const IconData arrow_upward = IconData(0xe5d8, fontFamily: _family);
@@ -213,6 +216,9 @@ abstract final class VrxSymbols {
   /// Time: the Clock applet, and Settings' time category (applet-icon, navigation).
   static const IconData schedule = IconData(0xefd6, fontFamily: _family);
 
+  /// The keyboard's Enter on a search field: run the search (action).
+  static const IconData search = IconData(0xef7a, fontFamily: _family);
+
   /// Send what was written (action).
   static const IconData send = IconData(0xe163, fontFamily: _family);
 
@@ -264,6 +270,7 @@ abstract final class VrxSymbols {
     'alarm_off': alarm_off,
     'apps': apps,
     'arrow_back': arrow_back,
+    'arrow_forward': arrow_forward,
     'arrow_upward': arrow_upward,
     'backspace': backspace,
     'battery_0_bar': battery_0_bar,
@@ -324,6 +331,7 @@ abstract final class VrxSymbols {
     'restart_alt': restart_alt,
     'rocket_launch': rocket_launch,
     'schedule': schedule,
+    'search': search,
     'send': send,
     'settings': settings,
     'signal_wifi_4_bar': signal_wifi_4_bar,

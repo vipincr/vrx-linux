@@ -80,6 +80,7 @@ class WifiApplet extends Applet<WifiState, WifiAction, WifiView> {
                 key: ValueKey(asking.name),
                 title: asking.name,
                 hint: 'Passphrase',
+                kind: VrxInputKind.password,
                 onBack: () => _answerWith(null),
                 onDone: _answerWith,
               )

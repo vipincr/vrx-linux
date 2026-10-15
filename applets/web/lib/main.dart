@@ -98,16 +98,17 @@ class WebApplet extends Applet<WebState, WebAction, WebView> {
     final Widget body;
     final d = view.draft;
     if (view.editing && view.field != WebField.none) {
-      final (title, initial, hint) = switch (view.field) {
-        WebField.url => ('Address', d.url, 'example.com'),
-        WebField.header => ('Header', d.header, 'Accept: application/json'),
-        _ => ('Body', d.body, '{"key": "value"}'),
+      final (title, initial, hint, kind) = switch (view.field) {
+        WebField.url => ('Address', d.url, 'example.com', VrxInputKind.url),
+        WebField.header => ('Header', d.header, 'Accept: application/json', VrxInputKind.text),
+        _ => ('Body', d.body, '{"key": "value"}', VrxInputKind.text),
       };
       body = VrxTextEntry(
         key: ValueKey(view.field),
         title: title,
         initial: initial,
         hint: hint,
+        kind: kind,
         onBack: () => _events.add(WebAction.back),
         onDone: (t) => _events.add(WebDraft(switch (view.field) {
           WebField.url => d.copyWith(url: t.trim()),

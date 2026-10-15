@@ -27,7 +27,7 @@ class VrxTextEntry extends StatefulWidget {
     this.hint,
     this.helper,
     this.error,
-    this.obscure = false,
+    this.kind = VrxInputKind.text,
     required this.onBack,
     required this.onDone,
   });
@@ -42,8 +42,9 @@ class VrxTextEntry extends StatefulWidget {
   final String Function(String text)? helper;
   final String? error;
 
-  /// A passphrase: dots, not letters.
-  final bool obscure;
+  /// What the line holds: picks its keyboard and filters what it takes
+  /// (a passphrase is [VrxInputKind.password]: dots, not letters).
+  final VrxInputKind kind;
   final VoidCallback onBack;
   final void Function(String text) onDone;
 
@@ -69,8 +70,8 @@ class _VrxTextEntryState extends State<VrxTextEntry> {
       listenable: _controller,
       builder: (context, _) => VrxTextField(
         controller: _controller,
+        kind: widget.kind,
         autofocus: true,
-        obscureText: widget.obscure,
         onSubmitted: (_) => _done(),
         style: TypeRole.body(context),
         decoration: InputDecoration(

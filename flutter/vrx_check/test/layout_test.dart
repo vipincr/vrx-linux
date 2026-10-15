@@ -25,6 +25,24 @@ Future<List<String>> rules(WidgetTester tester, Widget Function(BuildContext) bo
     [for (final i in await checkApplet(tester, _Screen(body))) i.rule];
 
 void main() {
+  // every keyboard, as a focused field of each kind brings it up, on every
+  // display vrx drives (owner, 2026-10-15): keys, wheels and the gamepad
+  // hold the rules where the field and the keyboard share the screen
+  for (final display in allDisplays) {
+    for (final kind in VrxInputKind.values.where((k) => k != VrxInputKind.none)) {
+      testWidgets('the ${kind.name} keyboard is clean on ${display.name}', (tester) async {
+        // the entry every applet uses: on a panel too short for the strip,
+        // the field and a keyboard, the strip steps aside
+        await expectCleanLayout(
+          tester,
+          _Screen((context) => VrxTextEntry(title: 'A ${kind.name}', hint: kind.name, kind: kind, onBack: () {}, onDone: (_) {})),
+          display: display,
+        );
+        expect(find.byType(VrxKeyboard), findsOneWidget, reason: 'the field brought its keyboard up');
+      });
+    }
+  }
+
   testWidgets('plan 0017 D1: a control behind an IgnorePointer or an AbsorbPointer breaks the motion rule', (tester) async {
     Widget control() => Center(
           child: Semantics(
