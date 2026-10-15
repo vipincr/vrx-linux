@@ -9,7 +9,8 @@
 #
 # States, in order: screen on, screen off (the floor every saving is
 # against), then on a CM4 s2idle (entered over ssh, woken by a Wake-on-LAN
-# magic packet from this Mac, the only wake a CM4 has in s2idle), on a CM5
+# magic packet from this Mac; skipped where eth0 cannot wake on one, which
+# is every CM4 on BCM2711's own device tree), on a CM5
 # deep sleep (a power-off with the RTC armed 60 s ahead, timed until the
 # current rises again), and last the power-off floor (systemctl poweroff;
 # the operator power-cycles the board afterwards). The power-off line says
@@ -108,7 +109,13 @@ sleep 15
 say "screen off: holding ${HOLD} s"
 hold screen-off
 
-if [ "$BOARD" = cm4 ]; then
+# a board whose link cannot wake it would sit in s2idle until a power cycle:
+# BCM2711's device tree gives bcmgenet no Wake-on-LAN interrupt, so a CM4
+# reports "Supports Wake-on: d" and nothing else wakes it (2026-10-15)
+WOL=$(board "ethtool eth0 | sed -n 's/^[[:space:]]*Supports Wake-on: //p'")
+if [ "$BOARD" = cm4 ] && ! printf '%s' "$WOL" | grep -q g; then
+    say "s2idle: skipped: eth0 supports no magic-packet wake (Supports Wake-on: ${WOL:-?}), and nothing else wakes this board"
+elif [ "$BOARD" = cm4 ]; then
     say "s2idle: Wake-on-LAN armed, suspending"
     board 'ethtool -s eth0 wol g' || say "s2idle: ethtool refused wol g"
     # detached: the ssh session cannot outlive a suspend cleanly
