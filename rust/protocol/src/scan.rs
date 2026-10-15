@@ -56,6 +56,7 @@ const NO_TIMER: &str = "G021: a periodic source is VrxTicker, which rests while 
 const NO_POLL: &str = "G027: nothing polls (plan 0012 D6): the system's state arrives as events (vrxhost's Facts and Watch, D-Bus signals, inotify); a loop that must wake on a clock says why with `// poll-ok: <reason>`";
 const ONE_WRITER: &str = "G031: the store loop is the only writer (plan 0013 D1): a fact becomes an action the model reduces, so nothing outside state.dart assigns a model field";
 const NO_RAW_FIELD: &str = "G072: a text entry is the kit's VrxTextField, which brings the on-screen keyboard up for itself when no physical keyboard is plugged in; a bare field gets no keyboard (owner, 2026-10-15)";
+const NO_ACCOUNT_FILE: &str = "G074: accounts are read through NSS (getpwnam, getgrnam, `getent`), never by parsing /etc/passwd, /etc/group or /etc/shadow, which may be an /etc overlay copy older than the image (vrx plan 0021 D7)";
 const NO_RAW_PRESS: &str = "a tappable control comes from the kit's press components (VrxPress and the rows, chips and buttons on it), so every press is acknowledged the same way";
 
 /// Forms no `vrx-allow` excuses. G019: an applet that switches the light
@@ -75,6 +76,9 @@ const NEVER_ALLOWED: &[&str] = &[
     "TextField(",
     "TextFormField(",
     "EditableText(",
+    "/etc/passwd",
+    "/etc/group",
+    "/etc/shadow",
 ];
 
 /// Where the kit's text field wraps Flutter's (G072).
@@ -259,6 +263,48 @@ const RULES: &[Rule] = &[
         why: NO_RAW_FIELD,
         except: FIELD_HOME,
         in_strings: false,
+    },
+    Rule {
+        ext: "dart",
+        needle: "/etc/passwd",
+        why: NO_ACCOUNT_FILE,
+        except: &[],
+        in_strings: true,
+    },
+    Rule {
+        ext: "dart",
+        needle: "/etc/group",
+        why: NO_ACCOUNT_FILE,
+        except: &[],
+        in_strings: true,
+    },
+    Rule {
+        ext: "dart",
+        needle: "/etc/shadow",
+        why: NO_ACCOUNT_FILE,
+        except: &[],
+        in_strings: true,
+    },
+    Rule {
+        ext: "rs",
+        needle: "/etc/passwd",
+        why: NO_ACCOUNT_FILE,
+        except: &[],
+        in_strings: true,
+    },
+    Rule {
+        ext: "rs",
+        needle: "/etc/group",
+        why: NO_ACCOUNT_FILE,
+        except: &[],
+        in_strings: true,
+    },
+    Rule {
+        ext: "rs",
+        needle: "/etc/shadow",
+        why: NO_ACCOUNT_FILE,
+        except: &[],
+        in_strings: true,
     },
     Rule {
         ext: "dart",
@@ -1825,6 +1871,16 @@ mod tests {
             violations("flutter/vrx_kit/lib/src/text_input.dart", "dart", bare)
                 .is_empty()
         );
+    }
+
+    /// G074: an account file read from applet or SDK code is refused in
+    /// either language, marker or not; the words in a comment pass.
+    #[test]
+    fn accounts_are_read_through_nss_g074() {
+        let dart = "// /etc/group is the overlay's\nfinal g = File('/etc/group'); // vrx-allow: mine\n";
+        assert_eq!(violations("applets/x/lib/main.dart", "dart", dart).len(), 1);
+        let rs = "fn a() { std::fs::read_to_string(\"/etc/passwd\"); }\n";
+        assert_eq!(violations("rust/sdk/src/a.rs", "rs", rs).len(), 1);
     }
 
     #[test]

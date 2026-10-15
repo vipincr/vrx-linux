@@ -1,0 +1,41 @@
+# vrx-linux-group: the number of every group vrx-linux's layer makes (plan 0021, G073).
+# useradd-staticids reads it; a recipe making a group with no row here is skipped,
+# so the image fails (USERADD_ERROR_DYNAMIC = "error"). Numbers stay in 100-999
+# (1000 and up are runtime's, vrx plan 0021 D8); a new row takes the next free number below the
+# lowest in use, which scripts/lint-yocto.sh prints. Seeded from the 0.1.0116 image
+# (D3). Format: name:x:gid:; the fields after the number stay the recipe's.
+vrx-hostname:x:986:
+vrx-power:x:985:
+vrx-usb:x:984:
+vrx-usb-media:x:983:
+vrx-apps:x:982:
+vrx-serve:x:981:
+vrx-camera-use:x:977:
+vrx-photos:x:976:
+vrx-ml:x:974:
+vrx-locale:x:973:
+vrx-power-stats:x:972:
+vrx-scripting:x:971:
+vrx-update:x:970:
+vrx-config:x:969:
+vrx-display:x:968:
+vrx-matter:x:967:
+vrx:x:966:
+vrx-camerad:x:965:
+vrx-assistant:x:964:
+vrx-clock:x:963:
+vrx-devicelink:x:962:
+vrx-docs:x:961:
+vrx-launcher:x:960:
+vrx-manage:x:959:
+vrx-recorder:x:958:
+vrx-scripts:x:957:
+vrx-settings:x:956:
+vrx-setup:x:955:
+vrx-shell:x:954:
+vrx-stt:x:953:
+vrx-terminal:x:952:
+vrx-usbport:x:951:
+vrx-web:x:950:
+vrx-wifi:x:949:
+vrx-camera:x:948:

@@ -29,7 +29,8 @@ for seg in $devpath; do
 done
 unset IFS
 part=$(cat "/sys$devpath/partition" 2>/dev/null || echo 0)
-gid=$(sed -n 's/^vrx-usb-media:[^:]*:\([0-9][0-9]*\):.*/\1/p' /etc/group)
+# through NSS, never the file (vrx plan 0021 D7, G074)
+gid=$(getent group vrx-usb-media | cut -d: -f3)
 if [ -z "$port" ] || [ -z "$gid" ]; then
     echo "vrx-usb-mount: $dev: no port ($port) or no vrx-usb-media group ($gid)" >&2
     exit 0

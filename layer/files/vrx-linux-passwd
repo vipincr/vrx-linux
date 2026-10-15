@@ -1,0 +1,25 @@
+# vrx-linux-passwd: the number of every user vrx-linux's layer makes (plan 0021, G073).
+# useradd-staticids reads it; a recipe making a user with no row here is skipped,
+# so the image fails (USERADD_ERROR_DYNAMIC = "error"). Numbers stay in 100-999
+# (1000 and up are runtime's, vrx plan 0021 D8); a new row takes the next free number below the
+# lowest in use, which scripts/lint-yocto.sh prints. Seeded from the 0.1.0116 image
+# (D3). Format: name:x:uid:gid; the fields after the number stay the recipe's.
+vrx-camerad:x:993:965
+vrx-assistant:x:992:964
+vrx-clock:x:991:963
+vrx-devicelink:x:990:962
+vrx-docs:x:989:961
+vrx-launcher:x:988:960
+vrx-manage:x:987:959
+vrx-recorder:x:986:958
+vrx-scripts:x:985:957
+vrx-settings:x:984:956
+vrx-setup:x:983:955
+vrx-shell:x:982:954
+vrx-stt:x:981:953
+vrx-terminal:x:980:952
+vrx-usbport:x:979:951
+vrx-web:x:978:950
+vrx-wifi:x:977:949
+vrx-matter:x:976:967
+vrx-camera:x:975:948

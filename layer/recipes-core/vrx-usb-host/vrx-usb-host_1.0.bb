@@ -29,4 +29,5 @@ FILES:${PN} = "${nonarch_base_libdir}/udev/rules.d/80-vrx-usb-media.rules \
                ${nonarch_libdir}/tmpfiles.d/vrx-usb-host.conf"
 # systemd-mount is in systemd's main package; udev reads the rule; the
 # group comes from vrx-policy
-RDEPENDS:${PN} = "systemd udev vrx-policy"
+# getent, for the group through NSS (vrx plan 0021 D7)
+RDEPENDS:${PN} = "systemd udev vrx-policy glibc-utils"

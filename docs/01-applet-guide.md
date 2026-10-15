@@ -101,6 +101,15 @@ An applet is a systemd unit, `vrx-applet@<id>.service`, running as user
 `vrx-<id>` (plan 0008 D1). It has 5 s from start to its first frame
 (`TimeoutStartSec`) and pings the watchdog once a minute (`WatchdogSec`).
 
+A built-in applet's user and group have fixed numbers, rows in
+`layer/files/vrx-linux-passwd` and `vrx-linux-group` (vrx plan 0021, G073):
+a new applet adds its two rows beside its recipe, at the number vrx's
+`scripts/lint-yocto.sh` prints, or the image does not build. A grant group
+added to `grants.conf` adds its row the same way (a generic name such as
+`gpio` goes in vrx's distro table instead). Read an account through NSS
+(`getent`, `getgrnam`), never the files (G074): on a device `/etc/group` may
+be an overlay copy older than the image.
+
 - **Hidden.** When the applet loses focus or the screen goes off,
   flutter-vrx tells Flutter `AppLifecycleState.hidden`: frames stop,
   `VrxTicker` rests, Dart timers keep running. Listen with Flutter's own
