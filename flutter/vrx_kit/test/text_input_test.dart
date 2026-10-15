@@ -30,25 +30,25 @@ Future<void> _host(WidgetTester tester, ScreenSettings s, Widget field) async {
     // a fresh state for each settings pair (a board reads them once)
     await tester.pumpWidget(MaterialApp(
       key: UniqueKey(),
-      home: Scaffold(body: VrxInputRoot(child: VrxKeyboardHost(settings: s, child: Center(child: field)))),
+      home: Scaffold(body: VrxInputRoot(child: VrxKeyboardSlot(settings: s, child: Center(child: field)))),
     ));
     await Future<void>.delayed(const Duration(milliseconds: 100));
   });
-  // autofocus lands after the first frame, and the field asks then
+  // autofocus lands after the first frame, and the field attaches then
   await tester.pump();
   await tester.pump();
 }
 
 void main() {
-  testWidgets('a focused field brings the keyboard up; it types, shifts once, deletes and submits', (tester) async {
+  testWidgets('a focused field brings its keyboard up; it types, shifts once, deletes and submits', (tester) async {
     final controller = TextEditingController();
     String? submitted;
     await _host(
       tester,
       await tester.runAsync(() => _settings(facts: 'touch=1\nkeyboard=0\n')) as ScreenSettings,
-      TextField(controller: controller, autofocus: true, onSubmitted: (t) => submitted = t),
+      VrxTextField(controller: controller, autofocus: true, onSubmitted: (t) => submitted = t),
     );
-    expect(find.byType(VrxKeyboard), findsOneWidget, reason: 'focus asks for the keyboard (plan 0013 D6)');
+    expect(find.byType(VrxKeyboard), findsOneWidget, reason: 'focus brings the field its keyboard');
     await tester.tap(find.byIcon(VrxSymbols.arrow_upward));
     await tester.pump();
     await tester.tap(find.text('H'));
@@ -66,7 +66,7 @@ void main() {
     expect(controller.text, 'H7');
     await tester.tap(find.byIcon(VrxSymbols.keyboard_return));
     await tester.pump();
-    expect(submitted, 'H7', reason: "Enter is the field's action");
+    expect(submitted, 'H7', reason: "Enter is the field's submit");
   });
 
   testWidgets('Enter in a multi-line field types a newline', (tester) async {
@@ -74,21 +74,18 @@ void main() {
     await _host(
       tester,
       await tester.runAsync(() => _settings()) as ScreenSettings,
-      SizedBox(
-        height: 100,
-        child: TextField(controller: controller, autofocus: true, maxLines: null, keyboardType: TextInputType.multiline),
-      ),
+      SizedBox(height: 100, child: VrxTextField(controller: controller, autofocus: true, maxLines: null)),
     );
     await tester.tap(find.byIcon(VrxSymbols.keyboard_return));
     await tester.pump();
     expect(controller.text, 'a\n');
   });
 
-  testWidgets('a plugged-in keyboard puts it away unless Settings says show', (tester) async {
+  testWidgets('a plugged-in keyboard keeps it away unless Settings says show', (tester) async {
     await _host(
       tester,
       await tester.runAsync(() => _settings(facts: 'touch=1\nkeyboard=1\n')) as ScreenSettings,
-      const TextField(autofocus: true),
+      VrxTextField(controller: TextEditingController(), autofocus: true),
     );
     await _until(tester, () => find.byType(VrxKeyboard).evaluate().isEmpty);
     expect(find.byType(VrxKeyboard), findsNothing, reason: 'Only without a keyboard is the default');
@@ -96,26 +93,73 @@ void main() {
       tester,
       await tester.runAsync(() => _settings(facts: 'touch=1\nkeyboard=1\n', conf: 'on_screen_keyboard=show\n'))
           as ScreenSettings,
-      const TextField(autofocus: true),
+      VrxTextField(controller: TextEditingController(), autofocus: true),
     );
+    await _until(tester, () => find.byType(VrxKeyboard).evaluate().isNotEmpty);
     expect(find.byType(VrxKeyboard), findsOneWidget, reason: 'Show brings it up anyway');
+  });
+
+  testWidgets('plugging a keyboard in puts it away, unplugging brings it back', (tester) async {
+    final dir = await tester.runAsync(() => Directory.systemTemp.createTemp('vrx-input')) as Directory;
+    final facts = File('${dir.path}/screen');
+    await tester.runAsync(() async {
+      await File('${dir.path}/screen.conf').writeAsString('');
+      await facts.writeAsString('touch=1\nkeyboard=0\n');
+    });
+    final s = ScreenSettings(dir: dir.path, capsPath: facts.path, backlights: '${dir.path}/none');
+    await _host(tester, s, VrxTextField(controller: TextEditingController(), autofocus: true));
+    expect(find.byType(VrxKeyboard), findsOneWidget);
+    await tester.runAsync(() => facts.writeAsString('touch=1\nkeyboard=1\n'));
+    await _until(tester, () => find.byType(VrxKeyboard).evaluate().isEmpty);
+    expect(find.byType(VrxKeyboard), findsNothing, reason: 'plugged in');
+    await tester.runAsync(() => facts.writeAsString('touch=1\nkeyboard=0\n'));
+    await _until(tester, () => find.byType(VrxKeyboard).evaluate().isNotEmpty);
+    expect(find.byType(VrxKeyboard), findsOneWidget, reason: 'unplugged, the focused field takes it back');
+  });
+
+  testWidgets('a key press does not decide it: only what is plugged in does', (tester) async {
+    await _host(tester, await tester.runAsync(() => _settings()) as ScreenSettings,
+        VrxTextField(controller: TextEditingController(), autofocus: true));
+    expect(find.byType(VrxKeyboard), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+    await tester.pump();
+    expect(find.byType(VrxKeyboard), findsOneWidget, reason: 'the decision is what is plugged in, never the last key');
   });
 
   testWidgets('a field that brings its own keys gets none', (tester) async {
     await _host(
       tester,
       await tester.runAsync(() => _settings()) as ScreenSettings,
-      const TextField(autofocus: true, keyboardType: TextInputType.none),
+      VrxTextField(controller: TextEditingController(), autofocus: true, keyboardType: TextInputType.none),
     );
     expect(find.byType(VrxKeyboard), findsNothing);
   });
 
-  testWidgets('a key from a physical keyboard puts it away', (tester) async {
-    await _host(tester, await tester.runAsync(() => _settings()) as ScreenSettings, const TextField(autofocus: true));
-    expect(find.byType(VrxKeyboard), findsOneWidget);
-    await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+  testWidgets('the keyboard is the focused field\'s: it follows focus and leaves with it', (tester) async {
+    final a = TextEditingController(), b = TextEditingController();
+    final fb = FocusNode();
+    await _host(
+      tester,
+      await tester.runAsync(() => _settings()) as ScreenSettings,
+      Column(mainAxisSize: MainAxisSize.min, children: [
+        VrxTextField(controller: a, autofocus: true),
+        VrxTextField(controller: b, focusNode: fb),
+        // a bare Flutter field: the root attaches nothing for it
+        const TextField(key: Key('bare')),
+      ]),
+    );
+    await tester.tap(find.text('q'));
     await tester.pump();
-    expect(find.byType(VrxKeyboard), findsNothing);
+    fb.requestFocus();
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('w'));
+    await tester.pump();
+    expect((a.text, b.text), ('q', 'w'), reason: 'each field types into itself');
+    await tester.tap(find.byKey(const Key('bare')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(VrxKeyboard), findsNothing, reason: 'focus left the kit fields, and their keyboard with it');
   });
 
   // G034 (plan 0013 D7): the applet root takes the touch floor from the

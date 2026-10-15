@@ -453,16 +453,13 @@ class _EditorState extends State<_Editor> {
       child: MergeSemantics(
           child: Semantics(
         label: 'The script ${widget.name}',
-        child: TextField(
+        child: VrxTextField(
         controller: _text,
         maxLines: null,
         expands: true,
         style: mono,
         keyboardType: roomy ? TextInputType.multiline : TextInputType.none,
         decoration: const InputDecoration(border: InputBorder.none, isDense: true),
-        // as the kit's entry: no drag handles over the text (they sit on
-        // the lines under a finger); the arrows move the cursor
-        enableInteractiveSelection: false,
         // a tap in the text brings the terminal's keys up where they are
         // shown on demand
         onTap: () {

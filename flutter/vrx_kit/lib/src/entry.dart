@@ -9,15 +9,16 @@ import 'input.dart';
 import 'keyboard.dart';
 import 'metrics.dart';
 import 'symbols.dart';
+import 'text_input.dart';
 import 'chrome.dart';
 import 'scale.dart';
 import 'shell.dart';
 import 'theme.dart';
 
-/// A line of text: a header and the field. The field takes focus and the
-/// kit's keyboard comes up under the screen (plan 0013 D6); a physical
-/// keyboard types into it directly (the on-screen one steps aside while
-/// it does). Enter ends it with the text.
+/// A line of text: a header and the field. The field takes focus and
+/// brings the kit's keyboard up under the screen, unless a physical
+/// keyboard is plugged in ([VrxKeyboardPolicy]), which then types into it
+/// directly. Enter ends it with the text.
 class VrxTextEntry extends StatefulWidget {
   const VrxTextEntry({
     super.key,
@@ -66,14 +67,10 @@ class _VrxTextEntryState extends State<VrxTextEntry> {
     final space = ScaledSpacing.of(context);
     return ListenableBuilder(
       listenable: _controller,
-      builder: (context, _) => TextField(
+      builder: (context, _) => VrxTextField(
         controller: _controller,
-        showCursor: true,
         autofocus: true,
         obscureText: widget.obscure,
-        // the on-screen keyboard edits; selection handles would only be
-        // a stray control on the panel
-        enableInteractiveSelection: false,
         onSubmitted: (_) => _done(),
         style: TypeRole.body(context),
         decoration: InputDecoration(

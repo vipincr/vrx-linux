@@ -244,7 +244,7 @@ class _AppletHostState<S, A, V> extends State<AppletHost<S, A, V>> {
             child: VrxInputRoot(
               child: VrxFocusRing(
                 child: _RefusalBand(
-                  child: VrxKeyboardHost(settings: _screen, child: child ?? const SizedBox.shrink()),
+                  child: VrxKeyboardSlot(settings: _screen, child: child ?? const SizedBox.shrink()),
                 ),
               ),
             ),

@@ -590,7 +590,7 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
       final w = a.widget;
       if (w is VrxKeyboard) {
         keyboard = true;
-        terminalKeys = w.input == null;
+        terminalKeys = w.editor == null;
         return false;
       }
       return true;

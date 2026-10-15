@@ -1,137 +1,57 @@
-/// The on-screen keyboard as Flutter's text input control (plan 0013 D6).
-/// vrx boards have no system input method; Flutter lets an app supply its
-/// own ([TextInput.setInputControl]), so any [TextField] taking focus
-/// asks for it and the keyboard comes up under the screen, the way a
-/// phone's does. No applet places the keyboard itself.
+/// The on-screen keyboard belongs to the field typed into (owner,
+/// 2026-10-15). vrx boards have no system input method, so the kit's
+/// [VrxTextField] brings its own: focused, it hands the applet root's
+/// [VrxKeyboardSlot] a [VrxKeyboard] that edits its own controller, and
+/// takes it back when focus leaves. The root only gives the keyboard its
+/// place under the screen; no screen and no applet places one.
 ///
-/// It stays away while a physical keyboard types ([VrxHands.keys]), and,
-/// in the default mode, whenever the compositor says a keyboard is
-/// plugged in ([VrxInputFacts.keyboard], [VrxKeyboardMode.auto]);
-/// Settings > Device can make it always show.
+/// Whether a focused field shows it is one decision for every field,
+/// [VrxKeyboardPolicy]: never while a physical keyboard is plugged in (the
+/// compositor's [VrxInputFacts.keyboard]), unless Settings > Device says
+/// Show ([VrxKeyboardMode.show]). A physical keyboard types through the
+/// platform's text input, as on any Flutter target.
 library;
 
 import 'dart:async';
 
+import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 
-import 'input.dart';
 import 'keyboard.dart';
 import 'screen.dart';
 
-/// The text input control the applet root installs: it follows the
-/// focused field's connection and edits through it.
-class VrxTextInputControl with TextInputControl {
-  /// A field has asked for the keyboard and still has it.
-  final ValueNotifier<bool> visible = ValueNotifier(false);
+/// The one decision: does a focused field show the on-screen keyboard?
+abstract final class VrxKeyboardPolicy {
+  /// Show it unless a physical keyboard is plugged in; Settings' Show
+  /// shows it anyway.
+  static bool shows({required VrxKeyboardMode mode, required bool physicalKeyboard}) =>
+      mode == VrxKeyboardMode.show || !physicalKeyboard;
 
-  // what a field last asked for; applied at once when the tree may
-  // rebuild, after the frame when it may not (a field detaches as it is
-  // torn down, inside the build's finalize phase)
-  bool _want = false;
-  bool _pending = false;
-  bool _disposed = false;
-
-  void _setVisible(bool v) {
-    _want = v;
-    final phase = SchedulerBinding.instance.schedulerPhase;
-    if (_disposed) return;
-    if (phase == SchedulerPhase.idle || phase == SchedulerPhase.postFrameCallbacks) {
-      visible.value = v;
-      return;
-    }
-    if (_pending) return;
-    _pending = true;
-    SchedulerBinding.instance.addPostFrameCallback((_) {
-      _pending = false;
-      if (!_disposed) visible.value = _want;
-    });
-    SchedulerBinding.instance.scheduleFrame();
-  }
-
-  TextInputClient? _client;
-  TextInputConfiguration _config = const TextInputConfiguration();
-  TextEditingValue _value = TextEditingValue.empty;
-
-  /// The focused field takes several lines (Enter types a newline).
-  bool get multiline => _config.inputType == TextInputType.multiline;
-
-  @override
-  void attach(TextInputClient client, TextInputConfiguration configuration) {
-    _client = client;
-    _config = configuration;
-  }
-
-  @override
-  void detach(TextInputClient client) {
-    if (_client != client) return;
-    _client = null;
-    _setVisible(false);
-  }
-
-  @override
-  void updateConfig(TextInputConfiguration configuration) => _config = configuration;
-
-  // a field that brings its own keys (Flutter's TextInputType.none: the
-  // Scripts editor's terminal keyboard) gets none from here
-  @override
-  void show() => _setVisible(_config.inputType != TextInputType.none);
-
-  @override
-  void hide() => _setVisible(false);
-
-  @override
-  void setEditingState(TextEditingValue value) => _value = value;
-
-  TextSelection get _selection =>
-      _value.selection.isValid ? _value.selection : TextSelection.collapsed(offset: _value.text.length);
-
-  void _set(TextEditingValue v) {
-    _value = v;
-    TextInput.updateEditingValue(v);
-  }
-
-  /// Type [text] over the selection.
-  void type(String text) {
-    final sel = _selection;
-    _set(TextEditingValue(
-      text: _value.text.replaceRange(sel.start, sel.end, text),
-      selection: TextSelection.collapsed(offset: sel.start + text.length),
-    ));
-  }
-
-  /// Delete the selection, or the character before the caret.
-  void backspace() {
-    final sel = _selection;
-    if (sel.isCollapsed && sel.start == 0) return;
-    final start = sel.isCollapsed ? sel.start - 1 : sel.start;
-    _set(TextEditingValue(
-      text: _value.text.replaceRange(start, sel.end, ''),
-      selection: TextSelection.collapsed(offset: start),
-    ));
-  }
-
-  /// Enter: a newline in a multi-line field, else the field's action
-  /// (done, send, next), which is what its onSubmitted hears.
-  void enter() {
-    if (multiline) {
-      type('\n');
-    } else {
-      _client?.performAction(_config.inputAction);
-    }
-  }
-
-  void dispose() {
-    _disposed = true;
-    visible.dispose();
-  }
+  /// The decision where [context] is: false outside an applet root (a
+  /// widget test with no [VrxKeyboardSlot] gets no keyboard).
+  static bool of(BuildContext context) => _SlotScope.maybeOf(context)?.shows ?? false;
 }
 
-/// The applet root's keyboard place (AppletHost installs it under the
-/// strip): the screen above, the keyboard under it while a field has it.
-class VrxKeyboardHost extends StatefulWidget {
-  const VrxKeyboardHost({super.key, required this.child, this.settings});
+/// What the on-screen keyboard types into.
+abstract interface class VrxTextEditor {
+  /// Enter types a newline here, rather than ending the entry.
+  bool get multiline;
+
+  /// Type [text] over the selection.
+  void type(String text);
+
+  /// Delete the selection, or the character before the caret.
+  void backspace();
+
+  /// Enter: a newline in a multi-line field, else the field's submit.
+  void enter();
+}
+
+/// The keyboard's place under the screen (AppletHost installs it below
+/// the strip). It reads the facts the policy needs and draws the keyboard
+/// a focused field hands it; it decides nothing itself.
+class VrxKeyboardSlot extends StatefulWidget {
+  const VrxKeyboardSlot({super.key, required this.child, this.settings});
 
   final Widget child;
 
@@ -140,26 +60,28 @@ class VrxKeyboardHost extends StatefulWidget {
   final ScreenSettings? settings;
 
   @override
-  State<VrxKeyboardHost> createState() => _VrxKeyboardHostState();
+  State<VrxKeyboardSlot> createState() => _VrxKeyboardSlotState();
 }
 
-class _VrxKeyboardHostState extends State<VrxKeyboardHost> {
-  final _control = VrxTextInputControl();
+class _VrxKeyboardSlotState extends State<VrxKeyboardSlot> {
   late final ScreenSettings _settings = widget.settings ?? ScreenSettings();
   StreamSubscription<VrxInputFacts>? _facts;
   StreamSubscription<ScreenState>? _screen;
-  VrxInputFacts _input = const VrxInputFacts();
+  bool _physical = false;
   VrxKeyboardMode _mode = VrxKeyboardMode.auto;
+
+  // the field holding the keyboard, and its editor
+  Object? _owner;
+  VrxTextEditor? _editor;
 
   @override
   void initState() {
     super.initState();
-    TextInput.setInputControl(_control);
     _facts = _settings.inputFacts().listen((f) {
-      if (mounted) setState(() => _input = f);
+      if (mounted && f.keyboard != _physical) setState(() => _physical = f.keyboard);
     }, onError: (Object _) {});
     _screen = _settings.watch().listen((s) {
-      if (mounted) setState(() => _mode = s.keyboard);
+      if (mounted && s.keyboard != _mode) setState(() => _mode = s.keyboard);
     }, onError: (Object _) {});
   }
 
@@ -167,23 +89,227 @@ class _VrxKeyboardHostState extends State<VrxKeyboardHost> {
   void dispose() {
     unawaited(_facts?.cancel());
     unawaited(_screen?.cancel());
-    TextInput.restorePlatformInputControl();
-    _control.dispose();
     super.dispose();
+  }
+
+  // a field attaches as focus lands and detaches as it is torn down, which
+  // can be inside a build: applied at once when the tree may rebuild, after
+  // the frame when it may not
+  void _apply(void Function() change) {
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    if (phase == SchedulerPhase.idle || phase == SchedulerPhase.postFrameCallbacks) {
+      if (mounted) setState(change);
+      return;
+    }
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(change);
+    });
+    SchedulerBinding.instance.scheduleFrame();
+  }
+
+  void _attach(Object owner, VrxTextEditor editor) => _apply(() {
+        _owner = owner;
+        _editor = editor;
+      });
+
+  void _detach(Object owner) => _apply(() {
+        if (_owner != owner) return;
+        _owner = null;
+        _editor = null;
+      });
+
+  @override
+  Widget build(BuildContext context) {
+    final editor = _editor;
+    return _SlotScope(
+      state: this,
+      shows: VrxKeyboardPolicy.shows(mode: _mode, physicalKeyboard: _physical),
+      child: Column(children: [
+        Expanded(child: widget.child),
+        if (editor != null) VrxKeyboard(editor: editor),
+      ]),
+    );
+  }
+}
+
+class _SlotScope extends InheritedWidget {
+  const _SlotScope({required this.state, required this.shows, required super.child});
+
+  final _VrxKeyboardSlotState state;
+  final bool shows;
+
+  static _SlotScope? maybeOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<_SlotScope>();
+
+  @override
+  bool updateShouldNotify(_SlotScope old) => old.shows != shows || old.state != state;
+}
+
+/// The kit's text field: every text entry in vrx is one (the scan bans a
+/// bare TextField, G072). Focused, it brings up the on-screen keyboard when
+/// [VrxKeyboardPolicy] says so, typing into [controller]; a
+/// [keyboardType] of [TextInputType.none] is a field that brings its own
+/// keys (the Scripts editor's terminal keys) and takes none.
+///
+/// The kit's standard for every field: a cursor, and no selection handles
+/// (they sit on the text under a finger; the keyboard edits at the caret).
+class VrxTextField extends StatefulWidget {
+  const VrxTextField({
+    super.key,
+    required this.controller,
+    this.focusNode,
+    this.autofocus = false,
+    this.obscureText = false,
+    this.maxLines = 1,
+    this.expands = false,
+    this.keyboardType,
+    this.style,
+    this.decoration = const InputDecoration(),
+    this.onSubmitted,
+    this.onTap,
+  });
+
+  final TextEditingController controller;
+  final FocusNode? focusNode;
+  final bool autofocus;
+
+  /// A passphrase: dots, not letters.
+  final bool obscureText;
+
+  /// Null grows with the text; with [expands], fills the box.
+  final int? maxLines;
+  final bool expands;
+  final TextInputType? keyboardType;
+  final TextStyle? style;
+  final InputDecoration decoration;
+
+  /// Enter on a one-line field, from either keyboard.
+  final ValueChanged<String>? onSubmitted;
+  final VoidCallback? onTap;
+
+  @override
+  State<VrxTextField> createState() => _VrxTextFieldState();
+}
+
+class _VrxTextFieldState extends State<VrxTextField> implements VrxTextEditor {
+  FocusNode? _own;
+  FocusNode get _focus => widget.focusNode ?? (_own ??= FocusNode(debugLabel: 'vrx text field'));
+  _VrxKeyboardSlotState? _slot;
+  bool _shows = false;
+  bool _attached = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(_sync);
+  }
+
+  @override
+  void didUpdateWidget(VrxTextField old) {
+    super.didUpdateWidget(old);
+    if (old.focusNode != widget.focusNode) {
+      (old.focusNode ?? _own)?.removeListener(_sync);
+      _focus.addListener(_sync);
+    }
+    _sync();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scope = _SlotScope.maybeOf(context);
+    if (scope?.state != _slot && _attached) {
+      _slot?._detach(this);
+      _attached = false;
+    }
+    _slot = scope?.state;
+    _shows = scope?.shows ?? false;
+    _sync();
+  }
+
+  bool get _bringsOwnKeys => widget.keyboardType == TextInputType.none;
+
+  void _sync() {
+    final want = _focus.hasFocus && _shows && !_bringsOwnKeys;
+    final slot = _slot;
+    if (slot == null || want == _attached) return;
+    _attached = want;
+    if (want) {
+      slot._attach(this, this);
+    } else {
+      slot._detach(this);
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_attached) _slot?._detach(this);
+    _focus.removeListener(_sync);
+    _own?.dispose();
+    super.dispose();
+  }
+
+  // the editor the keyboard types through: this field's own controller
+
+  @override
+  bool get multiline => widget.keyboardType == TextInputType.multiline || widget.maxLines != 1;
+
+  TextEditingController get _c => widget.controller;
+
+  TextSelection get _selection =>
+      _c.selection.isValid ? _c.selection : TextSelection.collapsed(offset: _c.text.length);
+
+  @override
+  void type(String text) {
+    final sel = _selection;
+    _c.value = TextEditingValue(
+      text: _c.text.replaceRange(sel.start, sel.end, text),
+      selection: TextSelection.collapsed(offset: sel.start + text.length),
+    );
+  }
+
+  @override
+  void backspace() {
+    final sel = _selection;
+    if (sel.isCollapsed && sel.start == 0) return;
+    final start = sel.isCollapsed ? sel.start - 1 : sel.start;
+    _c.value = TextEditingValue(
+      text: _c.text.replaceRange(start, sel.end, ''),
+      selection: TextSelection.collapsed(offset: start),
+    );
+  }
+
+  @override
+  void enter() {
+    if (multiline) {
+      type('\n');
+    } else {
+      widget.onSubmitted?.call(_c.text);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: _control.visible,
-      builder: (context, visible, child) {
-        final away = VrxHandsScope.of(context) == VrxHands.keys || (_mode == VrxKeyboardMode.auto && _input.keyboard);
-        return Column(children: [
-          Expanded(child: child!),
-          if (visible && !away) VrxKeyboard(input: _control),
-        ]);
+    return TextField(
+      controller: widget.controller,
+      focusNode: _focus,
+      autofocus: widget.autofocus,
+      obscureText: widget.obscureText,
+      maxLines: widget.maxLines,
+      expands: widget.expands,
+      keyboardType: widget.keyboardType ?? (widget.maxLines == 1 ? null : TextInputType.multiline),
+      style: widget.style,
+      decoration: widget.decoration,
+      showCursor: true,
+      enableInteractiveSelection: false,
+      onSubmitted: widget.onSubmitted,
+      // a tap on the field it already has: the keyboard is put back if
+      // another field's took its place (focus did not change, so the
+      // listener is quiet)
+      onTap: () {
+        if (_slot?._owner != this) _attached = false;
+        _sync();
+        widget.onTap?.call();
       },
-      child: widget.child,
     );
   }
 }

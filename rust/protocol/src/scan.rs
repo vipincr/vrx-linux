@@ -55,6 +55,7 @@ const NO_DIALOG: &str = "G020: a modal is a route the kit opens (vrxConfirm, vrx
 const NO_TIMER: &str = "G021: a periodic source is VrxTicker, which rests while the applet is hidden (plan 0011 D3)";
 const NO_POLL: &str = "G027: nothing polls (plan 0012 D6): the system's state arrives as events (vrxhost's Facts and Watch, D-Bus signals, inotify); a loop that must wake on a clock says why with `// poll-ok: <reason>`";
 const ONE_WRITER: &str = "G031: the store loop is the only writer (plan 0013 D1): a fact becomes an action the model reduces, so nothing outside state.dart assigns a model field";
+const NO_RAW_FIELD: &str = "G072: a text entry is the kit's VrxTextField, which brings the on-screen keyboard up for itself when no physical keyboard is plugged in; a bare field gets no keyboard (owner, 2026-10-15)";
 const NO_RAW_PRESS: &str = "a tappable control comes from the kit's press components (VrxPress and the rows, chips and buttons on it), so every press is acknowledged the same way";
 
 /// Forms no `vrx-allow` excuses. G019: an applet that switches the light
@@ -71,7 +72,13 @@ const NEVER_ALLOWED: &[&str] = &[
     "showModalBottomSheet",
     "Timer.periodic",
     "model.<field> =",
+    "TextField(",
+    "TextFormField(",
+    "EditableText(",
 ];
+
+/// Where the kit's text field wraps Flutter's (G072).
+const FIELD_HOME: &[&str] = &["vrx_kit/lib/src/text_input.dart"];
 
 /// Where Linux's backlight is wrapped: the kit's vrx interface to it
 /// (brightness on the backlight's own attribute, plan 0010).
@@ -230,6 +237,27 @@ const RULES: &[Rule] = &[
         needle: "Timer.periodic",
         why: NO_TIMER,
         except: KIT,
+        in_strings: false,
+    },
+    Rule {
+        ext: "dart",
+        needle: "TextField(",
+        why: NO_RAW_FIELD,
+        except: FIELD_HOME,
+        in_strings: false,
+    },
+    Rule {
+        ext: "dart",
+        needle: "TextFormField(",
+        why: NO_RAW_FIELD,
+        except: FIELD_HOME,
+        in_strings: false,
+    },
+    Rule {
+        ext: "dart",
+        needle: "EditableText(",
+        why: NO_RAW_FIELD,
+        except: FIELD_HOME,
         in_strings: false,
     },
     Rule {
@@ -827,6 +855,19 @@ fn violations(
                 if !real {
                     continue;
                 }
+            }
+            // a class name, not the end of a longer one (VrxTextField( is
+            // the kit's field, not Flutter's)
+            if matches!(
+                rule.needle,
+                "TextField(" | "TextFormField(" | "EditableText("
+            ) && !code.match_indices(rule.needle).any(|(at, _)| {
+                !code[..at]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_alphanumeric() || c == '_')
+            }) {
+                continue;
             }
             // debugPrint( is the sanctioned form of print(
             if rule.needle == "print("
@@ -1766,6 +1807,24 @@ mod tests {
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// G072: a bare Flutter field anywhere an applet's code runs is refused,
+    /// whatever its marker says; the kit's own field and its home pass.
+    #[test]
+    fn a_text_entry_is_the_kits_field_g072() {
+        let bare = "final a = TextField(controller: c);\n// vrx-allow: mine\nfinal b = TextFormField();\n";
+        let found: Vec<&str> = violations("applets/x/lib/main.dart", "dart", bare)
+            .iter()
+            .map(|v| v.1)
+            .collect();
+        assert_eq!(found, vec!["TextField(", "TextFormField("]);
+        let kit = "final a = VrxTextField(controller: c);\nfinal s = 'TextField(';\n";
+        assert!(violations("applets/x/lib/main.dart", "dart", kit).is_empty());
+        assert!(
+            violations("flutter/vrx_kit/lib/src/text_input.dart", "dart", bare)
+                .is_empty()
+        );
     }
 
     #[test]

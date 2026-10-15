@@ -163,18 +163,25 @@ tracks which hands are in use (`VrxHandsScope`); no built-in applet varies
 its layout by them yet, so evrx-rt's "ask what the hands are doing" note
 applies to the first applet that does.
 
-The on-screen keyboard is Flutter's text input control (plan 0013 D6). A
-`TextField` that takes focus brings it up under the screen through
-`VrxKeyboardHost`, which `AppletHost` installs; no screen places a keyboard
-itself. It steps aside while a physical keyboard types, and, unless
-Settings > Device > On-screen keyboard says Show, whenever the compositor
-reports a keyboard plugged in (`keyboard=1` in `/run/vrx-ui/screen`). A
-field that brings its own keys (the Scripts editor's terminal keys on a
-short panel) declares `keyboardType: TextInputType.none` and gets none. A
-screen that sizes itself around the keyboard decides on the display, never
-on its layout box: the keyboard takes its share of the box when it comes
-up, and a layout that changes because it did would put it away again.
-Check: `flutter/vrx_kit/test/text_input_test.dart`.
+The on-screen keyboard belongs to the field typed into (owner, 2026-10-15).
+Every text entry is the kit's `VrxTextField` (G072: the scan refuses a bare
+`TextField`, `TextFormField` or `EditableText` outside the kit's
+`text_input.dart`, and no `vrx-allow` excuses one). Focused, the field hands
+the applet root's `VrxKeyboardSlot` a `VrxKeyboard` that edits its own
+controller, and takes it back when focus leaves; the slot only gives the
+keyboard its place under the screen. Whether a focused field shows it is
+one decision for every field, `VrxKeyboardPolicy`: never while the
+compositor reports a physical keyboard plugged in (`keyboard=1` in
+`/run/vrx-ui/screen`, udev's `ID_INPUT_KEYBOARD`), unless Settings > Device
+> On-screen keyboard says Show. A key press decides nothing; plugging a
+keyboard in or out does, while the field keeps focus. A physical keyboard
+types through the platform's text input. A field that brings its own keys
+(the Scripts editor's terminal keys on a short panel) declares
+`keyboardType: TextInputType.none` and gets none. A screen that sizes
+itself around the keyboard decides on the display, never on its layout
+box: the keyboard takes its share of the box when it comes up, and a
+layout that changes because it did would put it away again. Check:
+`flutter/vrx_kit/test/text_input_test.dart`.
 
 The touch floor is the hardware's (G034). The compositor says `touch=1` or
 `0` from udev's classification of the input devices, and `AppletHost`

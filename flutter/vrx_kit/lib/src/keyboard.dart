@@ -1,6 +1,6 @@
-/// The on-screen keyboard. vrx boards have no system input method: any
-/// text field that takes focus brings this up through the kit's text
-/// input control ([VrxKeyboardHost], plan 0013 D6), and no screen places
+/// The on-screen keyboard. vrx boards have no system input method: the
+/// kit's [VrxTextField] brings this up for itself when it takes focus and
+/// the keyboard policy says so ([VrxKeyboardPolicy]), and no screen places
 /// it. A terminal takes keystrokes rather than text, so it shows
 /// [VrxKeyboard.terminal] itself.
 ///
@@ -15,7 +15,6 @@ library;
 import 'package:flutter/material.dart';
 
 import 'components.dart';
-import 'input.dart';
 import 'metrics.dart';
 import 'motion.dart';
 import 'scale.dart';
@@ -29,9 +28,10 @@ enum _Mode { lower, upper, symbols, more }
 /// A key the terminal keyboard sends that is not text.
 enum VrxTermKey { escape, tab, backspace, enter, left, up, down, right }
 
-/// The text keyboard, typing into the focused field through [input].
+/// The text keyboard, typing into the field that brought it up through
+/// [editor].
 class VrxKeyboard extends StatefulWidget {
-  const VrxKeyboard({super.key, required VrxTextInputControl this.input})
+  const VrxKeyboard({super.key, required VrxTextEditor this.editor})
       : onText = null,
         onKey = null,
         onHide = null,
@@ -46,9 +46,9 @@ class VrxKeyboard extends StatefulWidget {
     required void Function(VrxTermKey key) this.onKey,
     required VoidCallback this.onHide,
     required VoidCallback this.onBack,
-  }) : input = null;
+  }) : editor = null;
 
-  final VrxTextInputControl? input;
+  final VrxTextEditor? editor;
   final void Function(String text, {bool ctrl})? onText;
   final void Function(VrxTermKey key)? onKey;
   final VoidCallback? onHide;
@@ -72,14 +72,14 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
   // what a shell and a passphrase need that the first page lacks
   static const _more = [r'[]{}<>|\~^', '=`€£¥°•×÷', '§¶©®¿¡µ'];
 
-  bool get _terminal => widget.input == null;
+  bool get _terminal => widget.editor == null;
 
   void _type(String text) {
     if (_terminal) {
       widget.onText!(text, ctrl: _ctrl);
       if (_ctrl) setState(() => _ctrl = false);
     } else {
-      widget.input!.type(text);
+      widget.editor!.type(text);
     }
     // one shifted letter, then back to lower case
     if (_mode == _Mode.upper) setState(() => _mode = _Mode.lower);
@@ -90,16 +90,13 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
       widget.onKey!(VrxTermKey.backspace);
       return;
     }
-    widget.input!.backspace();
+    widget.editor!.backspace();
   }
 
-  void _enter() => _terminal ? widget.onKey!(VrxTermKey.enter) : widget.input!.enter();
+  void _enter() => _terminal ? widget.onKey!(VrxTermKey.enter) : widget.editor!.enter();
 
   @override
   Widget build(BuildContext context) {
-    // a physical keyboard is typing: this one steps aside until a finger
-    // is back on the panel
-    if (VrxHandsScope.of(context) == VrxHands.keys) return const SizedBox.shrink();
     final rows = switch (_mode) {
       _Mode.symbols => _symbols,
       _Mode.more => _more,
