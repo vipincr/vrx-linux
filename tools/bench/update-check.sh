@@ -44,7 +44,11 @@ if who != "system":
                         capture_output=True, text=True).stdout.strip()
     if not cg:
         print(json.dumps({"error": f"{who} is not running"})); sys.exit(0)
-    subprocess.run(["systemctl", "thaw", f"vrx-applet@{who}.service"], capture_output=True)
+    # vrxhost freezes an applet hidden for 30 s, and this call joins its
+    # cgroup: an install outlasts that, and a frozen caller never reads the
+    # answer. A child started before the move stays in this session's
+    # cgroup and keeps thawing the applet until the answer is in.
+    keeper = subprocess.Popen(["sh", "-c", f"while :; do systemctl thaw vrx-applet@{who}.service; sleep 5; done"])
     open(f"/sys/fs/cgroup{cg}/cgroup.procs", "w").write(str(os.getpid()))
 s = socket.socket(socket.AF_UNIX); s.connect("/run/vrx/io.vrx.Host")
 s.sendall(json.dumps({"method": f"io.vrx.Host.{method}", "parameters": params}).encode() + b"\0")
@@ -53,6 +57,8 @@ while not buf.endswith(b"\0"):
     d = s.recv(65536)
     if not d: break
     buf += d
+if who != "system":
+    keeper.kill()
 print(buf.rstrip(b"\0").decode())
 P
 call() { python3 /tmp/upd.py "$@"; }
@@ -158,7 +164,16 @@ check "vrx-update-mark succeeded" sh -c 'systemctl show -p Result --value vrx-up
 echo "        [all]=$(autoboot all) [tryboot]=$(autoboot tryboot)"
 check "[all] now names this slot's boot partition" sh -c "[ \"$(autoboot all)\" = \"$(autoboot tryboot)\" ]"
 S=$(call settings UpdateStatus)
-echo "$S" | grep -q '"last": *"kept"' && ok "Settings says kept" || bad "status: $S"
+# the first reader of a kept outcome consumes vrxhost's record, and the
+# Settings applet reads it when it starts: "kept" once, then "none" with
+# the record gone and this slot booted
+if echo "$S" | grep -q '"last": *"kept"'; then
+    ok "Settings says kept"
+elif echo "$S" | grep -q '"last": *"none"' && ! test -e /data/vrx/update/pending.json; then
+    ok "kept, and the record already read (Settings read it when it started)"
+else
+    bad "status: $S"
+fi
 check "the fall-back timer is stopped" sh -c '! systemctl is-active vrx-update-fallback.timer'
 EOF
 ;;
