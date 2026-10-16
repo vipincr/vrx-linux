@@ -178,16 +178,23 @@ fn string_of(map: &HashMap<String, OwnedValue>, key: &str) -> Option<String> {
 }
 
 /// InspectBundle's answer: compatible and version at the top (older RAUC)
-/// or under "update" (1.11 and later).
+/// or under "update" (1.11 and later). RAUC wraps "update" in a variant of
+/// its own, so the a{sv} value is v(a{sv}): read as a dictionary straight
+/// away it was nothing, every bundle's compatible was "" and every bundle
+/// was refused as another machine's (bench, CM4, 0.1.0122, 2026-10-16).
 fn compatible_and_version(info: &HashMap<String, OwnedValue>) -> (String, String) {
     if let (Some(c), Some(v)) =
         (string_of(info, "compatible"), string_of(info, "version"))
     {
         return (c, v);
     }
-    let nested: Option<HashMap<String, OwnedValue>> = info
-        .get("update")
-        .and_then(|v| HashMap::<String, OwnedValue>::try_from(v.try_clone().ok()?).ok());
+    let nested: Option<HashMap<String, OwnedValue>> = info.get("update").and_then(|v| {
+        let mut v = ZValue::from(v.try_clone().ok()?);
+        while let ZValue::Value(inner) = v {
+            v = *inner;
+        }
+        HashMap::<String, OwnedValue>::try_from(OwnedValue::try_from(v).ok()?).ok()
+    });
     match nested {
         Some(u) => (
             string_of(&u, "compatible").unwrap_or_default(),
@@ -449,6 +456,59 @@ pub fn clear_fallback() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn dict(pairs: &[(&str, &str)]) -> HashMap<String, OwnedValue> {
+        pairs
+            .iter()
+            .filter_map(|(k, v)| {
+                Some((
+                    (*k).to_owned(),
+                    OwnedValue::try_from(ZValue::from(*v)).ok()?,
+                ))
+            })
+            .collect()
+    }
+
+    fn wrapped(inner: HashMap<String, OwnedValue>, depth: usize) -> Option<OwnedValue> {
+        let mut v = ZValue::from(inner);
+        for _ in 0..depth {
+            v = ZValue::Value(Box::new(v));
+        }
+        OwnedValue::try_from(v).ok()
+    }
+
+    #[test]
+    fn rauc_s_update_dictionary_is_read_through_its_own_variant() {
+        // what RAUC 1.15 sent on the CM4: "update" => v(a{sv})
+        let update = dict(&[
+            ("compatible", "vrxboard-cm4-disp28a"),
+            ("version", "0.1.0125"),
+        ]);
+        for depth in [0, 1] {
+            let mut info = HashMap::new();
+            if let Some(u) = wrapped(update.clone(), depth) {
+                info.insert("update".to_owned(), u);
+            }
+            assert_eq!(
+                compatible_and_version(&info),
+                ("vrxboard-cm4-disp28a".to_owned(), "0.1.0125".to_owned()),
+                "depth {depth}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_older_rauc_s_top_level_answer_still_reads() {
+        let info = dict(&[("compatible", "vrxboard-am62x"), ("version", "0.1.0001")]);
+        assert_eq!(
+            compatible_and_version(&info),
+            ("vrxboard-am62x".to_owned(), "0.1.0001".to_owned())
+        );
+        assert_eq!(
+            compatible_and_version(&HashMap::new()),
+            (String::new(), String::new())
+        );
+    }
 
     #[test]
     fn the_board_says_how_a_trial_is_asked_for() {

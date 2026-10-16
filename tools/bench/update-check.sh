@@ -140,9 +140,13 @@ echo "$R" | grep -q '"version"' && ok "installed: $R" || bad "install: $R"
 check "the bundle is gone from updates/" sh -c "! test -e /data/vrx/updates/$A1"
 echo "        [all]=$(autoboot all) [tryboot]=$(autoboot tryboot)"
 check "[tryboot] names the other boot partition" sh -c "[ \"$(autoboot tryboot)\" != \"$(autoboot all)\" ]"
-echo "$FROM" > /data/vrx/update/bench-from
-call settings UpdateRestart >/dev/null &
-ok "restarting with the board's reboot argument; run: update-check.sh <host> kept $FROM"
+if [ "$fails" -eq 0 ]; then
+    echo "$FROM" > /data/vrx/update/bench-from
+    call settings UpdateRestart >/dev/null &
+    ok "restarting with the board's reboot argument; run: update-check.sh <host> kept $FROM"
+else
+    echo "        not restarting: the install did not go through"
+fi
 EOF
 ;;
 kept) run "$1" <<'EOF'
