@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vrx_check/vrx_check.dart';
 import 'package:vrx_kit/vrx_kit.dart';
 
 /// A screen settings pair in a temporary directory: screen.conf and the
@@ -67,7 +68,7 @@ void main() {
     await tester.tap(find.byIcon(VrxSymbols.keyboard_return));
     await tester.pump();
     expect(submitted, 'H7', reason: "Enter is the field's submit");
-  });
+  }, variant: onDevice);
 
   testWidgets('Enter in a multi-line field types a newline', (tester) async {
     final controller = TextEditingController(text: 'a');
@@ -79,7 +80,7 @@ void main() {
     await tester.tap(find.byIcon(VrxSymbols.keyboard_return));
     await tester.pump();
     expect(controller.text, 'a\n');
-  });
+  }, variant: onDevice);
 
   testWidgets('a plugged-in keyboard keeps it away unless Settings says show', (tester) async {
     await _host(
@@ -97,7 +98,7 @@ void main() {
     );
     await _until(tester, () => find.byType(VrxKeyboard).evaluate().isNotEmpty);
     expect(find.byType(VrxKeyboard), findsOneWidget, reason: 'Show brings it up anyway');
-  });
+  }, variant: onDevice);
 
   testWidgets('plugging a keyboard in puts it away, unplugging brings it back', (tester) async {
     final dir = await tester.runAsync(() => Directory.systemTemp.createTemp('vrx-input')) as Directory;
@@ -115,7 +116,7 @@ void main() {
     await tester.runAsync(() => facts.writeAsString('touch=1\nkeyboard=0\n'));
     await _until(tester, () => find.byType(VrxKeyboard).evaluate().isNotEmpty);
     expect(find.byType(VrxKeyboard), findsOneWidget, reason: 'unplugged, the focused field takes it back');
-  });
+  }, variant: onDevice);
 
   testWidgets('a key press does not decide it: only what is plugged in does', (tester) async {
     await _host(tester, await tester.runAsync(() => _settings()) as ScreenSettings,
@@ -124,7 +125,7 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
     await tester.pump();
     expect(find.byType(VrxKeyboard), findsOneWidget, reason: 'the decision is what is plugged in, never the last key');
-  });
+  }, variant: onDevice);
 
   testWidgets('a field that brings its own keys gets none', (tester) async {
     await _host(
@@ -133,7 +134,7 @@ void main() {
       VrxTextField(controller: TextEditingController(), autofocus: true, kind: VrxInputKind.none),
     );
     expect(find.byType(VrxKeyboard), findsNothing);
-  });
+  }, variant: onDevice);
 
   testWidgets('the keyboard is the focused field\'s: it follows focus and leaves with it', (tester) async {
     final a = TextEditingController(), b = TextEditingController();
@@ -160,7 +161,7 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(find.byType(VrxKeyboard), findsNothing, reason: 'focus left the kit fields, and their keyboard with it');
-  });
+  }, variant: onDevice);
 
   // G034 (plan 0013 D7): the applet root takes the touch floor from the
   // compositor's fact; without the read, a board with no touchscreen keeps
@@ -174,7 +175,7 @@ void main() {
       await _until(tester, () => find.text(want).evaluate().isNotEmpty);
       expect(find.text(want), findsOneWidget, reason: facts);
     }
-  });
+  }, variant: onDevice);
 }
 
 class _Modality extends Applet<int, String, int> {

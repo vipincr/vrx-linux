@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vrx_check/vrx_check.dart';
 import 'package:vrx_kit/vrx_kit.dart';
 
 void main() {
@@ -36,5 +37,5 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('|'));
     expect(typed.last, '|', reason: 'a pipe is on the second symbol page');
-  });
+  }, variant: onDevice);
 }

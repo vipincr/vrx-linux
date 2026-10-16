@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vrx_check/vrx_check.dart';
 import 'package:vrx_kit/vrx_kit.dart';
 
 /// The keyboard for each kind of value (owner, 2026-10-15): the keys each
@@ -49,6 +50,17 @@ Future<void> _tapKey(WidgetTester tester, String label) async {
 }
 
 void main() {
+  testWidgets('a tap on a key keeps the field focused and its keyboard up', (tester) async {
+    final c = await _field(tester, VrxInputKind.text);
+    final field = tester.widget<TextField>(find.byType(TextField)).focusNode!;
+    for (final k in ['h', 'i', '123', '1', 'abc', 'k']) {
+      await _tapKey(tester, k);
+      expect(field.hasFocus, isTrue, reason: 'after $k');
+      expect(find.byType(VrxKeyboard), findsOneWidget, reason: 'after $k');
+    }
+    expect(c.text, 'hi1k');
+  }, variant: onDevice);
+
   testWidgets('email: @ and . to hand, no space bar, and no space typed on either keyboard', (tester) async {
     final c = await _field(tester, VrxInputKind.email);
     expect(find.text('@'), findsOneWidget);
@@ -60,7 +72,7 @@ void main() {
     expect(c.text, 'a@b.');
     await tester.enterText(find.byType(TextField), 'x y@z');
     expect(c.text, 'xy@z', reason: 'the physical keyboard meets the same filter');
-  });
+  }, variant: onDevice);
 
   testWidgets('url: / . and .com to hand, and Enter is Go', (tester) async {
     String? went;
@@ -73,20 +85,20 @@ void main() {
     await tester.tap(find.byIcon(VrxSymbols.arrow_forward));
     await tester.pump();
     expect(went, 'v.com/');
-  });
+  }, variant: onDevice);
 
   testWidgets('search: Enter is Search', (tester) async {
     await _field(tester, VrxInputKind.search);
     expect(find.byIcon(VrxSymbols.search), findsOneWidget);
     expect(find.text('space'), findsOneWidget);
-  });
+  }, variant: onDevice);
 
   testWidgets('password: the letters, typed as dots', (tester) async {
     final c = await _field(tester, VrxInputKind.password);
     await _tapKey(tester, 'p');
     expect(c.text, 'p');
     expect(tester.widget<TextField>(find.byType(TextField)).obscureText, isTrue);
-  });
+  }, variant: onDevice);
 
   testWidgets('number: the pad with large digits, a sign and no point; letters never land', (tester) async {
     String? done;
@@ -106,7 +118,7 @@ void main() {
     await _field(tester, VrxInputKind.text);
     final q = tester.getSize(find.ancestor(of: find.text('q').last, matching: find.byType(VrxPress)));
     expect(one.width, greaterThanOrEqualTo(q.width * 2));
-  });
+  }, variant: onDevice);
 
   testWidgets('decimal: the pad with a point', (tester) async {
     final c = await _field(tester, VrxInputKind.decimal);
@@ -114,7 +126,7 @@ void main() {
       await _tapKey(tester, k);
     }
     expect(c.text, '3.5');
-  });
+  }, variant: onDevice);
 
   testWidgets('tel: the phone grid with its letters, + and -; letters never land', (tester) async {
     final c = await _field(tester, VrxInputKind.tel);
@@ -125,7 +137,7 @@ void main() {
     expect(c.text, '+91-#');
     await tester.enterText(find.byType(TextField), '+1 (555) call');
     expect(c.text, '+1 (555) ');
-  });
+  }, variant: onDevice);
 
   testWidgets('every keyboard is one height, so a screen laid out around one fits all', (tester) async {
     double? height;
@@ -135,7 +147,7 @@ void main() {
       height ??= h;
       expect(h, height, reason: '$kind');
     }
-  });
+  }, variant: onDevice);
 
   group('wheels write the HTML value', () {
     final forms = {
@@ -155,7 +167,7 @@ void main() {
         await tester.pump();
         expect(c.text, matches(form));
         expect(done, c.text);
-      });
+      }, variant: onDevice);
     }
 
     testWidgets('they start from the value the field holds', (tester) async {
@@ -172,21 +184,21 @@ void main() {
         await tester.pump();
         expect(c.text, value, reason: '$kind');
       }
-    });
+    }, variant: onDevice);
 
     testWidgets('a turned wheel writes at once', (tester) async {
       final c = await _field(tester, VrxInputKind.time, text: '10:00');
       await tester.drag(find.byType(VrxWheel).first, const Offset(0, -60));
       await tester.pumpAndSettle();
       expect(c.text, matches(RegExp(r'^1[1-9]:00$')));
-    });
+    }, variant: onDevice);
 
     testWidgets('datetime shows the date, then the time', (tester) async {
       await _field(tester, VrxInputKind.datetime);
       expect(find.byType(VrxWheel), findsNWidgets(3));
       await _tapKey(tester, 'Time');
       expect(find.byType(VrxWheel), findsNWidgets(2));
-    });
+    }, variant: onDevice);
   });
 
   group('the gamepad', () {
@@ -227,7 +239,7 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(find.text('Start'), findsNothing);
-    });
+    }, variant: onDevice);
 
     testWidgets('a gamepad field brings it up, and A submits the field', (tester) async {
       String? done;
@@ -239,7 +251,7 @@ void main() {
       await tester.pump();
       expect(done, 'go');
       expect(c.text, 'go');
-    });
+    }, variant: onDevice);
   });
 
   group('programmatic, the exceptional case', () {
@@ -254,7 +266,7 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(find.byType(VrxKeyboard), findsOneWidget);
-    });
+    }, variant: onDevice);
 
     testWidgets('show brings a text keyboard to an editor of its own, whatever is plugged in', (tester) async {
       final typed = <String>[];
@@ -268,7 +280,7 @@ void main() {
       await tester.pump();
       await _tapKey(tester, '7');
       expect(typed, ['7']);
-    });
+    }, variant: onDevice);
   });
 
   testWidgets('a field with a physical keyboard plugged in brings none, of any kind', (tester) async {
@@ -279,7 +291,7 @@ void main() {
       await tester.pump();
       expect(find.byType(VrxKeyboard), findsNothing, reason: '$kind');
     }
-  });
+  }, variant: onDevice);
 }
 
 class _Recorder implements VrxTextEditor {

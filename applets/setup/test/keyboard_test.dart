@@ -51,11 +51,11 @@ void main() {
       await tester.tap(find.text('k'));
       await tester.pump();
       expect(tester.widget<TextField>(find.byType(TextField)).controller?.text, 'k', reason: 'the keys type into the name');
-    });
+    }, variant: onDevice);
   }
 
   testWidgets('with a keyboard plugged in the name field takes none', (tester) async {
     await walk(tester, from: SetupStep.licence, keyboard: true);
     expect(find.byType(VrxKeyboard), findsNothing);
-  });
+  }, variant: onDevice);
 }

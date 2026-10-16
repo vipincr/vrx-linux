@@ -249,11 +249,19 @@ class _VrxKeyboardState extends State<VrxKeyboard> {
       final k when k.wheels => _WheelKeys(kind: k, editor: widget.editor),
       _ => _letterKeys(context),
     };
-    return Container(
-      color: colors.page,
-      padding: EdgeInsets.symmetric(horizontal: space.xs / 2, vertical: space.xs),
-      // the terminal's five short rows set their own height
-      child: _terminal ? keys : SizedBox(height: VrxKeyboard.heightOf(context) - 2 * space.xs, child: keys),
+    // The keys are part of the field they type into. On Linux (and every
+    // desktop target) Flutter's text field drops its focus on a pointer down
+    // outside it, touch included (EditableTextTapOutsideIntent's default
+    // action); a tap on a key was such a tap, the field lost focus and took
+    // its keyboard away (bench, 0.1.0122). Flutter's own text toolbars use this
+    // region for the same reason.
+    return TextFieldTapRegion(
+      child: Container(
+        color: colors.page,
+        padding: EdgeInsets.symmetric(horizontal: space.xs / 2, vertical: space.xs),
+        // the terminal's five short rows set their own height
+        child: _terminal ? keys : SizedBox(height: VrxKeyboard.heightOf(context) - 2 * space.xs, child: keys),
+      ),
     );
   }
 
