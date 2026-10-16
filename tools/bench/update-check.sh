@@ -57,12 +57,20 @@ print(buf.rstrip(b"\0").decode())
 P
 call() { python3 /tmp/upd.py "$@"; }
 field() { python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print($1)"; }
-# autoboot.txt's boot_partition under [all] or [tryboot]
-autoboot() {
-    mkdir -p /run/vrx/cfg && mount -o ro /dev/disk/by-partlabel/config /run/vrx/cfg 2>/dev/null
-    awk -v s="[$1]" '/^\[/ {cur=$0} cur==s && /^boot_partition=/ {sub(/.*=/, ""); print}' /run/vrx/cfg/autoboot.txt
+# autoboot.txt off the config partition: where the image mounts it (/boot,
+# read-write, so a read-only mount of it is refused), else mounted here
+autoboot_txt() {
+    dev=$(readlink -f /dev/disk/by-partlabel/config)
+    dir=$(awk -v d="$dev" '$1 == d {print $2; exit}' /proc/mounts)
+    if [ -n "$dir" ]; then cat "$dir/autoboot.txt"; return; fi
+    mkdir -p /run/vrx/cfg && mount -o ro "$dev" /run/vrx/cfg && cat /run/vrx/cfg/autoboot.txt
     umount /run/vrx/cfg 2>/dev/null
 }
+# its boot_partition under [all] or [tryboot]
+autoboot() {
+    autoboot_txt | awk -v s="[$1]" '/^\[/ {cur=$0} cur==s && /^boot_partition=/ {sub(/.*=/, ""); print}'
+}
+tryboot_a_b() { autoboot_txt | grep -q '^tryboot_a_b=1'; }
 problem_of() { echo "$OFFERS" | field "next((str(o['problem']) for o in d['parameters']['offers'] if o['file']=='$1'), 'absent')"; }
 EOF
 )
@@ -82,19 +90,19 @@ echo "== the A/B layout (D3) and RAUC (D1, D5)"
 for l in config boot_a boot_b root_a root_b data; do
     check "partition $l"          test -e /dev/disk/by-partlabel/$l
 done
-check "/data is p6, the last"     sh -c 'findmnt -no SOURCE /data | grep -q "p6$"'
+check "/data is p6, the last"     grep -q 'p6 /data ' /proc/mounts
 check "/data grew past 1 GiB"     sh -c '[ $(df -k /data | awk "NR==2 {print \$2}") -gt 1048576 ]'
-check "autoboot.txt: tryboot_a_b=1" sh -c 'mkdir -p /run/vrx/cfg; mount -o ro /dev/disk/by-partlabel/config /run/vrx/cfg; grep -q "^tryboot_a_b=1" /run/vrx/cfg/autoboot.txt; r=$?; umount /run/vrx/cfg; exit $r'
+check "autoboot.txt: tryboot_a_b=1" tryboot_a_b
 echo "        [all] boot_partition=$(autoboot all), [tryboot] boot_partition=$(autoboot tryboot)"
 check "rauc is running"           systemctl is-active rauc
 check "booted slot A, first boot" sh -c 'rauc status --output-format=json | grep -q "\"booted\":\"A\""'
 check "plain bundles refused (G046)" grep -q '^bundle-formats=-plain' /usr/lib/rauc/system.conf
-check "a keyring (G046)"          sh -c 'k=$(sed -n "s/^path=//p" /usr/lib/rauc/system.conf | head -1); test -s "$k"'
+check "a keyring (G046)"          sh -c 'k=$(sed -n "s/^path=//p" /usr/lib/rauc/system.conf | head -n 1); test -s "$k"'
 check "update.conf"               test -s /usr/lib/vrx/update.conf
 check "the health target exists"  systemctl cat vrx-update-healthy.target
 check "only vrx-update-mark marks good (G047)" sh -c '! grep -rl "mark-good" /usr/lib/systemd/system /etc/systemd/system | grep -v vrx-update-mark.service'
 # tryboot needs an EEPROM from 2021 or later (D2); the row prints it
-echo "        bootloader: $(vcgencmd bootloader_version 2>/dev/null | head -1)"
+echo "        bootloader: $(vcgencmd bootloader_version 2>/dev/null | head -n 1)"
 check "the shell's first frame reported" test -e /run/vrx/shell-shown
 check "this boot was marked good" sh -c 'rauc status --output-format=json | python3 -c "import json,sys; d=json.load(sys.stdin); b=d[\"booted\"]; print([s for x in d[\"slots\"] for n,s in x.items() if s.get(\"bootname\")==b and s[\"class\"]==\"rootfs\"][0][\"boot_status\"])" | grep -q good'
 EOF

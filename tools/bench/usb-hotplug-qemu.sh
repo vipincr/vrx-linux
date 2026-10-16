@@ -62,7 +62,7 @@ mount=$(facts 'next((m for x in d["usb_devices"] for m in x["mounts"]), "")')
 if [ -n "$mount" ]; then
     ok "the stick is mounted at $mount"
     on "ls '$mount' >/dev/null"  # the automount mounts on access
-    opts=$(on "findmnt -rno OPTIONS --target '$mount' | tail -1")
+    opts=$(on "awk -v m='$mount' '\$2 == m {o = \$4} END {print o}' /proc/mounts")
     for flag in ro nosuid nodev noexec nosymfollow; do
         case ",$opts," in *",$flag,"*) ok "mounted $flag" ;; *) bad "not $flag: $opts" ;; esac
     done
@@ -94,7 +94,7 @@ for dev in vrxnet vrxaudio vrxstorage vrxhub; do monitor "device_del $dev"; done
 settle 4
 [ "$(journal 'usb detached' 10)" -ge 4 ] && ok "detached raised for each" || bad "detached not raised for each"
 [ "$(facts 'len(d["usb_devices"])')" = "$before" ] && ok "the list is back to $before" || bad "the list did not empty"
-[ -z "$(on "findmnt -rno TARGET | grep /run/vrx/usb/ || true")" ] && ok "no mount left behind" || bad "a mount is left"
+[ -z "$(on "grep ' /run/vrx/usb/' /proc/mounts || true")" ] && ok "no mount left behind" || bad "a mount is left"
 
 echo "$fails FAIL"
 exit "$fails"
