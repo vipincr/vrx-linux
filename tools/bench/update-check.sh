@@ -107,8 +107,11 @@ check "a keyring (G046)"          sh -c 'k=$(sed -n "s/^path=//p" /usr/lib/rauc/
 check "update.conf"               test -s /usr/lib/vrx/update.conf
 check "the health target exists"  systemctl cat vrx-update-healthy.target
 check "only vrx-update-mark marks good (G047)" sh -c '! grep -rl "mark-good" /usr/lib/systemd/system /etc/systemd/system | grep -v vrx-update-mark.service'
-# tryboot needs an EEPROM from 2021 or later (D2); the row prints it
+# tryboot needs an EEPROM from 2021 or later (D2), and one from 2025-10-08 or
+# later to switch every time (vrx-bootloader-check says so at boot)
 echo "        bootloader: $(vcgencmd bootloader_version 2>/dev/null | head -n 1)"
+check "the bootloader switches reliably (vrx-bootloader-check)" sh -c '! journalctl -b -u vrx-bootloader-check | grep -q predates'
+check "the config partition is mounted read-only once" sh -c '[ "$(awk "\$1 ~ /mmcblk0p1\$/" /proc/mounts | wc -l)" = 1 ] && awk "\$2 == \"/boot/config\" && \$4 ~ /^ro,/" /proc/mounts | grep -q .'
 check "the shell's first frame reported" test -e /run/vrx/shell-shown
 check "this boot was marked good" sh -c 'rauc status --output-format=json | python3 -c "import json,sys; d=json.load(sys.stdin); b=d[\"booted\"]; print([s for x in d[\"slots\"] for n,s in x.items() if s.get(\"bootname\")==b and s[\"class\"]==\"rootfs\"][0][\"boot_status\"])" | grep -q good'
 EOF
