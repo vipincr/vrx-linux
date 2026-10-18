@@ -292,7 +292,12 @@ async fn receive_upload(stream: &mut TcpStream, length: u64, rest: Vec<u8>) -> R
                     &json!({ "stored": upload::NAME, "bytes": length }),
                 );
             }
-            Err(_) => 500,
+            Err(err) => {
+                // CLN-01 (review 2026-10-17): the browser saw a 500 with
+                // no line anywhere saying why
+                tracing::error!(error = %err, "update bundle: rename into place failed");
+                500
+            }
         },
         Ok(Err(status)) => status,
         Err(_) => 408,

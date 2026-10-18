@@ -141,3 +141,14 @@ mod tests {
         notify("READY=1");
     }
 }
+
+/// One line to the journal, the SDK's own log path (KRN-04, review
+/// 2026-10-17): `log!`-style callers stay on tracing, and the binary
+/// installs its subscriber with `tracing_subscriber::fmt().init()` —
+/// one mechanism per process.
+#[macro_export]
+macro_rules! log {
+    ($($arg:tt)*) => {
+        tracing::info!($($arg)*)
+    };
+}

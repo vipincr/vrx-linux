@@ -575,8 +575,20 @@ fn journal(message: &str, fields: &[(&str, String)]) {
     for (k, v) in fields {
         entry.push_str(&format!("{k}={}\n", v.replace('\n', " ")));
     }
-    if let Ok(sock) = std::os::unix::net::UnixDatagram::unbound() {
-        let _ = sock.send_to(entry.as_bytes(), "/run/systemd/journal/socket");
+    // OBS-08 (review 2026-10-17): a send error is SAID, once — a full
+    // journald socket dropped the entry silently and the record the
+    // review needs was nowhere
+    match std::os::unix::net::UnixDatagram::unbound()
+        .and_then(|sock| sock.send_to(entry.as_bytes(), "/run/systemd/journal/socket"))
+    {
+        Ok(_) => {}
+        Err(err) => {
+            static SAID: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                tracing::warn!(error = %err, "journal socket: entries not landing");
+            }
+        }
     }
 }
 

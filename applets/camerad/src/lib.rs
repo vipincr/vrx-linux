@@ -23,8 +23,9 @@ pub mod linux;
 #[cfg(all(target_os = "linux", feature = "libcamera"))]
 pub mod libcamera_source;
 
-/// One line to the journal (stderr), the applet's only log.
-#[allow(clippy::print_stderr)]
+/// One line to the journal, through the SDK's tracing (KRN-04, review
+/// 2026-10-17): the hand-written eprintln was a second logging mechanism
+/// beside the one the applet already installs at start.
 pub fn log(line: &str) {
-    eprintln!("camerad: {line}");
+    tracing::info!("{line}");
 }

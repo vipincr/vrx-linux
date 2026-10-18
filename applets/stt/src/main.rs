@@ -62,10 +62,13 @@ fn listen_once(started: impl FnOnce()) -> Result<String, &'static str> {
 }
 
 fn log(line: &str) {
-    eprintln!("stt: {line}");
+    // KRN-04 (review 2026-10-17): the SDK's tracing, with the
+    // subscriber main installs — one logging mechanism per process
+    tracing::info!("{line}");
 }
 
 fn main() -> ExitCode {
+    tracing_subscriber::fmt().with_target(false).init();
     let liveness = Liveness::new();
     liveness.spawn_watchdog();
     let mut listener = match Listener::start() {

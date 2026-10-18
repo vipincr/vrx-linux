@@ -158,10 +158,21 @@ impl Bridge {
             freezer.awake(applet, "an intent").await;
         }
         let answer = if self.send(applet, delivery).is_ok() {
-            tokio::time::timeout(budget, rx)
-                .await
-                .ok()
-                .and_then(Result::ok)
+            match tokio::time::timeout(budget, rx).await {
+                Ok(Ok(answer)) => Some(answer),
+                Ok(Err(_)) => None, // the waiter went away
+                Err(_) => {
+                    // OBS-01 (review 2026-10-17): a handler that let
+                    // the budget pass is named at info, not only measured
+                    tracing::info!(
+                        applet,
+                        intent = name,
+                        budget_ms = budget.as_millis() as u64,
+                        "a told intent passed its answer budget unanswered"
+                    );
+                    None
+                }
+            }
         } else {
             None
         };

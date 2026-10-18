@@ -172,7 +172,7 @@ pub async fn run(
     screen: mpsc::UnboundedSender<Control>,
     mut allowed: watch::Receiver<Exposure>,
 ) {
-    let mut announced = false;
+    let mut back_down = false;
     loop {
         let served = serve(&host, &screen, &mut allowed).await;
         // a vrx-matter that is gone advertises nothing: the adapter goes
@@ -181,9 +181,15 @@ pub async fn run(
         match served {
             Ok(()) => return,
             Err(err) => {
-                if !announced {
+                // OBS-01 (review 2026-10-17): EVERY outage's start is
+                // logged — the once-per-process line left the second and
+                // later outages with an end but no start. The reconnect
+                // logs the recovery.
+                if !back_down {
                     tracing::info!(error = %err, "Matter link down; retrying");
-                    announced = true;
+                    back_down = true;
+                } else {
+                    tracing::info!(error = %err, "Matter link still down; retrying");
                 }
             }
         }
