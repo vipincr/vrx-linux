@@ -366,16 +366,33 @@ pub async fn serve(socket: &Path, host: Host) -> std::io::Result<()> {
 async fn handle(mut conn: zlink::tokio::unix::Connection, host: Host) {
     // the caller: its applet (the cgroup of the socket peer's pid), or
     // what it is for the log
-    let (applet, caller) = match conn.peer_credentials().await {
+    // CON-10 (review 2026-10-17): an unreadable identity fails CLOSED.
+    // The old code read a failed cgroup lookup as "not an applet", and
+    // holds() gives a non-applet EVERY grant: the race was a one-arm
+    // elevation. Unknown identity answers nothing the grants gate.
+    let (applet, caller, identified) = match conn.peer_credentials().await {
         Ok(creds) => {
             let pid =
                 u32::try_from(creds.process_id().as_raw_nonzero().get()).unwrap_or(0);
-            let applet = applet_of_pid(pid);
-            let caller = applet.clone().unwrap_or_else(|| format!("pid {pid}"));
-            (applet, caller)
+            match applet_of_pid(pid) {
+                Some(applet) => {
+                    let caller = applet.clone();
+                    (Some(applet), caller, true)
+                }
+                // vrxhost itself (pid 1's realm) has no applet cgroup and
+                // needs none: it IS the system. Anything else with a pid
+                // that resolves to no applet is a non-applet caller, which
+                // keeps the log name but holds nothing.
+                None => (None, format!("pid {pid}"), pid <= 1),
+            }
         }
-        Err(_) => (None, "unknown".to_owned()),
+        Err(_) => (None, "unknown".to_owned(), false),
     };
+    if !identified && applet.is_none() {
+        // a non-applet caller may still read (Applets, Facts): the grant
+        // checks below answer NotPermitted for the rest
+        tracing::warn!(%caller, "caller identity unresolved: grants withheld");
+    }
     loop {
         let (call, fds) = match conn.receive_call::<AnyMethod>().await {
             Ok(call) => call,
@@ -640,6 +657,11 @@ fn holds(host: &Host, caller: Option<&str>, grant: vrx_protocol::SystemGrant) ->
     })
 }
 
+/// The wire adapter's own note: holds()'s None arm means "the system"
+/// (pid 1's realm, vrxhost itself). handle() never produces None for an
+/// unresolved peer anymore (CON-10); the None arm stays for the system
+/// callers that are the host process's own connections.
+
 /// The caller is the shell (the role), or not an applet at all.
 fn is_shell(host: &Host, caller: Option<&str>) -> bool {
     caller.is_none_or(|applet| {
@@ -719,9 +741,20 @@ async fn dispatch(
                 Some("pass") => false,
                 _ => return Err(Failure::invalid("verdict")),
             };
-            // a late answer finds nobody waiting: the intent moved on
-            host.bridge.answer(id, handled);
-            Ok(json!({}))
+            // CON-02 (review 2026-10-17): the answer is bound to the
+            // applet the intent was asked of. Any applet answering any
+            // id forged another's verdict; the bridge now refuses a
+            // mismatched caller with NotAsked, and a late answer still
+            // finds nobody waiting.
+            let caller = caller.unwrap_or("system").to_owned();
+            match host.bridge.answer_as(&caller, id, handled) {
+                Ok(()) => Ok(json!({})),
+                Err(crate::bridge::AnswerError::NotAsked) => Err(Failure::host(
+                    "NotAsked",
+                    json!({ "id": id, "by": caller }),
+                )),
+                Err(crate::bridge::AnswerError::Nobody) => Ok(json!({})),
+            }
         }
         "io.vrx.Host.Applets" => Ok(json!({ "applets": tiles(&host.registry.get()) })),
         "io.vrx.Host.Offers" => {
@@ -1017,6 +1050,21 @@ fn admit_intent(
             "NotDeclared",
             json!({ "channel": null, "intent": name }),
         ));
+    }
+    // CON-02 (review 2026-10-17): grants.conf says camera-use lets an
+    // applet SEND sys.camera.capture, and the grant was only checked when
+    // a channel opened. The intent itself now refuses without it.
+    if name == "sys.camera.capture"
+        && !entry.is_some_and(|e| {
+            e.manifest
+                .applet
+                .permissions
+                .system
+                .contains(&vrx_protocol::SystemGrant::CameraUse)
+        })
+    {
+        tracing::warn!(%applet, "refused: sys.camera.capture needs the camera-use grant");
+        return Err(Failure::host("NotPermitted", json!({ "intent": name })));
     }
     Ok(intent)
 }

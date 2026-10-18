@@ -139,13 +139,25 @@ pub struct Config {
 }
 
 impl Config {
-    /// The image's declaration; a missing or unreadable file is a board
-    /// with no host ports.
+    /// The image's declaration. A MISSING file is a board with no host
+    /// ports; an UNREADABLE or unparseable one is a fault and the
+    /// ports are reported as none with the reason logged (review
+    /// 2026-10-17, CON-08: it read as "no host ports" silently).
     pub fn load(path: &Path) -> Self {
-        std::fs::read_to_string(path)
-            .ok()
-            .and_then(|t| toml::from_str(&t).ok())
-            .unwrap_or_default()
+        match std::fs::read_to_string(path) {
+            Ok(t) => match toml::from_str(&t) {
+                Ok(c) => c,
+                Err(err) => {
+                    tracing::error!(path = %path.display(), error = %err, "usb config: unparseable; no host ports");
+                    toml::from_str("").unwrap_or_default()
+                }
+            },
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => toml::from_str("").unwrap_or_default(),
+            Err(err) => {
+                tracing::error!(path = %path.display(), error = %err, "usb config: unreadable; no host ports");
+                toml::from_str("").unwrap_or_default()
+            }
+        }
     }
 }
 
@@ -316,7 +328,9 @@ pub fn read_device(root: &Path, port: &str) -> Option<Device> {
         class: class_of(vendor, device_class, &interfaces),
         id: format!("{}:{}", attr(&dir, "idVendor"), attr(&dir, "idProduct")),
         speed: attr(&dir, "speed"),
-        authorized: attr(&dir, "authorized") != "0",
+        // CON-08 (review 2026-10-17): an unreadable `authorized` reads
+        // as REFUSED, not authorized — unknown is never yes
+        authorized: attr(&dir, "authorized") == "1",
         blocked: false,
         mounts: Vec::new(),
     })

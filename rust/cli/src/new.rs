@@ -15,7 +15,7 @@ pub fn run(args: &[String]) -> ExitCode {
         return ExitCode::from(64);
     };
     let id = sanitize_id(name);
-    if id.is_empty() {
+    if !id_ok(&id) {
         eprintln!("vrx new: {name:?} cannot become an applet id ([a-z][a-z0-9_]*)");
         return ExitCode::from(64);
     }
@@ -55,6 +55,10 @@ pub fn run(args: &[String]) -> ExitCode {
 
 /// [a-z][a-z0-9_]*, refusing the reserved id; "My-App" becomes
 /// "my_app", a leading digit gets a prefix.
+fn id_ok(id: &str) -> bool {
+    vrx_protocol::manifest::applet_id_ok(id)
+}
+
 fn sanitize_id(name: &str) -> String {
     let mut id: String = name
         .chars()

@@ -433,12 +433,20 @@ impl ChannelsSection {
     }
 }
 
-/// A channel or applet name: [a-z][a-z0-9_]*, at most 32.
-fn is_name(s: &str) -> bool {
+/// An applet id's grammar, the ONE predicate (review 2026-10-17,
+/// DS-02): [a-z][a-z0-9_]*, at most 32. Every reader — the manifest's
+/// own validate, `vrx new`, the channel names — spells it through here.
+pub fn applet_id_ok(s: &str) -> bool {
     s.len() <= 32
         && s.chars().next().is_some_and(|c| c.is_ascii_lowercase())
         && s.chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// A channel or applet name: the applet id's grammar (they are the same
+/// word, spelled once).
+fn is_name(s: &str) -> bool {
+    applet_id_ok(s)
 }
 
 /// Route 0 is the root and is never declared; declaration order is the
@@ -607,18 +615,31 @@ impl std::str::FromStr for Manifest {
 impl Manifest {
     /// Enforce every cross-field rule. Parse-time structural rules are
     /// serde's; these are the ones both sides must check identically.
+    /// A settings key's grammar: [a-z][a-z0-9_.-]* — the conf writer's
+    /// own line format is `key=value`, so a space or an `=` in a key
+    /// would corrupt the file (review 2026-10-17, CON-03).
+    pub fn setting_key_ok(key: &str) -> bool {
+        let mut chars = key.chars();
+        match chars.next() {
+            Some(c) if c.is_ascii_lowercase() => {}
+            _ => return false,
+        }
+        chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '.' | '-'))
+    }
+
+    /// A Text setting's default must be one line: the conf writer writes
+    /// it on one, and a newline would forge a second settings line.
+    pub fn text_default_ok(default: &str) -> bool {
+        !default.contains('\n') && !default.contains('\r')
+    }
+
     pub fn validate(&self) -> Result<(), ManifestError> {
         let a = &self.applet;
         let invalid = |msg: String| Err(ManifestError::Invalid(msg));
 
         // id: [a-z][a-z0-9_]*, max 32, "vrx" refused.
         let id = &a.id;
-        let id_ok = id.len() <= 32
-            && id != RESERVED_ID
-            && id.chars().next().is_some_and(|c| c.is_ascii_lowercase())
-            && id
-                .chars()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+        let id_ok = applet_id_ok(id) && id != RESERVED_ID;
         if !id_ok {
             return invalid(format!(
                 "applet.id {id:?}: must match [a-z][a-z0-9_]* (max 32) and not be {RESERVED_ID:?}"
@@ -722,10 +743,18 @@ impl Manifest {
             ));
         }
         for setting in &a.settings {
-            if setting.key.is_empty() {
+            if !Self::setting_key_ok(&setting.key) {
                 return invalid(format!(
-                    "setting {:?}: key must not be empty",
-                    setting.label
+                    "setting {:?}: key {:?} is not [a-z][a-z0-9_.-]*",
+                    setting.label, setting.key
+                ));
+            }
+            if setting.r#type == SettingType::Text
+                && setting.default.as_str().is_some_and(|d| !Self::text_default_ok(d))
+            {
+                return invalid(format!(
+                    "setting {:?}: a Text default must be one line",
+                    setting.key
                 ));
             }
             if a.settings.iter().filter(|s| s.key == setting.key).count() > 1 {

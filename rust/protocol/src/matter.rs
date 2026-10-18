@@ -40,6 +40,10 @@ pub struct Exposure {
     pub screen: bool,
     /// The applets switched on, by id.
     pub applets: Vec<String>,
+    /// Why nothing is exposed (review 2026-10-17, CON-08): an
+    /// unreadable or malformed allow-list exposes nothing and says why,
+    /// instead of quietly reading as the default.
+    pub error: Option<String>,
 }
 
 impl Default for Exposure {
@@ -48,6 +52,7 @@ impl Default for Exposure {
         Self {
             screen: true,
             applets: Vec::new(),
+            error: None,
         }
     }
 }
@@ -57,12 +62,25 @@ impl Exposure {
     /// kit's settings format). Unknown keys are other settings'.
     pub fn parse(text: &str) -> Self {
         let mut out = Self::default();
-        for line in text.lines() {
+        out.error = None;
+for line in text.lines() {
             let Some((key, value)) = line.split_once('=') else {
                 continue;
             };
             match key.trim() {
-                "matter_screen" => out.screen = value.trim() != "false",
+                "matter_screen" => {
+                    // only the literal words count: anything else names a
+                    // fault, not a screen quietly exposed
+                    out.screen = match value.trim() {
+                        "true" => true,
+                        "false" => false,
+                        other => {
+                            out.screen = false;
+                            out.error = Some(format!("matter_screen is '{other}', not true or false"));
+                            false
+                        }
+                    };
+                }
                 "matter_expose" => {
                     out.applets = value
                         .split(',')
@@ -77,11 +95,28 @@ impl Exposure {
         out
     }
 
-    /// The allow-list now: the file, or the default where it is absent.
+    /// The allow-list now. A file that cannot be READ is not the default
+    /// allow-list: unknown is never yes (review 2026-10-17, CON-08), so
+    /// an unreadable file exposes nothing and says why. A key that is
+    /// neither true nor false is an error, not a hidden expose.
     pub fn read() -> Self {
-        std::fs::read_to_string(SETTINGS_FILE)
-            .map(|t| Self::parse(&t))
-            .unwrap_or_default()
+        match std::fs::read_to_string(SETTINGS_FILE) {
+            Ok(t) => Self::parse(&t),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Self::default(),
+            Err(err) => {
+                Self::broken(format!("{SETTINGS_FILE}: {err}"))
+            }
+        }
+    }
+
+    /// An allow-list that exposes nothing, carrying why (shown to the
+    /// person, logged by vrxhost).
+    pub fn broken(reason: String) -> Self {
+        Self {
+            screen: false,
+            applets: Vec::new(),
+            error: Some(reason),
+        }
     }
 }
 

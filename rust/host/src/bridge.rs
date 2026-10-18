@@ -46,11 +46,19 @@ pub enum Delivery {
 struct Inner {
     /// applet -> (generation, its Listen)
     listeners: HashMap<String, (u64, mpsc::UnboundedSender<Delivery>)>,
-    /// intent id -> who waits for the answer
-    pending: HashMap<u64, oneshot::Sender<bool>>,
+    /// intent id -> (the applet it was asked of, who waits for the answer)
+    pending: HashMap<u64, (String, oneshot::Sender<bool>)>,
     /// applet -> the route it was last opened at, its payload and intent
     routes: HashMap<String, (String, Value, Option<String>)>,
     next: u64,
+}
+
+/// Why an answer did not land (review 2026-10-17, CON-02).
+pub enum AnswerError {
+    /// Another applet's intent: the caller was not asked.
+    NotAsked,
+    /// A late answer; the intent moved on.
+    Nobody,
 }
 
 /// Shared by every io.vrx.Host connection.
@@ -136,7 +144,7 @@ impl Bridge {
             let mut inner = self.lock();
             inner.next += 1;
             let id = inner.next;
-            inner.pending.insert(id, tx);
+            inner.pending.insert(id, (applet.to_owned(), tx));
             id
         };
         let delivery = Delivery::Intent {
@@ -199,8 +207,29 @@ impl Bridge {
     /// asked).
     pub fn answer(&self, id: u64, handled: bool) -> bool {
         match self.lock().pending.remove(&id) {
-            Some(tx) => tx.send(handled).is_ok(),
+            Some((_, tx)) => tx.send(handled).is_ok(),
             None => false,
+        }
+    }
+
+    /// [Self::answer] bound to the applet the intent was asked of
+    /// (review 2026-10-17, CON-02): the pending record carries its
+    /// addressee, and a caller that is not it answers nothing.
+    pub fn answer_as(
+        &self,
+        caller: &str,
+        id: u64,
+        handled: bool,
+    ) -> Result<(), AnswerError> {
+        let mut lock = self.lock();
+        match lock.pending.get(&id) {
+            Some((asked, _)) if asked != caller => Err(AnswerError::NotAsked),
+            Some(_) => {
+                let (_, tx) = lock.pending.remove(&id).expect("checked above");
+                tx.send(handled).ok();
+                Ok(())
+            }
+            None => Err(AnswerError::Nobody),
         }
     }
 
