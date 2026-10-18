@@ -16,6 +16,19 @@ use vrx_host::varlink::{self, Front, NavRequest};
 use vrx_host::{paths, power, registry, supply, usb};
 use vrx_protocol::Intent;
 
+/// Raise a system intent on the host wire, off the caller's loop. An
+/// intent name the protocol refuses is logged and dropped: the watcher
+/// that raised it must keep watching.
+fn raise_system_intent(host: varlink::Host, name: &str, payload: serde_json::Value) {
+    let name = name.to_owned();
+    tokio::spawn(async move {
+        match Intent::new(&name, payload) {
+            Ok(intent) => varlink::raise(&host, intent).await,
+            Err(err) => tracing::warn!(name = %name, error = %err, "cannot raise the system intent"),
+        }
+    });
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     tracing_subscriber::fmt()
@@ -194,14 +207,7 @@ async fn main() -> ExitCode {
         let raiser = host.clone();
         tokio::spawn(async move {
             let ended = usb::watch(state, move || {
-                let host = raiser.clone();
-                tokio::spawn(async move {
-                    if let Ok(intent) =
-                        Intent::new(usb::CONNECTED, serde_json::Value::Null)
-                    {
-                        varlink::raise(&host, intent).await;
-                    }
-                });
+                raise_system_intent(raiser.clone(), usb::CONNECTED, serde_json::Value::Null);
             })
             .await;
             if let Err(err) = ended {
@@ -238,14 +244,7 @@ async fn main() -> ExitCode {
     let (power_tx, power_rx) = mpsc::unbounded_channel();
     tokio::spawn(power::watch(power_rx, move |supply| {
         let _ = battery_tx.send(());
-        let host = raiser.clone();
-        tokio::spawn(async move {
-            if let Ok(intent) =
-                Intent::new(power::CHANGED, serde_json::json!({ "supply": supply }))
-            {
-                varlink::raise(&host, intent).await;
-            }
-        });
+        raise_system_intent(raiser.clone(), power::CHANGED, serde_json::json!({ "supply": supply }));
     }));
     // devices plugged into the board (plan 0019 D7): the image's
     // declaration, the device list from the same uevents, the drives'
@@ -279,13 +278,8 @@ async fn main() -> ExitCode {
                 f.usb_policy = policy.to_owned();
             });
         },
-        move |name, payload| {
-            let host = raiser.clone();
-            tokio::spawn(async move {
-                if let Ok(intent) = Intent::new(name, payload) {
-                    varlink::raise(&host, intent).await;
-                }
-            });
+        move |name: &'static str, payload: serde_json::Value| {
+            raise_system_intent(raiser.clone(), name, payload);
         },
         move || {
             let applets = probe_applets.clone();

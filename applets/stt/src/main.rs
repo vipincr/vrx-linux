@@ -61,7 +61,6 @@ fn listen_once(started: impl FnOnce()) -> Result<String, &'static str> {
     outcome
 }
 
-#[allow(clippy::print_stderr)]
 fn log(line: &str) {
     eprintln!("stt: {line}");
 }

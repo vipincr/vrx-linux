@@ -21,10 +21,10 @@
 VRX_APPLET ?= ""
 VRX_APPLET_DIR ?= "/system/defaults/${VRX_APPLET}"
 VRX_FLUTTER_BUNDLE ?= ""
-# Plan 0008 D18's hard budgets: start to usable, and event-loop liveness
-# (60 s since plan 0012 D4: a ping is a wake; vrx_protocol::unit's default)
-VRX_APPLET_START_BUDGET ?= "5s"
-VRX_APPLET_WATCHDOG ?= "60s"
+# Plan 0008 D18's hard budgets, start to usable and event-loop liveness,
+# are vrx_protocol::unit's one default (5 s and 60 s; a ping is a wake,
+# plan 0012 D4): no knob restates them, so no unvalidated string can
+# reach TimeoutStartSec.
 VRX_GRANTS_CONF = "${VRX_LINUX_LAYERDIR}/recipes-applets/vrx-applets/files/grants.conf"
 
 python vrx_applet_unit() {
@@ -58,8 +58,6 @@ python vrx_applet_unit() {
            '--manifest', manifest_path,
            '--dir', d.getVar('VRX_APPLET_DIR'),
            '--grants', d.getVar('VRX_GRANTS_CONF'),
-           '--start-budget', d.getVar('VRX_APPLET_START_BUDGET'),
-           '--watchdog', d.getVar('VRX_APPLET_WATCHDOG'),
            '--runtime', d.getVar('VRX_FLUTTER_RUNTIME') or 'release',
            '--dropin', dropin,
            '--settings', settings]

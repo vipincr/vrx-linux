@@ -6,7 +6,6 @@ import 'package:vrx_kit/vrx_kit.dart';
 /// host test.
 class CounterModel extends StoreModel<int, CounterAction, CounterView> {
   int count = 0;
-  bool announced = false;
 
   @override
   int get initial => 0;
@@ -25,17 +24,6 @@ class CounterModel extends StoreModel<int, CounterAction, CounterView> {
         count = 0;
     }
     return CounterView(count: count);
-  }
-
-  @override
-  List<Effect> effects(int state, CounterAction action) {
-    switch (action) {
-      case CounterAction.tap when !announced:
-        announced = true;
-        return const [Effect.intent('myapp.first.tap', null)];
-      default:
-        return const [];
-    }
   }
 
   @override
@@ -72,17 +60,6 @@ void main() {
     harness.dispatch(CounterAction.reset);
     harness.dispatch(CounterAction.tap);
     harness.assertView((v) => v.count == 1);
-  });
-
-  test('effects fire after their reduce, once each, oldest first', () {
-    final harness = StoreHarness(CounterModel());
-    harness.dispatch(CounterAction.tap);
-    harness.dispatch(CounterAction.tap);
-    expect(
-      harness.fired,
-      const [IntentEffect('myapp.first.tap', null)],
-      reason: 'the first tap announces; the second must not re-announce',
-    );
   });
 
   test('the store snapshot tracks the model state', () {
@@ -143,11 +120,13 @@ void main() {
           throwsA(isA<StateError>().having((e) => e.message, 'message', contains('open-then-back'))));
     });
 
-    test('a snapshot that will not restore starts the model fresh, logged, never a crash', () {
-      final store = Store<int, String, int>.restoring(PromiseModel(rejects: true), 7);
-      expect(store.state, 0, reason: 'initial, not the rejected snapshot');
-      final ok = Store<int, String, int>.restoring(PromiseModel(), 2);
-      expect(ok.state, 2, reason: 'a good snapshot is taken back');
+    test('a snapshot that will not restore leaves the model at its initial state', () {
+      final bad = PromiseModel(rejects: true);
+      expect(() => bad.restore(7), throwsA(anything), reason: 'the snapshot is rejected');
+      expect(bad.snapshot, 0, reason: 'a rejected restore leaves the state alone');
+      final good = PromiseModel();
+      good.restore(2);
+      expect(good.snapshot, 2, reason: 'a good snapshot is taken back');
     });
   });
 }

@@ -24,9 +24,10 @@ inherit systemd
 # the class is the machine's (its carrier's panel)
 PACKAGE_ARCH = "${MACHINE_ARCH}"
 
+# VRX_UI_SCHEME, VRX_UI_POLARITY and VRX_UI_MOTION are the distro's
+# defaults (meta-vrx-distro vrx.conf) and the machine's to override; a
+# copy here never applied (the distro conf is parsed first).
 VRX_DISPLAY_CLASS ??= "lcd_colour"
-VRX_UI_SCHEME ??= "12"
-VRX_UI_POLARITY ??= "dark"
 VRX_UI_MOTION ??= ""
 
 python () {

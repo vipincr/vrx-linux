@@ -5,7 +5,7 @@
 //
 //   vrx unit --manifest <manifest.toml> --dir <installed dir>
 //            [--bundle <dir>] [--grants <grants.conf>]
-//            [--start-budget 5s] [--watchdog 60s] [--runtime release|profile]
+//            [--runtime release|profile]
 //            --dropin <out> [--settings <out>]
 
 use std::path::PathBuf;
@@ -54,12 +54,6 @@ pub fn run(args: &[String]) -> ExitCode {
         None => Grants::shipped(),
     };
     let mut place = Place::builtin(dir, value(args, "--bundle").map(str::to_owned));
-    if let Some(budget) = value(args, "--start-budget") {
-        budget.clone_into(&mut place.start_budget);
-    }
-    if let Some(watchdog) = value(args, "--watchdog") {
-        watchdog.clone_into(&mut place.watchdog);
-    }
     if let Some(mode) = value(args, "--runtime") {
         let Some(mode) = FlutterMode::parse(mode) else {
             eprintln!("vrx unit: --runtime is release or profile, not {mode}");

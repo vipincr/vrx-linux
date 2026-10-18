@@ -1,11 +1,8 @@
-/// Shared state files: vrx's state IPC shape, from the applet side. A
-/// value that stays true until it changes, readable and watchable by
-/// anyone — /data/settings/* and friends, watched via inotify.
-///
-/// Direct file I/O from an applet is gated by the manifest's
-/// permissions; this class is the sanctioned reader/watcher, and its
-/// [VrxFile.writeAtomic] the one way a file is written whole (plan 0011
-/// D4).
+/// Whole-file writes and stop-time flushes: the applet side of shared
+/// state files. Watching is the host's (the Facts and settings IPC), and
+/// direct file I/O from an applet is gated by the manifest's permissions;
+/// [VrxFile.writeAtomic] is the one way a file is written whole (plan
+/// 0011 D4).
 library;
 
 import 'dart:async';
@@ -13,16 +10,9 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 
-/// A watchable shared-state file.
-abstract interface class VrxFile {
-  /// The watched path.
-  String get path;
-
-  /// The current value (text), or null if the file does not exist.
-  String? get value;
-
-  /// Every value as it changes (and the current one on listen).
-  Stream<String> get changes;
+/// Whole-file writes and stop-time flushes.
+final class VrxFile {
+  VrxFile._();
 
   /// Write [text] to [path] whole: a new file beside it, flushed, renamed
   /// over the old, so a power cut or a crash leaves one version or the
@@ -74,31 +64,4 @@ abstract interface class VrxFile {
 
   static final _flushers = <Future<void> Function()>[];
   static bool _watching = false;
-}
-
-/// VrxFile's connection to the filesystem, via the runtime.
-abstract interface class FileTransport {
-  /// Watch a path.
-  VrxFile watch(String path);
-}
-
-/// Watch shared state files.
-abstract final class VrxFiles {
-  static FileTransport? _transport;
-
-  /// Install the transport (the runtime, once, at startup).
-  static void install(FileTransport transport) => _transport = transport;
-
-  /// Watch a shared-state file by path.
-  static VrxFile watch(String path) {
-    final transport = _transport;
-    if (transport == null) {
-      throw StateError(
-        'VrxFiles: no transport installed — vrxhost is not running. '
-        'The flutter-vrx runtime installs one at startup; tests install '
-        'a recording fake.',
-      );
-    }
-    return transport.watch(path);
-  }
 }

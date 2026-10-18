@@ -1,52 +1,21 @@
 /// The store: vrx's applet model. A pure model (state, actions, a
-/// reducer, a derived view model), its effects, and a view — joined by
-/// one loop that is the only writer of the state.
+/// reducer, a derived view model) and a view — joined by one loop that
+/// is the only writer of the state.
 ///
-/// All actions queue through one channel; `reduce` runs, then effects
-/// fire, then the view is published. The same model compiles into a
-/// host test — every applet's decisions are testable without a board.
+/// All actions queue through one channel; `reduce` runs, then the view
+/// is published. The same model compiles into a host test — every
+/// applet's decisions are testable without a board.
 library;
 
 import 'dart:async';
-import 'dart:io' show stderr;
-
-/// A side effect the store asks the system to perform after a reduce.
-/// Effects are the only place an applet touches the world; `reduce`
-/// stays pure.
-sealed class Effect {
-  const Effect();
-
-  /// Send an intent (the signal IPC shape).
-  const factory Effect.intent(String name, Object? payload) = IntentEffect;
-}
-
-/// Send an intent after the reduce that requested it.
-final class IntentEffect implements Effect {
-  const IntentEffect(this.name, this.payload);
-
-  final String name;
-  final Object? payload;
-
-  @override
-  bool operator ==(Object other) =>
-      other is IntentEffect && other.name == name && other.payload == payload;
-
-  @override
-  int get hashCode => Object.hash(IntentEffect, name, payload);
-
-  @override
-  String toString() => 'IntentEffect($name, $payload)';
-}
-
 /// The store contract without any Widget dependency, so the model
 /// compiles and tests on any Dart host.
 ///
 /// The model instance owns its state as fields (the evrx-rt style):
 /// `reduce` applies the action to the model's state and returns the
 /// derived view model — pure in the sense of deterministic and free of
-/// side effects (effects belong in [StoreModel.effects]). `snapshot`
-/// is the serialized state vrxhost keeps when it suspends the applet
-/// and restores when it resumes.
+/// side effects. `snapshot` is the serialized state vrxhost keeps when
+/// it suspends the applet and restores when it resumes.
 abstract class StoreModel<S, A, V> {
   /// The state the model restores from, and the state a fresh model
   /// starts from.
@@ -54,16 +23,12 @@ abstract class StoreModel<S, A, V> {
 
   /// The action whose reduce produces the first view (an applet's
   /// `Init`): the store seeds itself with
-  /// `reduce(initial, bootAction)`, firing its effects too — resident
-  /// applets legitimately announce themselves on boot.
+  /// `reduce(initial, bootAction)`.
   A get bootAction;
 
   /// Pure: apply the action to the state, return the derived view
   /// model. No side effects.
   V reduce(S state, A action);
-
-  /// Side effects for this action (intents, I/O). Runs after reduce.
-  List<Effect> effects(S state, A action) => const [];
 
   /// The model's current state, captured after every reduce — what
   /// suspension preserves and eviction loses.
@@ -180,29 +145,7 @@ class Store<S, A, V> {
     model.startingFacts.forEach(dispatch);
   }
 
-  /// A store resumed from [saved] (plan 0013 D2): the model restores it,
-  /// then boots. A snapshot that will not restore (truncated, from an
-  /// older build) is dropped with a line in the journal, and the model
-  /// starts from [StoreModel.initial]; a resume never crashes the applet.
-  Store.restoring(this.model, S? saved) {
-    _state = model.initial;
-    if (saved != null) {
-      try {
-        model.restore(saved);
-        _state = model.snapshot;
-      } catch (err) {
-        stderr.writeln('vrx: ${model.runtimeType}: snapshot not restored ($err); starting fresh');
-      }
-    }
-    _apply(model.bootAction);
-    model.startingFacts.forEach(dispatch);
-  }
-
   final StoreModel<S, A, V> model;
-
-  /// Every action dispatched, oldest first (not the boot action): what
-  /// the harness replays (plan 0013 D2).
-  final List<A> history = <A>[];
 
   late S _state;
   late V _view;
@@ -210,7 +153,6 @@ class Store<S, A, V> {
   // same turn — the loop is deterministic, one writer, one order.
   final StreamController<V> _views = StreamController<V>.broadcast(sync: true);
   final List<A> _pending = <A>[];
-  final List<Effect> _fired = <Effect>[];
   bool _draining = false;
   // the hold this store has open: its keeper, so a later change of
   // [keeper] still releases the one that took it
@@ -222,10 +164,6 @@ class Store<S, A, V> {
   /// The model's current state snapshot.
   S get state => _state;
 
-  /// Every effect fired since construction, oldest first — the
-  /// host-test observation channel.
-  List<Effect> get fired => List.unmodifiable(_fired);
-
   /// The published view models.
   Stream<V> get views => _views.stream;
 
@@ -233,7 +171,6 @@ class Store<S, A, V> {
   /// from inside a reduce or effect queue behind — they never
   /// interleave; one writer, one order.
   void dispatch(A action) {
-    history.add(action);
     _pending.add(action);
     _drain();
   }
@@ -253,7 +190,6 @@ class Store<S, A, V> {
   void _apply(A action) {
     _view = model.reduce(_state, action);
     _state = model.snapshot;
-    _fired.addAll(model.effects(_state, action));
     _keep(model.keepsScreenOn);
     _views.add(_view);
   }
@@ -289,8 +225,13 @@ class StoreHarness<S, A, V> {
   final Store<S, A, V> store;
   final Duration reduceBudget;
 
+  /// The actions this harness dispatched, oldest first (not the boot
+  /// action): what [verify] replays (plan 0013 D2).
+  final List<A> _sent = <A>[];
+
   /// Dispatch an action; throws when it overruns [reduceBudget].
   void dispatch(A action) {
+    _sent.add(action);
     final watch = Stopwatch()..start();
     store.dispatch(action);
     watch.stop();
@@ -314,9 +255,6 @@ class StoreHarness<S, A, V> {
       );
     }
   }
-
-  /// The effects fired so far, oldest first.
-  List<Effect> get fired => store.fired;
 
   /// How many Backs reach the root from anywhere (plan 0013 D2).
   static const backBound = 50;
@@ -342,7 +280,7 @@ class StoreHarness<S, A, V> {
     Iterable<String> routes = const [],
     A? Function(String route)? openAt,
   }) {
-    final sent = store.history.toList();
+    final sent = _sent.toList();
     Store<S, A, V> replayed(int upTo) {
       final s = Store<S, A, V>(fresh());
       for (final a in sent.take(upTo)) {
