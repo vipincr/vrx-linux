@@ -9,7 +9,7 @@ use std::process::{Command, ExitCode, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use stt::{has_capture, heard, samples, transcribe, Step, Vad, FRAME, RATE};
+use stt::{has_capture, heard, samples, transcribe, Step, Vad, Why, FRAME, RATE};
 use vrx::ipc::{answer, intent_send, Delivery, Listener};
 use vrx::service::{notify, Liveness};
 
@@ -17,10 +17,10 @@ const SOCKET: &str = "/run/vrx-ml/stt.sock";
 
 /// Record until the detector decides; the outcome sys.stt.heard carries.
 /// [started] runs once, when the microphone's first frame arrives.
-fn listen_once(started: impl FnOnce()) -> Result<String, &'static str> {
+fn listen_once(started: impl FnOnce()) -> Result<String, Why> {
     let pcm = std::fs::read_to_string("/proc/asound/pcm").unwrap_or_default();
     if !has_capture(&pcm) {
-        return Err("no-microphone");
+        return Err(Why::NoMicrophone);
     }
     let rate = RATE.to_string();
     let mut rec = Command::new("arecord")
@@ -30,17 +30,17 @@ fn listen_once(started: impl FnOnce()) -> Result<String, &'static str> {
         .spawn()
         .map_err(|e| {
             log(&format!("arecord: {e}"));
-            "no-microphone"
+            Why::NoMicrophone
         })?;
     let Some(mut out) = rec.stdout.take() else {
-        return Err("no-microphone");
+        return Err(Why::NoMicrophone);
     };
     let mut vad = Vad::new();
     let mut frame = vec![0u8; FRAME * 2];
     let mut started = Some(started);
     let outcome = loop {
         if out.read_exact(&mut frame).is_err() {
-            break Err("no-microphone");
+            break Err(Why::CaptureFailed);
         }
         if let Some(say) = started.take() {
             say();
@@ -49,9 +49,16 @@ fn listen_once(started: impl FnOnce()) -> Result<String, &'static str> {
             Step::More => {}
             Step::NothingHeard => break Ok(String::new()),
             Step::Heard(clip) => {
+                // CON-07 (review 2026-10-17): the microphone closes
+                // BEFORE inference — arecord stayed alive through
+                // transcribe, holding the capture device (and the
+                // camera's audio path, on boards that share one)
+                drop(out);
+                let _ = rec.kill();
+                let _ = rec.wait();
                 break transcribe(Path::new(SOCKET), &clip).map_err(|e| {
                     log(&format!("whisper-server: {e:?}"));
-                    "engine"
+                    Why::TranscribeFailed
                 })
             }
         }
@@ -101,6 +108,16 @@ fn main() -> ExitCode {
         }
         let busy = Arc::clone(&busy);
         std::thread::spawn(move || {
+            // CON-07 (review 2026-10-17): a guard, not a trailing store —
+            // a hang unwound by the watchdog or a panic released nothing
+            // and stt answered "busy" for the rest of the process's life
+            struct Gate(Arc<AtomicBool>);
+            impl Drop for Gate {
+                fn drop(&mut self) {
+                    self.0.store(false, Ordering::SeqCst);
+                }
+            }
+            let _gate = Gate(busy);
             let outcome = listen_once(|| {
                 if let Err(err) =
                     intent_send("sys.stt.listening", serde_json::Value::Null)
@@ -111,7 +128,6 @@ fn main() -> ExitCode {
             if let Err(err) = intent_send("sys.stt.heard", heard(outcome)) {
                 log(&format!("sys.stt.heard: {err}"));
             }
-            busy.store(false, Ordering::SeqCst);
         });
     }
     // vrxhost went away: systemd starts stt again with it

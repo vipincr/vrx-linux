@@ -61,6 +61,8 @@ final class AssistantHeard implements AssistantAction {
 String heardSentence(String? error) => switch (error) {
       'nothing-heard' => 'Nothing was heard.',
       'no-microphone' => 'This device has no microphone.',
+      'capture-failed' => 'The microphone stopped working mid-recording.',
+      'transcribe-failed' => 'The speech engine did not answer.',
       _ => 'The speech model could not write that down. The details are in the log.',
     };
 

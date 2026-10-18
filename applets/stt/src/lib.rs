@@ -307,13 +307,40 @@ pub fn has_capture(pcm_list: &str) -> bool {
     pcm_list.lines().any(|l| l.contains(": capture "))
 }
 
-/// What sys.stt.heard carries: the text, or why there is none. The
-/// applet that asked puts the reason in a person's words.
-pub fn heard(outcome: Result<String, &str>) -> serde_json::Value {
+/// Why there is no text: the ONE vocabulary for sys.stt.heard's error
+/// (CON-06, review 2026-10-17 — bare literals in three files drifted).
+/// The applet that asked puts each in a person's words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Why {
+    /// The board has no capture device at all.
+    NoMicrophone,
+    /// Capture failed mid-stream (the microphone went away).
+    CaptureFailed,
+    /// Recorded and heard nothing.
+    NothingHeard,
+    /// Whisper refused or crashed on the clip.
+    TranscribeFailed,
+}
+
+impl Why {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Why::NoMicrophone => "no-microphone",
+            Why::CaptureFailed => "capture-failed",
+            Why::NothingHeard => "nothing-heard",
+            Why::TranscribeFailed => "transcribe-failed",
+        }
+    }
+}
+
+/// What sys.stt.heard carries: the text, or why there is none.
+pub fn heard(outcome: Result<String, Why>) -> serde_json::Value {
     match outcome {
-        Ok(text) if text.is_empty() => serde_json::json!({ "error": "nothing-heard" }),
+        Ok(text) if text.is_empty() => {
+            serde_json::json!({ "error": Why::NothingHeard.as_str() })
+        }
         Ok(text) => serde_json::json!({ "text": text }),
-        Err(why) => serde_json::json!({ "error": why }),
+        Err(why) => serde_json::json!({ "error": why.as_str() }),
     }
 }
 

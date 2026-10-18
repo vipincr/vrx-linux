@@ -171,7 +171,10 @@ pub fn still_size(max: [u32; 2], width: Option<u32>) -> Option<(u32, u32)> {
     if mw == 0 || mh == 0 {
         return None;
     }
-    let wanted = width.unwrap_or(mw).clamp(2, mw);
+    // CON-05 (review 2026-10-17): a camera whose largest side is 1
+    // panicked the clamp — a 1-pixel camera still gets a size, and the
+    // pixel bound still holds
+    let wanted = width.unwrap_or(mw).clamp(1, mw);
     let mut w = u64::from(wanted);
     let mut h = (w * u64::from(mh)).div_ceil(u64::from(mw));
     if w * h > MAX_PIXELS {

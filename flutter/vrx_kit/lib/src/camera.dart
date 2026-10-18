@@ -176,18 +176,37 @@ class CameraService {
     StreamSubscription<FileSystemEvent>? events;
     CameraState? last;
     late final StreamController<CameraState> out;
+    // publishes are SEQUENCED (CON-07, review 2026-10-17): concurrent
+    // publishes raced an older read past a newer one, and the stale one
+    // was shown as current. One in flight; the next coalesces after it.
+    Future<void>? publishing;
+    var closed = false;
     Future<void> publish() async {
-      final now = await read();
-      if (out.isClosed || now == last) return;
-      last = now;
-      out.add(now);
+      while (publishing != null) {
+        try {
+          await publishing;
+        } on Object {
+          break; // the previous read failed; ours goes now
+        }
+      }
+      if (closed) return;
+      final mine = () async {
+        final now = await read();
+        if (closed || out.isClosed || now == last) return;
+        last = now;
+        out.add(now);
+      }();
+      publishing = mine;
+      await mine;
+      if (identical(publishing, mine)) publishing = null;
     }
 
     Future<void> attach() async {
+      if (closed) return; // add-after-close (CON-07): a closed stream adds nothing
       await events?.cancel();
       events = null;
-      if (out.isClosed) return;
       await publish();
+      if (closed || out.isClosed) return;
       if (out.isClosed) return;
       final here = Directory(dir);
       final parent = here.parent;
@@ -208,6 +227,7 @@ class CameraService {
     out = StreamController(
       onListen: attach,
       onCancel: () async {
+        closed = true; // a late watcher event publishes nothing (CON-07)
         await events?.cancel();
         await out.close();
       },
@@ -268,24 +288,33 @@ class CameraPhotos {
   /// watchdog.
   static const patience = Duration(seconds: 20);
 
+  // one open in flight (CON-07, review 2026-10-17): two first asks each
+  // ran _ensure and opened TWO channels; whichever lost leaked.
+  Future<void>? opening;
   Future<void> _ensure() async {
     if (_channel != null) return;
-    final VrxChannel channel;
-    try {
-      channel = await _open();
-    } on Object catch (err) {
-      throw CameraError('unavailable', '$err');
-    }
-    _channel = channel;
-    _records = channel.records.listen(
-      (record) {
-        if (record is! Map<String, dynamic>) return;
-        final done = _pending.remove((record['id'] as num?)?.toInt());
-        done?.complete(record);
-      },
-      onError: (Object _) => _lost(),
-      onDone: _lost,
-    );
+    final Future<void> mine = opening ??= () async {
+      try {
+        final channel = await _open();
+        _channel = channel;
+        _records = channel.records.listen(
+          (record) {
+            if (record is! Map<String, dynamic>) return;
+            final done = _pending.remove((record['id'] as num?)?.toInt());
+            done?.complete(record);
+          },
+          onError: (Object _) {
+            _lost();
+          },
+          onDone: _lost,
+        );
+      } on Object catch (err) {
+        throw CameraError('unavailable', '$err');
+      } finally {
+        opening = null;
+      }
+    }();
+    await mine;
   }
 
   void _lost() {

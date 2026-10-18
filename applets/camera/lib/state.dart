@@ -268,6 +268,11 @@ class CameraModel extends StoreModel<CameraSnapshot, CameraAction, CameraView> {
     phase = CameraPhase.off;
     stopAfter = false;
     selecting = false;
+    // ISA-01 (review 2026-10-17): the saving flag belonged to THIS
+    // session; leaving it set made Capture dead after a camera change
+    // or an unplug during a save. The late CameraSaved is refused by the
+    // generation check; the flag must not outlive it.
+    saving = false;
     w = h = 0;
   }
 

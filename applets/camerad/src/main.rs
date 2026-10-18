@@ -80,7 +80,7 @@ mod service {
                         if ours {
                             let intent = serde_json::from_value::<CaptureIntent>(payload)
                                 .unwrap_or(CaptureIntent {
-                                    keep: true,
+                                    keep: intent.keep,
                                     announce: false,
                                 });
                             if tx.send(Input::Intent(intent)).is_err() {

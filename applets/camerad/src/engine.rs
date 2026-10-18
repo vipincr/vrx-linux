@@ -792,10 +792,15 @@ impl Engine {
         if self.written.as_ref() == Some(&state) {
             return;
         }
-        if let Err(e) = state::write(&self.env.state_dir, &state) {
-            (self.env.log)(&format!("state.json: {e}"));
+        // CON-08 (review 2026-10-17): a failed write is RETRIED on every
+        // change and reported — latching "written" on failure left the
+        // camera indicator dark until the next unrelated change
+        match state::write(&self.env.state_dir, &state) {
+            Ok(()) => self.written = Some(state),
+            Err(e) => {
+                (self.env.log)(&format!("state.json: {e}; retrying on the next change"));
+            }
         }
-        self.written = Some(state);
     }
 }
 
