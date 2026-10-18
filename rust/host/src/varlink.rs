@@ -338,6 +338,12 @@ pub struct Installer {
     pub added: mpsc::UnboundedSender<Vec<String>>,
     /// One install-helper call at a time (they share its request file).
     pub lock: std::sync::Arc<tokio::sync::Mutex<()>>,
+    /// Offer builds hashed this run, keyed by (path, size, mtime): a
+    /// listing that changes nothing hashes nothing (review 2026-10-17,
+    /// ALG-02 — 2 GiB of sha256 per listing became 0 on a warm cache).
+    pub build_cache: std::sync::Arc<
+        tokio::sync::Mutex<Vec<(std::path::PathBuf, u64, u64, String)>>,
+    >,
 }
 
 /// Serve `io.vrx.Host` until the listener fails.

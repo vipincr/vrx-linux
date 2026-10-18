@@ -407,13 +407,18 @@ fn copy_tree(src: &Path, dest: &Path, depth: usize) -> std::io::Result<()> {
             #[cfg(unix)]
             std::os::unix::fs::symlink(&target, &to)?;
         } else if kind.is_dir() {
-            // build artifacts and dependency caches never ship
-            let name = entry.file_name();
-            if matches!(
-                name.to_string_lossy().as_ref(),
-                "target" | ".dart_tool" | "build" | ".git"
-            ) {
-                continue;
+            // build artifacts and dependency caches never ship — at the
+            // applet's OWN root only (review 2026-10-17, CON-06: a data
+            // directory named build any deeper was silently dropped from
+            // every image)
+            if depth == 0 {
+                let name = entry.file_name();
+                if matches!(
+                    name.to_string_lossy().as_ref(),
+                    "target" | ".dart_tool" | "build" | ".git"
+                ) {
+                    continue;
+                }
             }
             copy_tree(&from, &to, depth + 1)?;
         } else {

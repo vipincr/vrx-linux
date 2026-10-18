@@ -131,6 +131,7 @@ async fn main() -> ExitCode {
         applets: applets.clone(),
         added: added_tx,
         lock: Default::default(),
+        build_cache: Default::default(),
     };
     let host = Host {
         registry: registry.clone(),

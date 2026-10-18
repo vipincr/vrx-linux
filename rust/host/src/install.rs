@@ -360,12 +360,37 @@ async fn read_inside(
 
 /// The image's SHA-256.
 pub async fn build_of(image: &Path) -> Result<String, Refusal> {
+    // the cache: an unchanged image (path, size, mtime) hashed this run
+    // is not hashed again (review 2026-10-17, ALG-02)
+    let stat = std::fs::metadata(image).ok();
+    let key = stat.as_ref().map(|m| {
+        use std::os::unix::fs::MetadataExt;
+        (image.to_path_buf(), m.size(), m.mtime() as u64)
+    });
+    if let Some(k) = &key {
+        if let Ok(cache) = BUILD_CACHE.lock() {
+            if let Some((_, _, _, build)) = cache.iter().find(|e| &e.0 == &k.0 && e.1 == k.1 && e.2 == k.2) {
+                return Ok(build.clone());
+            }
+        }
+    }
     let out = output("sha256sum", &[&image.to_string_lossy()]).await?;
-    out.split_whitespace()
+    let build = out
+        .split_whitespace()
         .next()
         .map(str::to_owned)
-        .ok_or_else(|| Refusal::Unreadable("sha256sum said nothing".into()))
+        .ok_or_else(|| Refusal::Unreadable("sha256sum said nothing".into()))?;
+    if let Some(k) = key {
+        if let Ok(mut cache) = BUILD_CACHE.lock() {
+            cache.push((k.0, k.1, k.2, build.clone()));
+        }
+    }
+    Ok(build)
 }
+
+/// The run's offer-build cache (see [build_of]).
+pub static BUILD_CACHE: std::sync::Mutex<Vec<(PathBuf, u64, u64, String)>> =
+    std::sync::Mutex::new(Vec::new());
 
 /// Read an offer: its listing, its release file and its manifest, every
 /// check but the registry's, all under the image policy.
@@ -895,11 +920,20 @@ pub async fn helper(
                 return refused("OfferChanged", json!({ "file": file }));
             }
             let id = inspected.manifest.applet.id.clone();
+            // CON-05 (review 2026-10-17): one transaction. The image is
+            // copied and hashed FIRST, the drop-in (the thing systemd and
+            // Settings read) goes LAST — a failure anywhere before it
+            // leaves the previous applet whole. The old order wrote the
+            // drop-in before staging, so a failed copy left a unit for an
+            // applet whose image was not there.
             let staged = async {
-                write_unit(&inspected)?;
-                stage(&image, &id).await
+                stage(&image, &id).await?;
+                write_unit(&inspected)
             };
             if let Err(detail) = staged.await {
+                // undo the half that landed: no image, no drop-in
+                let _ = std::fs::remove_file(Path::new(EXTENSIONS).join(format!("{id}.raw")));
+                let _ = std::fs::remove_file(dropin_path(&id));
                 return refused(
                     "InstallFailed",
                     json!({ "applet": id, "detail": detail }),
