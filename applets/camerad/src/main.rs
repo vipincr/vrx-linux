@@ -47,14 +47,15 @@ mod service {
         })
     }
 
-    /// Under 480 pixels on its short side the viewfinder is 320x240. The
-    /// framebuffer's size is what the kernel says about the screen.
+    /// Under [bounds::SMALL_DISPLAY] pixels on its short side the
+    /// viewfinder is 320x240. The framebuffer's size is what the kernel
+    /// says about the screen.
     fn small_display() -> bool {
         std::fs::read_to_string("/sys/class/graphics/fb0/virtual_size")
             .ok()
             .and_then(|s| {
                 let (w, h) = s.trim().split_once(',')?;
-                Some(w.parse::<u32>().ok()?.min(h.parse::<u32>().ok()?) < 480)
+                Some(w.parse::<u32>().ok()?.min(h.parse::<u32>().ok()?) < bounds::SMALL_DISPLAY)
             })
             .unwrap_or(false)
     }

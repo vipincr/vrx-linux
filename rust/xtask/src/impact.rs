@@ -29,14 +29,23 @@ impl Fnv {
 }
 
 fn walk(path: &Path, out: &mut Vec<PathBuf>) {
+    walk_skipping(path, out, true);
+}
+
+/// The walk. `top` marks the input's own root: build output and tool state
+/// (SKIP) are skipped there, and hidden entries at any depth, but a SOURCE
+/// directory named "build" or "target" below the top is content the check
+/// reads and hashes (review 2026-10-17, CON-03: a skip at every depth made
+/// any such directory invisible to every gate).
+fn walk_skipping(path: &Path, out: &mut Vec<PathBuf>, top: bool) {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    if SKIP.contains(&name) || (name.starts_with('.') && name != ".") {
+    if (top && SKIP.contains(&name)) || (name.starts_with('.') && name != ".") {
         return;
     }
     if path.is_dir() {
         if let Ok(entries) = std::fs::read_dir(path) {
             for entry in entries.flatten() {
-                walk(&entry.path(), out);
+                walk_skipping(&entry.path(), out, false);
             }
         }
     } else if path.is_file() {
@@ -59,10 +68,27 @@ pub fn hash(repo: &Path, inputs: &[PathBuf]) -> u64 {
         let rel = file.strip_prefix(repo).unwrap_or(&file);
         h.write(rel.to_string_lossy().as_bytes());
         h.write(&[0]);
-        h.write(&std::fs::read(&file).unwrap_or_default());
+        // an unreadable file hashes as its error, never as an empty file:
+        // the two are indistinguishable in the output otherwise (CON-03)
+        match std::fs::read(&file) {
+            Ok(bytes) => h.write(&bytes),
+            Err(err) => h.write(format!("unreadable: {err}").as_bytes()),
+        }
         h.write(&[0]);
     }
     h.0
+}
+
+/// The toolchain an input's checks run under: a rust-toolchain file at
+/// the repo root changes every Rust answer, so every hash carries it
+/// (CON-03: no toolchain input meant a toolchain bump never invalidated
+/// a stamp).
+pub fn toolchain_files(repo: &Path) -> Vec<PathBuf> {
+    ["rust-toolchain.toml", "rust-toolchain"]
+        .iter()
+        .map(|n| repo.join(n))
+        .filter(|p| p.is_file())
+        .collect()
 }
 
 /// The local path dependencies a package builds against, transitively:

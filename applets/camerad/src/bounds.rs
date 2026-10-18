@@ -22,8 +22,11 @@ pub const IDLE_STOP: Duration = Duration::from_secs(2);
 pub const MAX_PHOTO_NUMBER: u32 = 9999;
 /// evrx's JPEG quality.
 pub const DEFAULT_QUALITY: u8 = 85;
-/// The viewfinder's size, and the one under a small display (below 480
-/// pixels), in the camera's 4:3.
+/// A display under this many pixels on its short side is small: the
+/// viewfinder drops to VIEWFINDER_SMALL.
+pub const SMALL_DISPLAY: u32 = 480;
+/// The viewfinder's size, and the one under a small display, in the
+/// camera's 4:3.
 pub const VIEWFINDER: (u32, u32) = (640, 480);
 pub const VIEWFINDER_SMALL: (u32, u32) = (320, 240);
 /// A capture in flight is given this long before it is answered `failed`.

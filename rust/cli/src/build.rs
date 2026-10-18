@@ -91,12 +91,15 @@ pub fn run(args: &[String]) -> ExitCode {
     // layout test is required: every screen on every display vrx drives
     // (AGENTS.md rule 11)
     let flutter = manifest.applet.runtime == vrx_protocol::manifest::Runtime::Flutter;
+    // a service has no screen, so nothing to lay out (the repo gate reads
+    // the same kind; review 2026-10-17, KRN-07)
+    let service = manifest.applet.kind == vrx_protocol::manifest::Kind::Service;
     let layout = if flutter {
         manifest_dir.join("test").join("layout_test.dart")
     } else {
         manifest_dir.join("tests").join("layout.rs")
     };
-    if !layout.is_file() {
+    if !service && !layout.is_file() {
         eprintln!(
             "vrx build: {} has no {}: every screen must be checked on every display \
              (AGENTS.md rule 11)",

@@ -73,27 +73,46 @@ fn main() -> ExitCode {
     }
 }
 
+/// The applets under applets/, ONE inventory for every gate (review
+/// 2026-10-17, DS-04: six walks with five filters gave four answers, and
+/// an unreadable applets/ directory passed the gate). One filter: a
+/// directory whose manifest parses. An unreadable directory is an error
+/// the caller fails on, never an empty list the gate passes with.
+fn applets(repo: &std::path::Path) -> Option<Vec<(std::path::PathBuf, vrx_protocol::Manifest)>> {
+    let entries = match std::fs::read_dir(repo.join("applets")) {
+        Ok(e) => e,
+        Err(err) => {
+            eprintln!("gate: FAILED — cannot read applets/: {err}");
+            return None;
+        }
+    };
+    let mut out: Vec<_> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter_map(|d| {
+            let text = std::fs::read_to_string(d.join("manifest.toml")).ok()?;
+            Some((d, text.parse().ok()?))
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Some(out)
+}
+
 /// The Rust applets under applets/ (standalone crates, outside the
 /// workspace): fmt, clippy -D warnings and their tests, which include the
 /// layout check every applet carries (tests/layout.rs, AGENTS.md rule 11),
 /// the same steps `vrx build` runs before it compiles one.
 fn rust_applets_gate(repo: &std::path::Path, stamps: &impact::Stamps) -> bool {
-    let Ok(entries) = std::fs::read_dir(repo.join("applets")) else {
-        return true;
+    let Some(inventory) = applets(repo) else {
+        return false;
     };
-    let mut crates: Vec<_> = entries
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.join("Cargo.toml").is_file())
-        .collect();
-    crates.sort();
-    for dir in crates {
+    for (dir, manifest) in inventory
+        .into_iter()
+        .filter(|(d, _)| d.join("Cargo.toml").is_file())
+    {
         let shown = dir.strip_prefix(repo).unwrap_or(&dir).display().to_string();
         // a service has no screen, so nothing to lay out (manifest kind)
-        let service = std::fs::read_to_string(dir.join("manifest.toml"))
-            .ok()
-            .and_then(|t| t.parse::<vrx_protocol::manifest::Manifest>().ok())
-            .is_some_and(|m| m.applet.kind == vrx_protocol::manifest::Kind::Service);
+        let service = manifest.applet.kind == vrx_protocol::manifest::Kind::Service;
         if !service && !dir.join("tests").join("layout.rs").is_file() {
             eprintln!(
                 "gate: FAILED — {shown} has no tests/layout.rs (AGENTS.md rule 11)"
@@ -137,18 +156,7 @@ fn rust_applets_gate(repo: &std::path::Path, stamps: &impact::Stamps) -> bool {
 /// Every applet's literal intents and pushes against the manifests under
 /// applets/ (vrx_protocol::scan::sent_violations), as `applets/<id>/...`.
 fn sent_literals_gate(repo: &std::path::Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(repo.join("applets")) else {
-        return Vec::new();
-    };
-    let mut dirs: Vec<_> = entries.flatten().map(|e| e.path()).collect();
-    dirs.sort();
-    let manifests: Vec<(std::path::PathBuf, vrx_protocol::Manifest)> = dirs
-        .into_iter()
-        .filter_map(|d| {
-            let text = std::fs::read_to_string(d.join("manifest.toml")).ok()?;
-            Some((d, text.parse().ok()?))
-        })
-        .collect();
+    let manifests = applets(repo).unwrap_or_default();
     let known: Vec<vrx_protocol::Manifest> =
         manifests.iter().map(|(_, m)| m.clone()).collect();
     let mut out = Vec::new();
@@ -254,26 +262,30 @@ fn flutter_gate(repo: &std::path::Path, stamps: &impact::Stamps) -> bool {
 }
 
 /// The workspace members, from the root Cargo.toml: (directory, package).
+/// Parsed with the toml crate (review 2026-10-17, KRN-04): a string split
+/// of the members list silently returned nothing on any format change and
+/// the gate passed vacuously.
 fn workspace_crates(repo: &std::path::Path) -> Vec<(std::path::PathBuf, String)> {
     let text = std::fs::read_to_string(repo.join("Cargo.toml")).unwrap_or_default();
-    let Some(list) = text
-        .split("members = [")
-        .nth(1)
-        .and_then(|t| t.split(']').next())
-    else {
+    let Ok(root) = text.parse::<toml::Table>() else {
+        eprintln!("gate: FAILED — cannot parse the workspace Cargo.toml");
         return Vec::new();
     };
-    list.split(',')
+    let Some(members) = root
+        .get("workspace")
+        .and_then(|w| w.get("members"))
+        .and_then(|m| m.as_array())
+    else {
+        eprintln!("gate: FAILED — the workspace Cargo.toml names no members");
+        return Vec::new();
+    };
+    members
+        .iter()
         .filter_map(|m| {
-            let dir = repo.join(m.trim().trim_matches('"'));
+            let dir = repo.join(m.as_str()?);
             let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).ok()?;
-            let name = manifest.lines().find_map(|l| {
-                l.trim()
-                    .strip_prefix("name = \"")?
-                    .strip_suffix('"')
-                    .map(str::to_owned)
-            })?;
-            Some((dir, name))
+            let name = manifest.parse::<toml::Table>().ok()?;
+            Some((dir, name.get("package")?.get("name")?.as_str()?.to_owned()))
         })
         .collect()
 }
@@ -290,18 +302,9 @@ fn applet_user_clash(repo: &std::path::Path) -> Option<String> {
         .ok()?,
     )
     .ok()?;
-    let mut entries: Vec<_> = std::fs::read_dir(repo.join("applets"))
-        .ok()?
-        .flatten()
-        .collect();
-    entries.sort_by_key(|e| e.path());
-    for entry in entries {
-        let Ok(text) = std::fs::read_to_string(entry.path().join("manifest.toml")) else {
-            continue;
-        };
-        let Ok(manifest) = text.parse::<vrx_protocol::Manifest>() else {
-            continue; // the crate tests and vrx build name a bad manifest
-        };
+    let mut entries: Vec<_> = applets(repo)?;
+    entries.sort_by_key(|(p, _)| p.clone());
+    for (_entry, manifest) in entries {
         let place = vrx_protocol::unit::Place::builtin(
             format!("/system/defaults/{}", manifest.applet.id),
             Some("/bundle".to_owned()),
@@ -394,10 +397,13 @@ fn gate(all: bool) -> ExitCode {
     let stamps = impact::Stamps::new(&repo, all);
 
     // the workspace: each crate checked when it, a crate it builds
-    // against, the lockfile or the workspace manifest changed
+    // against, the lockfile, the workspace manifest or the toolchain
+    // changed
     let mut stale = Vec::new();
+    let toolchain = impact::toolchain_files(&repo);
     for (dir, name) in workspace_crates(&repo) {
         let mut inputs = vec![repo.join("Cargo.lock"), repo.join("Cargo.toml")];
+        inputs.extend(toolchain.iter().cloned());
         // the crate, what it builds against, and what any of them reads
         // with include_str! (rust/sdk's display table, rust/protocol's
         // grants.conf)
@@ -537,10 +543,8 @@ fn gate(all: bool) -> ExitCode {
     // the trees whose code runs inside applets: the Flutter SDK, the Rust
     // SDK and every applet
     let mut roots = vec![repo.join("flutter/vrx_kit/lib"), repo.join("rust/sdk/src")];
-    if let Ok(entries) = std::fs::read_dir(repo.join("applets")) {
-        for entry in entries.flatten() {
-            roots.extend(vrx_protocol::scan::applet_roots(&entry.path()));
-        }
+    for (dir, _) in applets(&repo).unwrap_or_default() {
+        roots.extend(vrx_protocol::scan::applet_roots(dir.as_path()));
     }
     let found = vrx_protocol::scan::scan(&roots);
     for v in &found {
