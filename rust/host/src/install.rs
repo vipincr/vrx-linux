@@ -602,6 +602,32 @@ pub async fn import_from(
     accept: &impl Fn(&str) -> bool,
     max_bytes: u64,
 ) {
+    // CON-01 (review 2026-10-17): the drive import admits against the same
+    // /data headroom the manage upload does — one writer protecting the
+    // space and the other filling it to the brim was the finding.
+    if let Ok(out) = tokio::process::Command::new("df")
+        .args(["-kP", &dest.to_string_lossy()])
+        .output()
+        .await
+    {
+        // "Filesystem 1024-blocks Used Available ..." — the one number
+        let text = String::from_utf8_lossy(&out.stdout);
+        if let Some(avail_kb) = text
+            .lines()
+            .nth(1)
+            .and_then(|l| l.split_whitespace().nth(3))
+            .and_then(|v| v.parse::<u64>().ok())
+        {
+            if avail_kb * 1024 < crate::update::UPDATES_MIN_FREE {
+                tracing::warn!(
+                    avail_kb,
+                    min_kb = crate::update::UPDATES_MIN_FREE / 1024,
+                    "drive import skipped: /data's headroom comes first"
+                );
+                return;
+            }
+        }
+    }
     let landing = dest.join(".drive");
     let _ = std::fs::remove_dir_all(&landing);
     let copied = match source {

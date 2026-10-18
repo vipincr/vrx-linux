@@ -25,9 +25,13 @@ use zbus::{proxy, Connection};
 
 /// Bundles offered: uploads from the Manage page and the USB drive's
 /// `updates/` folder land here (D11).
-pub const UPDATES: &str = "/data/vrx/updates";
+pub use vrx_protocol::paths::UPDATES;
+/// The floor /data keeps before any writer of UPDATES lands more
+/// (review 2026-10-17, CON-01): the manage upload and the drive import
+/// both admit against this, so one rule protects the applets' state.
+pub const UPDATES_MIN_FREE: u64 = 256 << 20;
 /// vrxhost's record of a trial it asked for, to tell a fall-back.
-pub const STATE: &str = "/data/vrx/update";
+pub use vrx_protocol::paths::UPDATE_STATE as STATE;
 /// The board's update settings.
 pub const CONF: &str = "/usr/lib/vrx/update.conf";
 /// The shell's first frame is on the panel (the health target waits on it, D6).

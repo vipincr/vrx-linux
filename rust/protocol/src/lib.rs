@@ -11,6 +11,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod bufq;
+pub mod paths;
 pub mod intent;
 pub mod manifest;
 pub mod matter;

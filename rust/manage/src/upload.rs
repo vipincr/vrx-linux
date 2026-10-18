@@ -5,7 +5,7 @@
 // at the device. The name is the server's, so the client names nothing.
 
 /// Where bundles wait (vrxhost's update::UPDATES).
-pub const UPDATES: &str = "/data/vrx/updates";
+pub use vrx_protocol::paths::UPDATES;
 /// The one upload kept: a new one replaces it.
 pub const NAME: &str = "manage-upload.raucb";
 /// Written here, renamed to NAME once every byte is in. The leading dot
@@ -15,7 +15,7 @@ pub const PART: &str = ".manage-upload.part";
 /// is 3072); 2 GiB covers a compressed one.
 pub const MAX: u64 = 2 << 30;
 /// Room /data keeps after the upload, for the applets' state.
-pub const HEADROOM: u64 = 256 << 20;
+pub use vrx_protocol::paths::UPLOAD_HEADROOM as HEADROOM;
 
 /// Why an upload of `length` bytes is refused, with `avail_kb` free where
 /// it would land: 413 too large, 507 no room, 400 empty.
