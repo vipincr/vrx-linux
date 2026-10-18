@@ -7,17 +7,15 @@
 #
 # SPDX-License-Identifier: MIT
 #
+require recipes-core/vrx-linux-source.inc
+SRC_URI += "file://vrxhost.service"
 
 SUMMARY = "vrxhost: the vrx applet OS daemon (registry, supervisor, intents, trail)"
-HOMEPAGE = "https://github.com/vipincr/vrx-linux"
 SECTION = "core"
 LICENSE = "MIT"
-LIC_FILES_CHKSUM = "file://LICENSE;md5=a16ed7a590c33c21c11c7627d9b79efd"
 
 inherit cargo systemd
 
-SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master \
-           file://vrxhost.service \
            file://vrxhost-tmpfiles.conf \
            file://vrx-applet@.service \
            file://vrx-install.service \
@@ -26,7 +24,6 @@ SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master \
            file://50-vrx-signed.conf \
            file://vrx-kernel-verity.conf \
            "
-SRCREV = "${VRX_LINUX_SRCREV}"
 
 # the workspace member this recipe builds (the root manifest is the
 # workspace, not a package); the lock is the workspace's, not the

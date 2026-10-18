@@ -1,16 +1,15 @@
 # The source every built-in applet builds from, whatever its runtime: the
 # Flutter applets (vrx-applet.inc) and the Rust ones (vrx-applet-stt.bb).
+# The repository itself is named once for every recipe, in
+# recipes-core/vrx-linux-source.inc (KRN-04, review 2026-10-17); this file
+# adds only what an applet build differs in.
 #
 # SPDX-License-Identifier: MIT
 
-HOMEPAGE = "https://github.com/vipincr/vrx-linux"
-LICENSE = "MIT"
-LIC_FILES_CHKSUM = "file://LICENSE;md5=a16ed7a590c33c21c11c7627d9b79efd"
+require recipes-core/vrx-linux-source.inc
 
-SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master"
 # Every built-in applet builds from the layer's one commit (they share a
 # checkout: applets/ plus flutter/vrx_kit and rust/sdk), conf/layer.conf.
-SRCREV = "${VRX_LINUX_SRCREV}"
 PV = "1.0+git${SRCPV}"
 
 COMPATIBLE_MACHINE = "^vrxboard-"

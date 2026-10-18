@@ -5,21 +5,18 @@
 #
 # SPDX-License-Identifier: MIT
 #
+require recipes-core/vrx-linux-source.inc
+SRC_URI += "file://vrx-matter.service"
 
 SUMMARY = "vrx-matter: the device on a Matter fabric"
-HOMEPAGE = "https://github.com/vipincr/vrx-linux"
 SECTION = "core"
 LICENSE = "MIT"
-LIC_FILES_CHKSUM = "file://LICENSE;md5=a16ed7a590c33c21c11c7627d9b79efd"
 
 inherit cargo systemd useradd
 
-SRC_URI = "git://github.com/vipincr/vrx-linux.git;protocol=https;branch=master \
-           file://vrx-matter.service \
            file://vrx-matter-bluetooth.conf \
            file://vrx-matter-bluetooth.service.conf \
            "
-SRCREV = "${VRX_LINUX_SRCREV}"
 
 CARGO_SRC_DIR = "rust/matter"
 CARGO_LOCK_PATH = "${S}/Cargo.lock"
