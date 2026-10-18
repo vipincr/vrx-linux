@@ -15,7 +15,6 @@ members = [
     "rust/host",
     "rust/sdk",
     "rust/cli",
-    "rust/init",
     "rust/xtask",
     "rust/manage",
     "rust/walk",

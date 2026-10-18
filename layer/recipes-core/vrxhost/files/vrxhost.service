@@ -1,9 +1,9 @@
 [Unit]
 Description=vrx applet OS daemon (registry, trail, focus, io.vrx.Host)
 After=systemd-journald.service systemd-tmpfiles-setup.service dbus.service
-# vrxinit (plan 0007 part M) replaces this ordering when it lands;
-# until then vrxhost starts after the hardware services, before the
-# UI would if it were enabled
+# vrxhost starts after the hardware services, before the UI would if
+# it were enabled (systemd is PID 1: plan 0007 part M's vrxinit was
+# deleted 2026-10-18, never having run)
 After=network.target
 
 [Service]

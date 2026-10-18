@@ -35,5 +35,5 @@ layerset, and the container build that proves the recipe.
 | `recipes-core/packagegroups` | `packagegroup-vrx-linux` | the VRX_APPS payload |
 
 The SDKs (`vrx` crate, `vrx_kit` package) are developer artifacts, not
-image content. The compositor (part E) and vrxinit (part M) join the
+image content. The compositor (part E) joins the image beside it (the
 layer as they land.

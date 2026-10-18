@@ -2506,15 +2506,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vrx-init"
-version = "0.1.0"
-dependencies = [
- "libc",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "vrx-manage"
 version = "0.1.0"
 dependencies = [

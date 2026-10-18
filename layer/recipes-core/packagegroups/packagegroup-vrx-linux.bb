@@ -5,7 +5,7 @@
 #
 
 SUMMARY = "vrx-linux applet OS packages"
-DESCRIPTION = "vrxhost (the daemon), vrxinit, and with a UI the built-in \
+DESCRIPTION = "vrxhost (the daemon) and with a UI the built-in \
                applets. The compositor is flutter-vrx (meta-vrx-ui); the \
                SDKs ship to developers, not to the image."
 LICENSE = "MIT"
@@ -18,7 +18,6 @@ COMPATIBLE_MACHINE = "^vrxboard-"
 
 RDEPENDS:${PN} = "\
     vrxhost \
-    vrxinit \
     vrx-policy \
     vrx-usb \
     vrx-manage \
