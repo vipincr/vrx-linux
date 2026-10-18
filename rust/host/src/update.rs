@@ -353,15 +353,11 @@ pub async fn restart() -> Result<Value, (String, Value)> {
     let conf = load_conf().ok_or_else(unavailable)?;
     let rauc = rauc().await?;
     let booted = rauc.boot_slot().await.unwrap_or_default();
+    if booted.is_empty() {
+        tracing::warn!("update: RAUC names no booted slot; the answer is unknown");
+    }
     let _ = std::fs::create_dir_all(STATE);
     let record = json!({ "from": booted }).to_string();
-    crate::install::atomic_write(&Path::new(STATE).join("pending.json"), &record)
-        .map_err(|e| {
-            (
-                "UpdateFailed".to_owned(),
-                json!({ "file": "", "detail": e }),
-            )
-        })?;
     let conn = Connection::system().await.map_err(|_| unavailable())?;
     let login = LoginProxy::new(&conn).await.map_err(|_| unavailable())?;
     if !conf.reboot_parameter.is_empty() {
@@ -382,15 +378,30 @@ pub async fn restart() -> Result<Value, (String, Value)> {
             json!({ "file": "", "detail": e.to_string() }),
         )
     })?;
+    // the record is written only now, after the restart was accepted: a
+    // restart that never happened left a record that lied about one
+    // (review 2026-10-17, CON-05)
+    crate::install::atomic_write(&Path::new(STATE).join("pending.json"), &record)
+        .map_err(|e| {
+            (
+                "UpdateFailed".to_owned(),
+                json!({ "file": "", "detail": e }),
+            )
+        })?;
     Ok(json!({}))
 }
 
 /// What a pending record and this boot say: still on trial, kept, or
 /// fallen back to the slot it came from.
-pub fn outcome(pending_from: Option<&str>, booted: &str, on_trial: bool) -> &'static str {
+pub fn outcome(pending_from: Option<&str>, booted: &str, on_trial: Option<bool>) -> &'static str {
     match pending_from {
         None => "none",
-        Some(_) if on_trial => "trial",
+        // trial unknown: a slot that is not the primary's and has a
+        // pending record is on trial until it is kept (the primary moves
+        // at mark-good), so unknown reads as trial here — the one reading
+        // that never wrongly reports "kept" while a trial could still
+        // fall back (review 2026-10-17, CON-11)
+        Some(_) if on_trial.unwrap_or(true) => "trial",
         Some(from) if from == booted => "fell-back",
         Some(_) => "kept",
     }
@@ -401,6 +412,9 @@ pub async fn status() -> Result<Value, (String, Value)> {
     load_conf().ok_or_else(unavailable)?;
     let rauc = rauc().await?;
     let booted = rauc.boot_slot().await.unwrap_or_default();
+    if booted.is_empty() {
+        tracing::warn!("update: RAUC names no booted slot; the answer is unknown");
+    }
     let mut slots = Vec::new();
     for (name, info) in rauc.get_slot_status().await.unwrap_or_default() {
         if string_of(&info, "class").as_deref() != Some("rootfs") {
@@ -416,16 +430,20 @@ pub async fn status() -> Result<Value, (String, Value)> {
     }
     // a trial boot stays one until the booted slot is made primary (RAUC's
     // mark-good, D6); the firmware's flag says trial for the whole boot
-    let firmware_trial = tokio::process::Command::new(TRIAL)
-        .status()
-        .await
-        .is_ok_and(|s| s.success());
+    // trial answers 0 yes, 1 no, 2 cannot tell (the Pi script's contract,
+    // review 2026-10-17, CON-11): unknown is an Option, never a no
+    let firmware_trial = match tokio::process::Command::new(TRIAL).status().await {
+        Ok(s) if s.success() => Some(true),
+        Ok(s) if s.code() == Some(1) => Some(false),
+        Ok(s) if s.code() == Some(2) => None,
+        _ => None,
+    };
     let primary = rauc.get_primary().await.ok();
     let primary_bootname = slots
         .iter()
         .find(|s| Some(&s.name) == primary.as_ref())
         .map(|s| s.bootname.clone());
-    let on_trial = firmware_trial && primary_bootname.as_deref() != Some(booted.as_str());
+    let on_trial = firmware_trial.map(|t| t && primary_bootname.as_deref() != Some(booted.as_str()));
     let pending_path = Path::new(STATE).join("pending.json");
     let pending: Option<String> = std::fs::read_to_string(&pending_path)
         .ok()
@@ -442,7 +460,7 @@ pub async fn status() -> Result<Value, (String, Value)> {
     Ok(json!({
         "running": running,
         "booted": booted,
-        "trial": on_trial,
+        "trial": on_trial.unwrap_or(false),
         "last": last,
         "slots": slots,
     }))
@@ -456,6 +474,46 @@ pub fn clear_fallback() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The downgrade rule's rows are the shared vector (review 2026-10-17,
+    /// KRN-07): pre-install's test reads the same rows, so the shell rule
+    /// and this one cannot drift.
+    #[test]
+    fn the_downgrade_rule_matches_the_shared_vector() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vectors/downgrade.json");
+        let rows: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        for row in rows.as_array().unwrap() {
+            let i = &row["input"];
+            let expect = row["expect"].as_str();
+            // judge without the machine gate: the vector carries no machine
+            // column, and the machine rule has its own test
+            let order = crate::install::version_cmp(
+                i["bundle"].as_str().unwrap(),
+                i["running"].as_str().unwrap(),
+            );
+            let downgrades = i["downgrades"].as_bool().unwrap();
+            let verdict = match order {
+                std::cmp::Ordering::Equal => Some("same"),
+                std::cmp::Ordering::Less if !downgrades => Some("older"),
+                _ => None,
+            };
+            assert_eq!(verdict, expect, "row {:?}", row);
+            // and judge itself agrees wherever the machine matches
+            let got = judge(
+                i["bundle"].as_str().unwrap(),
+                "m",
+                i["running"].as_str().unwrap(),
+                "m",
+                downgrades,
+            );
+            let got = match got {
+                Some("machine") => None, // a matching machine never says machine
+                other => other,
+            };
+            assert_eq!(got, expect, "judge row {:?}", row);
+        }
+    }
 
     fn dict(pairs: &[(&str, &str)]) -> HashMap<String, OwnedValue> {
         pairs
@@ -578,10 +636,13 @@ mod tests {
 
     #[test]
     fn a_fall_back_is_told_from_the_pending_record() {
-        assert_eq!(outcome(None, "A", false), "none");
-        assert_eq!(outcome(Some("A"), "B", true), "trial");
-        assert_eq!(outcome(Some("A"), "A", false), "fell-back");
-        assert_eq!(outcome(Some("A"), "B", false), "kept");
+        assert_eq!(outcome(None, "A", Some(false)), "none");
+        assert_eq!(outcome(Some("A"), "B", Some(true)), "trial");
+        assert_eq!(outcome(Some("A"), "A", Some(false)), "fell-back");
+        assert_eq!(outcome(Some("A"), "B", Some(false)), "kept");
+        // an unknown trial never reports kept while it could still fall
+        // back (CON-11): unknown reads as trial
+        assert_eq!(outcome(Some("A"), "B", None), "trial");
     }
 
     #[test]

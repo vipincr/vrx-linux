@@ -1,0 +1,82 @@
+[
+  {
+    "input": {
+      "bundle": "0.1.0130",
+      "running": "0.1.0129",
+      "downgrades": false
+    },
+    "expect": null
+  },
+  {
+    "input": {
+      "bundle": "0.1.0129",
+      "running": "0.1.0130",
+      "downgrades": false
+    },
+    "expect": "older"
+  },
+  {
+    "input": {
+      "bundle": "0.1.0129",
+      "running": "0.1.0130",
+      "downgrades": true
+    },
+    "expect": null
+  },
+  {
+    "input": {
+      "bundle": "0.1.0130",
+      "running": "0.1.0130",
+      "downgrades": false
+    },
+    "expect": "same"
+  },
+  {
+    "input": {
+      "bundle": "0.1.0130",
+      "running": "0.1.0130",
+      "downgrades": true
+    },
+    "expect": "same"
+  },
+  {
+    "input": {
+      "bundle": "0.2.0",
+      "running": "0.1.0130",
+      "downgrades": false
+    },
+    "expect": null
+  },
+  {
+    "input": {
+      "bundle": "0.1.9",
+      "running": "0.1.10",
+      "downgrades": false
+    },
+    "expect": "older"
+  },
+  {
+    "input": {
+      "bundle": "0.1.0099",
+      "running": "0.1.100",
+      "downgrades": false
+    },
+    "expect": "older"
+  },
+  {
+    "input": {
+      "bundle": "",
+      "running": "0.1.0130",
+      "downgrades": false
+    },
+    "expect": "older"
+  },
+  {
+    "input": {
+      "bundle": "0.1.0130",
+      "running": "0.1.0129",
+      "downgrades": false
+    },
+    "expect": null
+  }
+]
