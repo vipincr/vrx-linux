@@ -10,7 +10,7 @@
 # Home comes back.
 set -u
 HOST=$1
-O="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+. "$(dirname "$0")/ssh-env.sh"; O="$OPTS"
 # shellcheck disable=SC2086
 ssh $O "root@$HOST" sh -s <<'EOF'
 fails=0

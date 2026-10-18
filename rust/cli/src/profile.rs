@@ -17,9 +17,10 @@ use std::process::{Command, ExitCode, Stdio};
 
 pub const SSH_OPTS: &[&str] = &[
     "-o",
-    "StrictHostKeyChecking=no",
-    "-o",
-    "UserKnownHostsFile=/dev/null",
+    // SEC-04 (review 2026-10-17): the board's key is taken the first
+    // time and checked after — a changed key refuses instead of blindly
+    // trusting whatever answers on the bench LAN
+    "StrictHostKeyChecking=accept-new",
     "-o",
     "LogLevel=ERROR",
     "-o",
@@ -114,7 +115,18 @@ pub fn take(host: &str, name: &str, out: &Path) -> Result<PathBuf, String> {
 fn pull(host: &str, out: &Path) -> Result<Vec<PathBuf>, String> {
     parse_list(&on_board(host, "vrx-profile list")?)
         .into_iter()
-        .map(|(name, _)| take(host, &name, out))
+        .map(|(name, _)| {
+            // CON-05 (review 2026-10-17): the name came over ssh from
+            // the board's reply; a plain base name only, as `vrx walk
+            // run` already demands — a reply naming ../x cannot write
+            // outside out
+            if name.split('/').count() != 1 || name.starts_with('.') {
+                return Err(format!(
+                    "the board named a profile {name:?}, which is not a plain file name"
+                ));
+            }
+            take(host, &name, out)
+        })
         .collect()
 }
 

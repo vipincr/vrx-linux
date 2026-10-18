@@ -10,7 +10,8 @@
 # the authorization without acting.
 set -u
 HOST=$1 PHASE=${2:-first}
-ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "root@$HOST" PHASE="$PHASE" sh -s <<'EOF'
+. "$(dirname "$0")/ssh-env.sh"
+ssh $OPTS "root@$HOST" PHASE="$PHASE" sh -s <<'EOF'
 fails=0
 ok()   { echo "  ok    $*"; }
 bad()  { echo "  FAIL  $*"; fails=$((fails + 1)); }

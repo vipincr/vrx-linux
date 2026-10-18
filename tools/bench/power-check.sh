@@ -31,7 +31,7 @@ DAY=$(date +%Y-%m-%d)
 mkdir -p "$REPO/tmp"
 CSV="$REPO/tmp/power-check-$STAMP.csv"
 OUT="$REPO/tmp/power-check-$STAMP.txt"
-O="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5"
+. "$(dirname "$0")/ssh-env.sh"; O="$OPTS"
 HOLD=30
 
 board() {

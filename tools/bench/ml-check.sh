@@ -16,7 +16,7 @@
 # capture device. The board's own asound.conf is put back at the end.
 set -u
 HOST=$1
-O="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+. "$(dirname "$0")/ssh-env.sh"; O="$OPTS"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 

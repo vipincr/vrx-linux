@@ -22,7 +22,7 @@
 set -u
 HOST=$1 PHASE=$2
 shift 2
-O="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5"
+. "$(dirname "$0")/ssh-env.sh"; O="$OPTS"
 # shellcheck disable=SC2086
 on() { ssh $O "root@$HOST" "$@"; }
 # shellcheck disable=SC2086

@@ -25,7 +25,7 @@
 set -u
 HOST=$1
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
-O="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+. "$(dirname "$0")/ssh-env.sh"; O="$OPTS"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 

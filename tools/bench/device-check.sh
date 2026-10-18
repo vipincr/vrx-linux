@@ -11,7 +11,7 @@
 set -u
 HOST=$1
 GRANTS=$(dirname "$0")/../../layer/recipes-applets/vrx-applets/files/grants.conf
-O="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+. "$(dirname "$0")/ssh-env.sh"; O="$OPTS"
 # shellcheck disable=SC2086
 scp -q $O "$GRANTS" "root@$HOST:/tmp/vrx-grants.conf" || exit 1
 # shellcheck disable=SC2086

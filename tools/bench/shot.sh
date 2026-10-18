@@ -11,7 +11,7 @@
 set -eu
 HOST=$1; OUT=$2; shift 2
 HERE=$(cd "$(dirname "$0")" && pwd)
-O="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+. "$(dirname "$0")/ssh-env.sh"; O="$OPTS"
 # shellcheck disable=SC2086
 ssh $O "root@$HOST" 'mkdir -p /root/bench; ls /root/bench/tap.py /root/bench/scanout.py' >/dev/null 2>&1 \
     || scp -q $O "$HERE/tap.py" "$HERE/scanout.py" "$HERE/hid.py" "$HERE/drmprops.py" "root@$HOST:/root/bench/"

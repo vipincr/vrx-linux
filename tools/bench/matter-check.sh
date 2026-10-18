@@ -23,7 +23,7 @@ set -u
 HOST=$1
 NODE=${2:-4242}
 CHIP=${CHIP_TOOL:-$(command -v chip-tool || true)}
-O="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+. "$(dirname "$0")/ssh-env.sh"; O="$OPTS"
 fails=0
 ok()  { echo "  ok    $*"; }
 bad() { echo "  FAIL  $*"; fails=$((fails + 1)); }

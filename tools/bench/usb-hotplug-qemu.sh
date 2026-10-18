@@ -22,7 +22,7 @@
 # shellcheck disable=SC2015,SC2029
 set -u
 MON=$1 PORT=$2 IMG=$3
-O="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5 -p $PORT"
+. "$(dirname "$0")/ssh-env.sh"; O="$OPTS"
 fails=0
 ok()  { echo "  ok    $*"; }
 bad() { echo "  FAIL  $*"; fails=$((fails + 1)); }
