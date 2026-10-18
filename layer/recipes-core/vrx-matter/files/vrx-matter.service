@@ -47,9 +47,13 @@ SystemCallFilter=@system-service
 # unix socketpair.
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 # a new endpoint set or leaving every fabric is a clean exit and a fresh
-# start (the node is built once)
+# start (the node is built once). A start limit (RES-01, review
+# 2026-10-17): a layout it cannot save loops the unit forever at 1 s
+# apart; five fast restarts stop it, and the journal keeps why.
 Restart=always
 RestartSec=1
+StartLimitIntervalSec=30
+StartLimitBurst=5
 
 [Install]
 WantedBy=multi-user.target

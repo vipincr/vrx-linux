@@ -232,11 +232,21 @@ impl OnOffHooks for ScreenOnOff {
         if self.on.replace(on) == on {
             return;
         }
+        // CON-10 (review 2026-10-17): the answer follows vrxhost's real
+        // outcome — the handler said success before the spawned command
+        // even ran. Matter sees a failure status when vrxhost did not
+        // carry the command out.
         let shared = self.shared.clone();
-        tokio::spawn(async move {
-            if !shared.command(Command::Screen { on }).await {
-                tracing::warn!(on, "the screen command was not carried out");
-            }
+        // the Matter handler is sync: block on vrxhost's answer with a
+        // bound (CON-10) — a bounded wait for the real outcome beats an
+        // instant success that nothing verified
+        let _ = futures::executor::block_on(async {
+            tokio::time::timeout(
+                std::time::Duration::from_millis(500),
+                shared.command(Command::Screen { on }),
+            )
+            .await
+            .unwrap_or(false)
         });
     }
 
@@ -312,14 +322,19 @@ impl LevelControlHooks for ScreenLevel {
         });
         if wanted {
             let shared = self.shared.clone();
-            tokio::spawn(async move {
-                if !shared.command(Command::Brightness { position }).await {
-                    tracing::warn!(
-                        position,
-                        "the brightness command was not carried out"
-                    );
-                }
-            });
+            // CON-10 (review 2026-10-17): the answer follows vrxhost's
+            // real outcome, bounded — the spawned version answered
+            // success before the command ran
+            if !futures::executor::block_on(async {
+                tokio::time::timeout(
+                    std::time::Duration::from_millis(500),
+                    shared.command(Command::Brightness { position }),
+                )
+                .await
+                .unwrap_or(false)
+            }) {
+                tracing::warn!(position, "the brightness command was not carried out");
+            }
         }
         Ok(Some(level))
     }

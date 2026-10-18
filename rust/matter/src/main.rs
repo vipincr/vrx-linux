@@ -56,7 +56,17 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let layout = layout::Layout::load(&dir);
+    // CON-10 (review 2026-10-17): a layout that exists but will not
+    // parse stops the start with a named error — loading it as empty
+    // re-used every id the file held. The unit's start limit then stops
+    // the loop instead of restarting into the same refusal.
+    let layout = match layout::Layout::load(&dir) {
+        Ok(l) => l,
+        Err(err) => {
+            tracing::error!(error = %err, "layout: refusing to start");
+            return ExitCode::FAILURE;
+        }
+    };
     let endpoints = json!({
         "screen": layout.screen,
         "applets": layout

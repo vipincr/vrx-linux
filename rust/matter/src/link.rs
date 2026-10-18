@@ -332,6 +332,11 @@ async fn link(mut conn: zlink::tokio::unix::Connection, shared: &Shared) {
             break;
         }
     }
+    // CON-07 (review 2026-10-17): the link's state dies with the link —
+    // it stayed registered after vrxhost left, Reachable kept answering
+    // true, and every command sent in that window was "carried out"
+    // while nothing listened
+    let _ = shared.host.send_replace(None);
     tracing::info!("vrxhost left the link");
 }
 

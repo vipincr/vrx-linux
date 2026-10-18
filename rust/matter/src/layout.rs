@@ -53,11 +53,30 @@ impl Default for Layout {
 impl Layout {
     pub const FILE: &'static str = "layout.json";
 
-    pub fn load(dir: &Path) -> Self {
-        std::fs::read_to_string(dir.join(Self::FILE))
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default()
+    /// Loads the layout. A missing file is a first boot (every id is
+    /// new). A file that EXISTS but will not parse stops the caller
+    /// (CON-10, review 2026-10-17): loading it as empty re-used every
+    /// id the file held, which the type promises never happens.
+    pub fn load(dir: &Path) -> Result<Self, String> {
+        let path = dir.join(Self::FILE);
+        match std::fs::read_to_string(&path) {
+            Ok(t) => serde_json::from_str(&t)
+                .map_err(|e| format!("{}: {e}", path.display())),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(err) => Err(format!("{}: {err}", path.display())),
+        }
+    }
+
+    /// The old signature where the caller wants first-boot semantics for
+    /// an unreadable layout: it must say so itself, never silently.
+    pub fn load_or_default(dir: &Path) -> (Self, Option<String>) {
+        match Self::load(dir) {
+            Ok(l) => (l, None),
+            Err(err) => {
+                tracing::error!(error = %err, "layout: unreadable; starting from none");
+                (Self::default(), Some(err))
+            }
+        }
     }
 
     /// Written whole and renamed into place.
@@ -67,6 +86,12 @@ impl Layout {
             &tmp,
             serde_json::to_vec(self).map_err(std::io::Error::other)?,
         )?;
+        // fsync before the rename (CON-10): a power cut between the
+        // write and the sync leaves an empty layout, which load treats
+        // as a first boot and hands every id out again
+        let f = std::fs::File::open(&tmp)?;
+        f.sync_all()?;
+        drop(f);
         std::fs::rename(tmp, dir.join(Self::FILE))
     }
 
@@ -169,10 +194,18 @@ mod tests {
     #[test]
     fn the_layout_survives_a_restart() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(Layout::load(dir.path()), Layout::default());
+        {
+            let (l, why) = Layout::load_or_default(dir.path());
+            assert_eq!(l, Layout::default());
+            assert!(why.is_none(), "a missing file is a first boot");
+        }
         let mut l = Layout::default().follow(&host(true, &["clock"]));
         l.bridged[0].on = true;
         l.save(dir.path()).unwrap();
-        assert_eq!(Layout::load(dir.path()), l);
+        {
+            let (got, why) = Layout::load_or_default(dir.path());
+            assert_eq!(got, l);
+            assert!(why.is_none());
+        }
     }
 }
