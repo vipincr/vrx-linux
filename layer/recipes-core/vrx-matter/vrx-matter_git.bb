@@ -35,7 +35,7 @@ require recipes-core/vrx-workspace-crates.inc
 python () {
     if (d.getVar('VRX_MATTER') or '').strip() != '1':
         return
-    if d.getVar('VRX_DEBUG') == '1':
+    if vrx_debug(d):
         return
     if not (d.getVar('VRX_MATTER_FACTORY_DATA') or '').strip():
         bb.fatal("VRX_MATTER = \"1\" on a release image (VRX_DEBUG != \"1\") needs VRX_MATTER_FACTORY_DATA: the test attestation is refused (G042)")
@@ -45,8 +45,13 @@ python () {
 # D5: BLE commissioning only where the board has Bluetooth. The crate's
 # `ble` feature carries BlueZ's GATT transport and the QR code's Bluetooth
 # bit; without it the device pairs on the network only. cargo.bbclass
-# hands PACKAGECONFIG_CONFARGS to cargo build.
-PACKAGECONFIG ??= "${@bb.utils.filter('MACHINE_FEATURES', 'bluetooth', d)}"
+# hands PACKAGECONFIG_CONFARGS to cargo build. The test attestation is
+# the debug-image half (G042 above): the crate's default feature list is
+# empty, so a release build carries no attestation because none was
+# asked for, and the G042 check above still refuses a release build
+# with Matter until factory data loads.
+PACKAGECONFIG ??= "test-attestation-debug ${@bb.utils.filter('MACHINE_FEATURES', 'bluetooth', d)}"
+PACKAGECONFIG[test-attestation-debug] = "${@'--features test-attestation' if vrx_debug(d) else ''}"
 PACKAGECONFIG[bluetooth] = "--features ble,,,bluez5"
 
 do_install() {

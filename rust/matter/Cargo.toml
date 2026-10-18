@@ -10,11 +10,13 @@ name = "vrx-matter"
 path = "src/main.rs"
 
 [features]
-# The SDK's published test attestation (VID 0xFFF1): a debug image only.
-# The recipe turns it on when VRX_DEBUG = "1" and the image refuses a
-# release build that carries it (G042); without it there is no
-# attestation and the binary refuses to start.
-default = ["test-attestation"]
+# The SDK's published test attestation (VID 0xFFF1): a debug image
+# only. The recipe's test-attestation PACKAGECONFIG turns it on (a
+# debug build) and the image refuses a release build that carries it
+# (G042); without it there is no attestation and the binary refuses to
+# start. Not a default: a default feature ships in every build that
+# fails to name its features (review 2026-10-17, CT-02).
+default = []
 test-attestation = []
 # BLE commissioning (plan 0015 D4, D5): rs-matter's BTP over BlueZ's GATT.
 # The recipe turns it on where MACHINE_FEATURES has bluetooth; without it
