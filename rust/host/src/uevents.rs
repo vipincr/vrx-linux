@@ -83,7 +83,7 @@ pub async fn listen(mut on: impl FnMut(Message)) -> std::io::Result<()> {
                     on(message);
                 }
             }
-            Ok(Err(err)) if err.raw_os_error() == Some(105) // ENOBUFS => {
+            Ok(Err(err)) if err.raw_os_error() == Some(105) /* ENOBUFS */ => {
                 // the kernel's ring overflowed before we drained it
                 // (review 2026-10-17, CON-08): the listener re-opens and
                 // the caller re-reads state, so the overrun costs one

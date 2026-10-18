@@ -222,6 +222,8 @@ class _Parser {
     return PosixRule._(std, dst, start, end);
   }
 
+  static final _letter = RegExp('[A-Za-z]');
+
   void _name() {
     if (peek == '<') {
       final close = s.indexOf('>', i);
@@ -230,7 +232,9 @@ class _Parser {
       return;
     }
     final start = i;
-    while (!done && RegExp('[A-Za-z]').hasMatch(peek)) {
+    // built once (CPU-01, review 2026-10-17): the scanner built a
+    // RegExp per character
+    while (!done && _letter.hasMatch(peek)) {
       i++;
     }
     if (i - start < 3) throw const FormatException('short name');

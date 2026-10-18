@@ -323,10 +323,15 @@ async fn main() -> ExitCode {
     tokio::spawn(async move {
         // CON-08 (review 2026-10-17): a netlink overrun re-opens the
         // listener and re-reads state; the loop never ends the listening
-        // for the life of the process
+        // for the life of the process. The senders are shared by every
+        // re-open's closure.
+        let power_tx = std::sync::Arc::new(power_tx);
+        let usb_host = usb_host.map(std::sync::Arc::new);
         loop {
             let again = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let flag = again.clone();
+            let power_tx = power_tx.clone();
+            let usb_host = usb_host.clone();
             let ended = vrx_host::uevents::listen(move |message| {
                 flag.store(true, std::sync::atomic::Ordering::Relaxed);
                 match message.subsystem() {

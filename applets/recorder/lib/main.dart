@@ -252,12 +252,21 @@ class _Take extends StatelessWidget {
   }
 }
 
-Future<List<Recording>> listRecordings() async {
+Future<List<Recording>> listRecordings({int limit = 200}) async {
   final dir = Directory(recordingsDir);
   if (!await dir.exists()) return const [];
-  final out = <Recording>[];
+  // MEM-10 (review 2026-10-17): the newest `limit` are read, oldest
+  // left on disk unread — the list opened EVERY file with no bound, and
+  // a full card wedged the recorder's list on I/O
+  final names = <String>[];
   await for (final f in dir.list()) {
     if (f is! File || !f.path.endsWith('.wav')) continue;
+    names.add(f.path);
+  }
+  names.sort((a, b) => b.compareTo(a));
+  final out = <Recording>[];
+  for (final path in names.take(limit)) {
+    final f = File(path);
     final raf = await f.open();
     final head = await raf.read(44);
     await raf.close();

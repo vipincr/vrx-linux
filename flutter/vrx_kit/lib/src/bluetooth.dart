@@ -299,6 +299,10 @@ class LinuxBluetoothService implements BluetoothService {
       final a = await _adapter();
       final path = a.adapter;
       if (path != null && (a.props['Powered']?.asBoolean() ?? false)) return path;
+      // poll-ok (NET-06, review 2026-10-17): BlueZ raises PropertiesChanged
+      // only on adapters the kit already watches; a freshly powered one
+      // reports nothing until the next unrelated change, so this bounded
+      // wait (2 s, 200 ms steps) is the honest way to see the power state
       await Future<void>.delayed(const Duration(milliseconds: 200));
     }
     throw const SystemError('org.bluez.Error.NotReady', 'the adapter did not power on');

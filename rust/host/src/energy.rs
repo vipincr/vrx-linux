@@ -1075,7 +1075,19 @@ pub async fn power_off() -> zbus::Result<()> {
 
 /// logind's inhibitors now: the one reader, for Awake and the freezer.
 pub async fn inhibitor_rows() -> zbus::Result<Vec<InhibitorRow>> {
-    let conn = zbus::Connection::system().await?;
+    // NET-04 (review 2026-10-17): ONE system bus for the host — the
+    // freezer asked per applet per check over a fresh connection; this
+    // connection is kept by the process's OnceLock and shared with
+    // nothing else that closes it
+    static BUS: std::sync::OnceLock<zbus::Connection> = std::sync::OnceLock::new();
+    let conn = match BUS.get() {
+        Some(c) => c.clone(),
+        None => {
+            let c = zbus::Connection::system().await?;
+            let _ = BUS.set(c.clone());
+            BUS.get().cloned().unwrap_or(c)
+        }
+    };
     LoginProxy::new(&conn).await?.list_inhibitors().await
 }
 

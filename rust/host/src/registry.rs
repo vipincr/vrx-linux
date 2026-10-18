@@ -75,7 +75,7 @@ pub fn scan(paths: &crate::paths::VrxPaths) -> Result<Registry, ScanError> {
             source,
         }
     })?;
-    for (id, why) in ®istry.refused[refused_before..] {
+    for (id, why) in &registry.refused[refused_before..] {
         tracing::warn!(applet = %id, error = %why, "installed applet refused (quarantined)");
     }
     Ok(registry)
