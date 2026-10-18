@@ -7,7 +7,13 @@ After=systemd-journald.service systemd-tmpfiles-setup.service dbus.service
 After=network.target
 
 [Service]
-Type=simple
+# OPS-07 (review 2026-10-17): the host joins the liveness contract the
+# applets already have. Type=notify + READY/WATCHDOG sd_notify from the
+# event loop; 30 s is ~3x the loop's measured worst case, and a hang
+# costs one restart instead of a dark, kept slot.
+Type=notify
+WatchdogSec=30
+TimeoutStartSec=60
 ExecStart=/usr/bin/vrxhost
 Restart=on-failure
 RestartSec=2

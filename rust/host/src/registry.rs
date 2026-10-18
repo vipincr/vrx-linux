@@ -58,18 +58,26 @@ impl Shared {
 /// installed applet cannot steal a built-in's id), then installed.
 pub fn scan(paths: &crate::paths::VrxPaths) -> Result<Registry, ScanError> {
     let mut registry = Registry::new();
+    // CON-10 (review 2026-10-17): a built-in image's applets must all be
+    // valid or the image is broken (fail loudly). An INSTALLED applet's
+    // defect quarantines it — the bad one is named at start and the host
+    // boots with the good ones.
     scan_into(&mut registry, &paths.system_defaults, true).map_err(|source| {
         ScanError::Builtins {
             dir: paths.system_defaults.display().to_string(),
             source,
         }
     })?;
+    let refused_before = registry.refused.len();
     scan_into(&mut registry, &paths.apps, false).map_err(|source| {
         ScanError::Installed {
             dir: paths.apps.display().to_string(),
             source,
         }
     })?;
+    for (id, why) in ®istry.refused[refused_before..] {
+        tracing::warn!(applet = %id, error = %why, "installed applet refused (quarantined)");
+    }
     Ok(registry)
 }
 

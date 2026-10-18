@@ -58,6 +58,8 @@ fn glyph_icon(entry: &RegistryEntry) -> Option<&str> {
 #[derive(Debug, Default, PartialEq)]
 pub struct Registry {
     entries: Vec<RegistryEntry>,
+    /// The applets a scan refused, by (id, why) (CON-10).
+    pub refused: Vec<(String, String)>,
 }
 
 impl Registry {
@@ -149,16 +151,37 @@ impl Registry {
             let Ok(text) = std::fs::read_to_string(&manifest_path) else {
                 continue; // a directory without a manifest is not an applet
             };
-            let manifest = text.parse::<Manifest>().map_err(|e| {
-                RegistryError::Invalid(dir.display().to_string(), e.to_string())
-            })?;
-            self.admit(RegistryEntry {
+            let manifest = match text.parse::<Manifest>() {
+                Ok(m) => m,
+                Err(e) => {
+                    // CON-10 (review 2026-10-17): one bad installed applet
+                    // is quarantined and named, not fatal — the host boots
+                    // with every good applet it found
+                    let id = dir
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    self.refused.push((id.clone(), e.to_string()));
+                    continue;
+                }
+            };
+            let id = manifest.applet.id.clone();
+            if let Err(e) = self.admit(RegistryEntry {
                 manifest,
                 path: dir,
                 builtin,
-            })?;
+            }) {
+                self.refused.push((id, e.to_string()));
+            }
         }
         Ok(())
+    }
+
+    /// The applets this scan refused, by (directory, why). The host names
+    /// them at start; a quarantine is a log line and a missing tile, not
+    /// a dead host (review 2026-10-17, CON-10).
+    pub fn refusals(&self) -> &[(String, String)] {
+        &self.refused
     }
 
     pub fn len(&self) -> usize {

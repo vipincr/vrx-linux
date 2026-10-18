@@ -129,3 +129,70 @@ mod tests {
         assert!(rx.has_changed().unwrap());
     }
 }
+
+/// Read the facts other processes own, once at start (CON-04, review
+/// 2026-10-17): the wake timer systemd is already holding, and
+/// USBGuard's allow-new switch where it runs. Unknown stays unknown —
+/// neither is defaulted to a guess here.
+pub async fn seed_owned() -> Result<(), String> {
+    let conn = zbus::Connection::system().await.map_err(|e| e.to_string())?;
+    // systemd's timers: the earliest NextElapseUSRtc the bus names
+    #[zbus::proxy(
+        interface = "org.freedesktop.systemd1.Manager",
+        default_service = "org.freedesktop.systemd1",
+        default_path = "/org/freedesktop/systemd1"
+    )]
+    trait Systemd {
+        #[zbus(property)]
+        fn timers_property(&self) -> zbus::Result<Vec<zbus::zvariant::OwnedObjectPath>>;
+    }
+    // USBGuard's switch, when it runs (usbguard-daemon's DBus interface)
+    #[zbus::proxy(
+        interface = "org.usbguard1",
+        default_service = "org.usbguard1",
+        default_path = "/org/usbguard1"
+    )]
+    trait UsbGuard {
+        #[zbus(property)]
+        fn implicit_policy_target(&self) -> zbus::Result<String>;
+    }
+
+    let systemd = SystemdProxy::new(&conn).await.map_err(|e| e.to_string())?;
+    if let Ok(paths) = systemd.timers_property().await {
+        // each timer unit's monotonic next elapse is a property; asking
+        // every unit is the honest read, and none means no wake
+        let mut earliest: Option<u64> = None;
+        for path in paths {
+            let Ok(introspect) = zbus::Proxy::new(
+                &conn,
+                "org.freedesktop.systemd1",
+                path,
+                "org.freedesktop.systemd1.Timer",
+            )
+            .await
+            else {
+                continue;
+            };
+            let next: Result<i64, _> = introspect.get_property("NextElapseUSecMonotonic").await;
+            if let Ok(us) = next {
+                if us > 0 {
+                    earliest = Some(earliest.map_or(us as u64, |e: u64| e.min(us as u64)));
+                }
+            }
+        }
+        let next = earliest.unwrap_or(0);
+        update(|f| f.next_wake = next);
+        tracing::debug!(next, "facts: next wake seeded from systemd");
+    }
+
+    let guard = UsbGuardProxy::new(&conn).await;
+    if let Ok(guard) = guard {
+        if let Ok(target) = guard.implicit_policy_target().await {
+            // allow when USBGuard's implicit target allows what is listed
+            let allow = target != "block";
+            update(|f| f.usb_allow_new = allow);
+            tracing::debug!(target = %target, "facts: usb_allow_new seeded from USBGuard");
+        }
+    }
+    Ok(())
+}

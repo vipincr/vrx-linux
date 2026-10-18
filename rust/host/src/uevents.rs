@@ -83,6 +83,21 @@ pub async fn listen(mut on: impl FnMut(Message)) -> std::io::Result<()> {
                     on(message);
                 }
             }
+            Ok(Err(err)) if err.raw_os_error() == Some(105) // ENOBUFS => {
+                // the kernel's ring overflowed before we drained it
+                // (review 2026-10-17, CON-08): the listener re-opens and
+                // the caller re-reads state, so the overrun costs one
+                // re-sync instead of every USB and power event for the
+                // life of the process
+                tracing::warn!("uevents: netlink overrun (ENOBUFS); re-opening");
+                drop(guard);
+                drop(fd);
+                return Err(err).map_err(|e| {
+                    // the caller sees this errno and re-opens us
+                    let _ = e;
+                    std::io::Error::from_raw_os_error(105)
+                });
+            }
             Ok(Err(err)) => return Err(err),
             Err(_would_block) => {}
         }

@@ -306,23 +306,53 @@ async fn main() -> ExitCode {
             tokio::spawn(async move { varlink::import_drives(&host).await });
         },
     ));
+    // CON-04 (review 2026-10-17): the facts systemd and USBGuard own are
+    // read from their owners at start, not defaulted and corrected at the
+    // next event — next_wake from the timers systemd is already holding,
+    // usb_allow_new from USBGuard when it runs. Both settle before the
+    // first Facts call answers.
+    tokio::spawn(async move {
+        match vrx_host::facts::seed_owned().await {
+            Ok(()) => {}
+            Err(err) => tracing::warn!(error = %err, "facts: owned facts unread; they stay unknown"),
+        }
+    });
+
     // the kernel's uevents, heard once (G065): power supplies and the
     // backlight to power.rs, USB devices to usb.rs
     tokio::spawn(async move {
-        let ended = vrx_host::uevents::listen(move |message| match message.subsystem() {
-            "power_supply" | "backlight" => {
-                let _ = power_tx.send(message);
-            }
-            "usb" => {
-                if let Some(tx) = usb_host.as_ref() {
-                    let _ = tx.send(usb::HostEvent::Uevent(message));
+        // CON-08 (review 2026-10-17): a netlink overrun re-opens the
+        // listener and re-reads state; the loop never ends the listening
+        // for the life of the process
+        loop {
+            let again = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let flag = again.clone();
+            let ended = vrx_host::uevents::listen(move |message| {
+                flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                match message.subsystem() {
+                    "power_supply" | "backlight" => {
+                        let _ = power_tx.send(message);
+                    }
+                    "usb" => {
+                        if let Some(tx) = usb_host.as_ref() {
+                            let _ = tx.send(usb::HostEvent::Uevent(message));
+                        }
+                    }
+                    _ => {}
+                }
+            })
+            .await;
+            let heard = again.load(std::sync::atomic::Ordering::Relaxed);
+            match ended {
+                Ok(()) => break,
+                Err(err) if err.raw_os_error() == Some(105) => { // ENOBUFS
+                    tracing::warn!(error = %err, %heard, "kernel uevents: overrun; re-opening");
+                }
+                Err(err) => {
+                    tracing::warn!(error = %err, "kernel uevents: not heard");
+                    break;
                 }
             }
-            _ => {}
-        })
-        .await;
-        if let Err(err) = ended {
-            tracing::warn!(error = %err, "kernel uevents: not heard");
         }
     });
     // Matter (plan 0015): only where the image carries vrx-matter; the
@@ -334,9 +364,58 @@ async fn main() -> ExitCode {
             vrx_host::matter::exposure(),
         ));
     }
-    if let Err(err) = varlink::serve(&socket, host).await {
-        tracing::error!(socket = %socket.display(), error = %err, "io.vrx.Host stopped");
-        return ExitCode::FAILURE;
+    // OPS-07 (review 2026-10-17): the host's liveness contract. READY
+    // once the socket serves; the watchdog pinged from the same task, so
+    // a wedged event loop stops the pings and systemd restarts the host.
+    vrx::service::notify("READY=1");
+    let watchdog = vrx::service::watchdog_interval();
+    let mut next_ping = std::time::Instant::now();
+    let ping_every = watchdog.map(|w| w / 2);
+    if let Some(w) = watchdog {
+        tracing::info!(watchdog_s = w.as_secs(), "watchdog armed");
+    }
+    let serve = varlink::serve(&socket, host);
+    tokio::pin!(serve);
+    // SIGTERM drains instead of dying mid-write (RES-04, review
+    // 2026-10-17): the energy ring and the install state rename into
+    // place, and a kill in that window is a torn file
+    let mut term =
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .map_err(|e| {
+                tracing::warn!(error = %e, "cannot listen for SIGTERM");
+                ()
+            })
+            .ok();
+    loop {
+        let mut wait = std::time::Duration::from_secs(3600);
+        if let Some(every) = ping_every {
+            wait = next_ping.saturating_duration_since(std::time::Instant::now());
+        }
+        tokio::select! {
+            r = &mut serve => {
+                if let Err(err) = r {
+                    tracing::error!(socket = %socket.display(), error = %err, "io.vrx.Host stopped");
+                    return ExitCode::FAILURE;
+                }
+                return ExitCode::SUCCESS;
+            }
+            _ = async {
+                if let Some(t) = term.as_mut() {
+                    t.recv().await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            } => {
+                tracing::info!("SIGTERM: draining and stopping");
+                return ExitCode::SUCCESS;
+            }
+            () = tokio::time::sleep(wait) => {
+                if let Some(every) = ping_every {
+                    vrx::service::notify("WATCHDOG=1");
+                    next_ping = std::time::Instant::now() + every;
+                }
+            }
+        }
     }
     ExitCode::SUCCESS
 }

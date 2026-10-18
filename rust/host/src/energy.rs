@@ -523,11 +523,19 @@ pub struct Report {
     pub rows: Vec<Row>,
 }
 
+/// The wall clock, read once and carried monotonically (review
+/// 2026-10-17, CON-12): a board with no RTC steps the clock when NTP
+/// first syncs, and a timer that asks the wall clock again sees the step
+/// as a huge (or negative) interval — the freeze countdown fired at once
+/// and the alert's once-a-day gate re-armed. The anchor is taken at
+/// start; day boundaries still use the real calendar clock, read ONCE
+/// per transition, never differenced.
 fn unix_now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
 }
+
 
 /// "2026-10-14" for a unix day (UTC), from Howard Hinnant's civil_from_days.
 pub fn date_of(day: u64) -> String {
@@ -550,6 +558,12 @@ fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
     }
     let tmp = path.with_extension("tmp");
     std::fs::write(&tmp, text)?;
+    // fsync before the rename (RES-04, review 2026-10-17): the photo
+    // store does this and the energy ring did not — a power cut left the
+    // rename ahead of the data
+    let f = std::fs::File::open(&tmp)?;
+    f.sync_all()?;
+    drop(f);
     std::fs::rename(tmp, path)
 }
 
@@ -665,6 +679,18 @@ impl Energy {
             st.current.entry(k.clone()).or_default().add(u);
         }
         let minute = t / 60;
+        // CON-12 (review 2026-10-17): a board with no RTC steps at the
+        // first NTP sync. Forward closes empty minutes (harmless);
+        // BACKWARD once stalled the ring and spun this loop hot — a
+        // minute older than the last is skipped until the clock catches
+        // up, and said once.
+        if minute < st.minute {
+            static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                tracing::warn!(minute, last = st.minute, "wall clock stepped back; minute rows wait for it");
+            }
+            return Vec::new();
+        }
         if minute != st.minute {
             let closed = std::mem::take(&mut st.current);
             let m = st.minute;

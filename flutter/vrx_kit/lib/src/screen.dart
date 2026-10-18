@@ -353,7 +353,10 @@ class ScreenSettings {
     _trailing = null;
     _trailingDone?.complete();
     _trailingDone = null;
-    final since = _lastBrightnessWrite == null ? null : DateTime.now().difference(_lastBrightnessWrite!);
+    // a monotonic clock (review 2026-10-17, CON-10): DateTime steps when
+    // a board with no RTC first syncs, and the throttle read the step as
+    // either "long enough" (a burst of writes) or "not yet" forever
+    final since = _lastBrightnessWrite == null ? null : _brightnessClock.elapsed - _lastBrightnessWrite!;
     if (settled || since == null || since >= dragInterval) return _flushBrightness();
     final done = _trailingDone = Completer<void>();
     _trailing = Timer(dragInterval - since, () {
@@ -365,7 +368,9 @@ class ScreenSettings {
 
   int? _pendingBrightness;
   bool _flushes = false;
-  DateTime? _lastBrightnessWrite;
+  Duration? _lastBrightnessWrite;
+  // started once, never reset: the throttle's monotonic clock
+  final _brightnessClock = Stopwatch()..start();
   Timer? _trailing;
   Completer<void>? _trailingDone;
 
@@ -373,7 +378,7 @@ class ScreenSettings {
     final v = _pendingBrightness;
     if (v == null) return Future.value();
     _pendingBrightness = null;
-    _lastBrightnessWrite = DateTime.now();
+    _lastBrightnessWrite = _brightnessClock.elapsed;
     return _queued(() async {
       switch (await dimming()) {
         case VrxDimming.backlight:

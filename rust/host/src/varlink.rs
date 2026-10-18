@@ -352,14 +352,37 @@ pub async fn serve(socket: &Path, host: Host) -> std::io::Result<()> {
     let _ = std::fs::remove_file(socket);
     let mut listener = zlink::tokio::unix::bind(socket).map_err(std::io::Error::other)?;
     tracing::info!(socket = %socket.display(), "io.vrx.Host listening");
+    // connections are bounded by the fd limit (review 2026-10-17,
+    // MEM-06): a peer that opens sockets to exhaust the host is refused
+    // by the permit, not by the process dying
+    let max_conns = std::fs::read_to_string("/proc/sys/fs/nr_open")
+        .ok()
+        .and_then(|t| t.trim().parse::<usize>().ok())
+        .map(|n| n / 8)
+        .unwrap_or(256)
+        .max(16);
+    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(max_conns));
+    tracing::info!(max_conns, "io.vrx.Host connection bound");
     loop {
         let conn = match zlink::Listener::accept(&mut listener).await {
             Ok(Some(conn)) => conn,
             Ok(None) => continue,
-            Err(err) => return Err(std::io::Error::other(err)),
+            // an accept error is logged and retried (MEM-06): the server
+            // outlives one bad accept
+            Err(err) => {
+                tracing::warn!(error = %err, "io.vrx.Host accept; retrying");
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                continue;
+            }
+        };
+        let Ok(permit) = sem.clone().acquire_owned().await else {
+            continue;
         };
         let host = host.clone();
-        tokio::spawn(async move { handle(conn, host).await });
+        tokio::spawn(async move {
+            handle(conn, host).await;
+            drop(permit);
+        });
     }
 }
 
