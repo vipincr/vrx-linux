@@ -378,7 +378,7 @@ abstract class NetworkService {
   /// Host a Wi-Fi network named [ssid] with [passphrase] (connman's
   /// tethering), or stop hosting it. While it runs the device is not a
   /// client of any other network; connman rejoins one when it stops.
-  Future<void> host({required bool on, String ssid = '', String passphrase = ''});
+  Future<void> host({required bool on, String? ssid, String? passphrase});
 }
 
 /// connman over D-Bus. connman keeps its own property protocol
@@ -473,14 +473,17 @@ class ConnmanNetworkService implements NetworkService {
       replySignature: DBusSignature('')));
 
   @override
-  Future<void> host({required bool on, String ssid = '', String passphrase = ''}) => _call(() async {
+  Future<void> host({required bool on, String? ssid, String? passphrase}) => _call(() async {
         final wifi = _object('/net/connman/technology/wifi');
         Future<void> set(String name, DBusValue value) => wifi.callMethod(
             'net.connman.Technology', 'SetProperty', [DBusString(name), DBusVariant(value)],
             replySignature: DBusSignature(''));
         if (on) {
-          await set('TetheringIdentifier', DBusString(ssid));
-          await set('TetheringPassphrase', DBusString(passphrase));
+          // credentials are required exactly when they are used
+          // (review 2026-10-17, ENC-03: turning hosting OFF used to
+          // accept an SSID and a passphrase it ignored)
+          await set('TetheringIdentifier', DBusString(ssid ?? ''));
+          await set('TetheringPassphrase', DBusString(passphrase ?? ''));
         }
         await set('Tethering', DBusBoolean(on));
       });

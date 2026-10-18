@@ -16,13 +16,18 @@
 -->
 <style>
   :root {
-    --page: #f6f6f4; --card: #ffffff; --text: #1b1b1a; --quiet: #5c5c58;
-    --line: #d9d9d4; --warn: #9a5b00; --bad: #a3231c; --good: #2f6b2f;
+    /* scheme 12 (amber/complementary) of the kit's own table,
+       flutter/vrx_kit/lib/src/ui_standard.g.dart — the device's default
+       (VRX_UI_SCHEME=12); this page is a browser, so the values are
+       copied, and the copy is what the review told us to ground
+       (2026-10-17, UI-12) */
+    --page: #fff8f2; --card: #f7efe9; --text: #201b16; --quiet: #50453b;
+    --line: #d1c4b8; --warn: #835500; --bad: #a83825; --good: #226d15;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --page: #151514; --card: #1f1f1d; --text: #ecece8; --quiet: #a2a29b;
-      --line: #34342f; --warn: #e0a64a; --bad: #f0877f; --good: #8fcf8f;
+      --page: #121212; --card: #221d18; --text: #e9e1db; --quiet: #d1c4b8;
+      --line: #50453b; --warn: #f8bc6b; --bad: #ffb4a5; --good: #8ed981;
     }
   }
   * { box-sizing: border-box; }

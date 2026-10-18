@@ -46,11 +46,43 @@ fn hostname() -> String {
         .unwrap_or_default()
 }
 
+/// The pairing secret this run answers (SEC-03, review 2026-10-17): the
+/// management page serves the journal and a 2 GiB write slot, and before
+/// this any host on the LAN could use them. vrx-manage prints a 6-digit
+/// pairing code at start and every request must carry it
+/// (X-Vrx-Pairing). The idle stop still closes the port whatever peers
+/// send: the code gates requests, not the timer.
+fn pairing_code() -> String {
+    let mut buf = [0u8; 4];
+    getrandom_fill(&mut buf);
+    let n = u32::from_le_bytes(buf) % 1_000_000;
+    format!("{n:06}")
+}
+
+fn getrandom_fill(buf: &mut [u8]) {
+    // no getrandom crate: read the device where it exists (Linux), else a
+    // time/pid mix (a host test — never a device)
+    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+        use std::io::Read;
+        let _ = f.read_exact(buf);
+    } else {
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let pid = std::process::id();
+        for (i, b) in buf.iter_mut().enumerate() {
+            *b = ((t >> (i * 8)) as u8) ^ (pid as u8) ^ (i as u8).wrapping_mul(31);
+        }
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
     tracing_subscriber::fmt().with_target(false).init();
     let port: u16 = env_or("VRX_MANAGE_PORT", 80);
     let idle = Duration::from_secs(env_or("VRX_MANAGE_IDLE", 600));
+    let code = std::sync::Arc::new(pairing_code());
     let root = PathBuf::from(env_or(
         "VRX_MANAGE_ROOT",
         String::from("/usr/share/vrx/manage-ui"),
@@ -63,6 +95,9 @@ async fn main() -> ExitCode {
         }
     };
     tracing::info!(port, root = %root.display(), idle_s = idle.as_secs(), "serving the management page");
+    // the pairing code is the journal's too: the person reads it from the
+    // console or the journal, and it changes every start
+    eprintln!("vrx-manage: pairing code {code}  (send it as the X-Vrx-Pairing header)");
     let start = Instant::now();
     // seconds since start of the last request, for the idle stop
     let last = Arc::new(AtomicU64::new(0));
@@ -90,8 +125,9 @@ async fn main() -> ExitCode {
                 let Ok(permit) = slots.clone().acquire_owned().await else { continue };
                 last.store(start.elapsed().as_secs(), Ordering::Relaxed);
                 let root = root.clone();
+                let code = code.clone();
                 tokio::spawn(async move {
-                    serve(stream, &root, peer).await;
+                    serve(stream, &root, peer, &code).await;
                     drop(permit);
                 });
             }
@@ -237,7 +273,14 @@ async fn receive_upload(stream: &mut TcpStream, length: u64, rest: Vec<u8>) -> R
     if let Some(status) = upload::refusal(length, max, api::df_avail_kb(&df)) {
         return Reply::refusal(status);
     }
-    let part = dir.join(upload::PART);
+    // INT-13 (review 2026-10-17): every upload lands in its OWN part file,
+    // created new — two concurrent uploads (a retry racing a stalled
+    // first) wrote one shared file and could store a corrupt bundle.
+    let uniq = std::process::id() ^ (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0));
+    let part = dir.join(format!("{}.part-{}", upload::NAME, uniq));
     let received =
         tokio::time::timeout(UPLOAD_DEADLINE, receive(stream, &part, length, rest)).await;
     let status = match received {
@@ -290,28 +333,61 @@ async fn receive(
     file.sync_all().map_err(|_| 500u16)
 }
 
-async fn serve(mut stream: TcpStream, root: &Path, peer: std::net::SocketAddr) {
+fn constant_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.bytes()
+        .zip(b.bytes())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
+}
+
+async fn serve(
+    mut stream: TcpStream,
+    root: &Path,
+    peer: std::net::SocketAddr,
+    code: &str,
+) {
     let started = tokio::time::Instant::now();
     let (reply, head_only) = match read_head(&mut stream).await {
         Err(None) => return,
         Err(Some(status)) => (Reply::refusal(status), false),
-        Ok((head, rest)) => match http::parse(&head, &hostname()) {
-            Ok(req) if req.method == http::Method::Post => {
-                (receive_upload(&mut stream, req.length, rest).await, false)
-            }
-            Ok(req) => {
-                match tokio::time::timeout_at(started + CONN_DEADLINE, answer(&req, root))
-                    .await
-                {
-                    Ok(reply) => (reply, req.method == http::Method::Head),
-                    Err(_) => {
-                        tracing::debug!(%peer, "connection over its 20 s");
-                        return;
+        Ok((head, rest)) => {
+            // every request names the pairing code; a wrong or missing
+            // code is a 401 that says so and writes nothing
+            let head_text = String::from_utf8_lossy(&head);
+            let sent = head_text
+                .lines()
+                .find_map(|l| {
+                    let (name, value) = l.split_once(':')?;
+                    name.eq_ignore_ascii_case("x-vrx-pairing")
+                        .then(|| value.trim().to_owned())
+                })
+                .unwrap_or_default();
+            if !constant_eq(&sent, code) {
+                tracing::warn!(%peer, "wrong pairing code");
+                (Reply::refusal(401), false)
+            } else {
+                match http::parse(&head, &hostname()) {
+                Ok(req) if req.method == http::Method::Post => {
+                    (receive_upload(&mut stream, req.length, rest).await, false)
+                }
+                Ok(req) => {
+                    match tokio::time::timeout_at(started + CONN_DEADLINE, answer(&req, root))
+                        .await
+                    {
+                        Ok(reply) => (reply, req.method == http::Method::Head),
+                        Err(_) => {
+                            tracing::debug!(%peer, "connection over its 20 s");
+                            return;
+                        }
                     }
                 }
+                Err(http::Refusal(status)) => (Reply::refusal(status), false),
+                }
             }
-            Err(http::Refusal(status)) => (Reply::refusal(status), false),
-        },
+        }
     };
     let mut out = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n",

@@ -408,3 +408,43 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod fuzz_head {
+    use super::*;
+
+    /// A deterministic xorshift: 10_000 pseudo-random heads (BUY-07,
+    /// review 2026-10-17) — parse never panics, and every Ok obeys the
+    /// 1536-byte head limit the reply's framing rests on.
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            let mut x = self.0;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.0 = x;
+            x
+        }
+    }
+
+    #[test]
+    fn ten_thousand_random_heads_never_panic() {
+        let mut rng = Rng(0x243F6A8885A308D3);
+        let alphabet: &[u8] = b"GETPOST/ .HTTP1\r\n\0:-azAZ";
+        for _ in 0..10_000 {
+            let len = (rng.next() % 3000) as usize;
+            let head: Vec<u8> = (0..len)
+                .map(|_| alphabet[(rng.next() as usize) % alphabet.len()])
+                .collect();
+            if let Ok(req) = parse(&head, "gg") {
+                assert!(
+                    head.len() <= 1536,
+                    "a head over the limit parsed: {}",
+                    head.len()
+                );
+                let _ = &req;
+            }
+        }
+    }
+}

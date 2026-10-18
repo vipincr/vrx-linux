@@ -40,10 +40,10 @@ class ManageApplet extends Applet<bool, ManageAction, ManageView> {
   }
 
   Future<void> host(bool on) async {
-    final ssid = on ? hostedName(model.hostname) : model.ssid;
-    final passphrase = on ? hostedPassphrase() : model.passphrase;
+    final ssid = hostedName(model.hostname);
+    final passphrase = hostedPassphrase();
     try {
-      await VrxSystem.network.host(on: on, ssid: ssid, passphrase: passphrase);
+      await VrxSystem.network.host(on: on, ssid: on ? ssid : null, passphrase: on ? passphrase : null);
       _events.add(ManageHosted(on: on, ssid: ssid, passphrase: passphrase, address: on ? await tetherAddress() : ''));
     } on Object catch (err) {
       _events.add(ManageFacts(error: Change(VrxWords.of(err, context: 'manage: host'))));

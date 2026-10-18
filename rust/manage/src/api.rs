@@ -106,10 +106,13 @@ pub fn status(
         .as_deref()
         .and_then(mem_available_kb)
     {
-        s.insert("memory".into(), json!({ "fast_free_kb": kb }));
+        // Linux's own name (review 2026-10-17, INT-10): MemAvailable. The
+        // vendored page printed "Fast memory free" for it, which is an MCU
+        // word for a Linux fact.
+        s.insert("memory".into(), json!({ "mem_available_kb": kb }));
     }
     if let Some(kb) = data_kb {
-        s.insert("storage".into(), json!({ "fs_kb": kb }));
+        s.insert("storage".into(), json!({ "data_free_kb": kb }));
     }
     if !links.is_empty() {
         s.insert("network".into(), json!({ "link": links.join(", ") }));
@@ -203,8 +206,8 @@ mod tests {
         assert_eq!(s["version"], "0.1.0082 (cm4-bcm2711)");
         assert_eq!(s["chip"], "bcm2711");
         assert_eq!(s["uptime_s"], 412);
-        assert_eq!(s["memory"]["fast_free_kb"], 1_203_456);
-        assert_eq!(s["storage"]["fs_kb"], 13_421_772);
+        assert_eq!(s["memory"]["mem_available_kb"], 1_203_456);
+        assert_eq!(s["storage"]["data_free_kb"], 13_421_772);
         assert_eq!(s["network"]["link"], "eth0 10.10.10.8");
         assert!(
             s.get("built").is_none()
