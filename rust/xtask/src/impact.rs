@@ -29,23 +29,24 @@ impl Fnv {
 }
 
 fn walk(path: &Path, out: &mut Vec<PathBuf>) {
-    walk_skipping(path, out, true);
+    walk_skipping(path, out, 0);
 }
 
-/// The walk. `top` marks the input's own root: build output and tool state
-/// (SKIP) are skipped there, and hidden entries at any depth, but a SOURCE
-/// directory named "build" or "target" below the top is content the check
+/// The walk. Build output and tool state (SKIP) are skipped at the input's
+/// own root and in its DIRECT children (a crate's target/, a Flutter
+/// package's .dart_tool/), and hidden entries at any depth; a SOURCE
+/// directory named "build" or "target" any deeper is content the check
 /// reads and hashes (review 2026-10-17, CON-03: a skip at every depth made
 /// any such directory invisible to every gate).
-fn walk_skipping(path: &Path, out: &mut Vec<PathBuf>, top: bool) {
+fn walk_skipping(path: &Path, out: &mut Vec<PathBuf>, depth: u32) {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    if (top && SKIP.contains(&name)) || (name.starts_with('.') && name != ".") {
+    if (depth <= 1 && SKIP.contains(&name)) || (name.starts_with('.') && name != ".") {
         return;
     }
     if path.is_dir() {
         if let Ok(entries) = std::fs::read_dir(path) {
             for entry in entries.flatten() {
-                walk_skipping(&entry.path(), out, false);
+                walk_skipping(&entry.path(), out, depth + 1);
             }
         }
     } else if path.is_file() {
@@ -206,7 +207,20 @@ mod tests {
         let before = hash(&repo, std::slice::from_ref(&pkg));
         std::fs::write(pkg.join("build/out"), "noise").unwrap();
         std::fs::write(pkg.join(".hidden"), "noise").unwrap();
-        assert_eq!(hash(&repo, std::slice::from_ref(&pkg)), before);
+        assert_eq!(
+            hash(&repo, std::slice::from_ref(&pkg)),
+            before,
+            "build output at the input's own root, and hidden files, are skipped"
+        );
+        // a SOURCE directory named build below the top is content the
+        // check reads (review 2026-10-17, CON-03): it must hash
+        std::fs::create_dir_all(pkg.join("lib/build")).unwrap();
+        std::fs::write(pkg.join("lib/build/gen.dart"), "generated").unwrap();
+        assert_ne!(
+            hash(&repo, std::slice::from_ref(&pkg)),
+            before,
+            "a build-named source directory below the input's root is a change"
+        );
         std::fs::write(pkg.join("lib/a.dart"), "b").unwrap();
         assert_ne!(hash(&repo, std::slice::from_ref(&pkg)), before);
         std::fs::write(pkg.join("lib/a.dart"), "a").unwrap();

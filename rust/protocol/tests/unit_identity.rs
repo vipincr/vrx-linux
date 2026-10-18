@@ -33,9 +33,9 @@ fn every_builtin_dropin_is_byte_identical_to_the_record() {
         // generator and has nothing to record.
         .filter(|d| {
             d.join("manifest.toml").is_file()
-                && d.file_name()
-                    .and_then(|n| n.to_str())
-                    .is_some_and(|id| recipes.join(format!("vrx-applet-{id}.bb")).is_file())
+                && d.file_name().and_then(|n| n.to_str()).is_some_and(|id| {
+                    recipes.join(format!("vrx-applet-{id}.bb")).is_file()
+                })
         })
         .collect();
     live.sort();
@@ -44,15 +44,20 @@ fn every_builtin_dropin_is_byte_identical_to_the_record() {
         let Some(id) = dir.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        let manifest: Manifest =
-            std::fs::read_to_string(dir.join("manifest.toml")).unwrap().parse().unwrap();
+        let manifest: Manifest = std::fs::read_to_string(dir.join("manifest.toml"))
+            .unwrap()
+            .parse()
+            .unwrap();
         let home = format!("/system/defaults/{id}");
         let bundle = (manifest.applet.runtime
             == vrx_protocol::manifest::Runtime::Flutter)
             .then(|| format!("{home}/{FLUTTER}/release"));
         let place = Place::builtin(home, bundle);
         let want = std::fs::read_to_string(goldens.join(format!("{id}.conf")));
-        assert!(want.is_ok(), "{id}: no recorded drop-in in tests/unit/ (add {id}.conf)");
+        assert!(
+            want.is_ok(),
+            "{id}: no recorded drop-in in tests/unit/ (add {id}.conf)"
+        );
         assert_eq!(
             dropin(&manifest, &place, &grants).unwrap(),
             want.unwrap(),
@@ -71,7 +76,9 @@ fn every_builtin_dropin_is_byte_identical_to_the_record() {
     // does not outlive it
     for entry in std::fs::read_dir(&goldens).unwrap().flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        let Some(id) = name.strip_suffix(".conf") else { continue };
+        let Some(id) = name.strip_suffix(".conf") else {
+            continue;
+        };
         assert!(
             applets.join(id).join("manifest.toml").is_file(),
             "{id}: a recorded drop-in with no live applet"
@@ -102,8 +109,10 @@ fn record_missing_goldens() {
         {
             continue;
         }
-        let manifest: Manifest =
-            std::fs::read_to_string(dir.join("manifest.toml")).unwrap().parse().unwrap();
+        let manifest: Manifest = std::fs::read_to_string(dir.join("manifest.toml"))
+            .unwrap()
+            .parse()
+            .unwrap();
         let home = format!("/system/defaults/{id}");
         let bundle = (manifest.applet.runtime
             == vrx_protocol::manifest::Runtime::Flutter)
@@ -119,6 +128,5 @@ fn record_missing_goldens() {
         if let Some(text) = settings_defaults(&manifest) {
             std::fs::write(goldens.join(format!("{id}.settings")), text).unwrap();
         }
-        println!("recorded {id}");
     }
 }

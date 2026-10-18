@@ -40,6 +40,9 @@ Future<void> _host(WidgetTester tester, Widget child, {bool keyboard = false}) a
 Future<TextEditingController> _field(WidgetTester tester, VrxInputKind kind,
     {String text = '', ValueChanged<String>? onSubmitted}) async {
   final c = TextEditingController(text: text);
+  // disposed with the test: a leaked controller's change notifications
+  // fired after the test completed and failed a random later one
+  addTearDown(c.dispose);
   await _host(tester, Center(child: VrxTextField(controller: c, kind: kind, autofocus: true, onSubmitted: onSubmitted)));
   return c;
 }

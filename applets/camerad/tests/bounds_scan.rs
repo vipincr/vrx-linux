@@ -4,6 +4,10 @@
 // fixtures (IMG_9999.JPG, a fake camera's 640x480); only live code is
 // scanned. DEFAULT_QUALITY's 85 is not scanned: too generic a number to
 // tell from any other eighty-five.
+//
+// a scan test: the assertions are the error surface (the same allowance
+// the protocol's golden tests carry)
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::path::Path;
 
@@ -21,7 +25,8 @@ fn code_only(text: &str) -> String {
         }
         if code.contains("mod tests") || (code.contains("#[cfg(test)]")) {
             if code.contains('{') {
-                depth = code.matches('{').count() as i32 - code.matches('}').count() as i32;
+                depth =
+                    code.matches('{').count() as i32 - code.matches('}').count() as i32;
                 continue;
             }
             continue;
@@ -40,8 +45,14 @@ fn has_own_literal(code: &str, token: &str) -> bool {
     while let Some(found) = code[at..].find(token) {
         let start = at + found;
         let end = start + token.len();
-        let before_ok = start == 0 || !(bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_' || bytes[start - 1] == b'.');
-        let after_ok = end == bytes.len() || !(bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_' || bytes[end] == b'.');
+        let before_ok = start == 0
+            || !(bytes[start - 1].is_ascii_alphanumeric()
+                || bytes[start - 1] == b'_'
+                || bytes[start - 1] == b'.');
+        let after_ok = end == bytes.len()
+            || !(bytes[end].is_ascii_alphanumeric()
+                || bytes[end] == b'_'
+                || bytes[end] == b'.');
         if before_ok && after_ok {
             return true;
         }
@@ -53,13 +64,13 @@ fn has_own_literal(code: &str, token: &str) -> bool {
 #[test]
 fn no_bound_literal_outside_bounds_rs() {
     const TOKENS: &[&str] = &[
-        "8_000_000",       // MAX_PIXELS
-        "1024 * 1024",     // MAX_JPEG_BYTES, MIN_FREE_BYTES
-        "9999",            // MAX_PHOTO_NUMBER
-        "480",             // SMALL_DISPLAY, VIEWFINDER
-        "640",             // VIEWFINDER
-        "320",             // VIEWFINDER_SMALL
-        "240",             // VIEWFINDER_SMALL
+        "8_000_000",   // MAX_PIXELS
+        "1024 * 1024", // MAX_JPEG_BYTES, MIN_FREE_BYTES
+        "9999",        // MAX_PHOTO_NUMBER
+        "480",         // SMALL_DISPLAY, VIEWFINDER
+        "640",         // VIEWFINDER
+        "320",         // VIEWFINDER_SMALL
+        "240",         // VIEWFINDER_SMALL
     ];
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut bad = String::new();

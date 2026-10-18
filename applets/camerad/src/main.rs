@@ -55,7 +55,10 @@ mod service {
             .ok()
             .and_then(|s| {
                 let (w, h) = s.trim().split_once(',')?;
-                Some(w.parse::<u32>().ok()?.min(h.parse::<u32>().ok()?) < bounds::SMALL_DISPLAY)
+                Some(
+                    w.parse::<u32>().ok()?.min(h.parse::<u32>().ok()?)
+                        < bounds::SMALL_DISPLAY,
+                )
             })
             .unwrap_or(false)
     }

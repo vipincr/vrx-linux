@@ -78,7 +78,9 @@ fn main() -> ExitCode {
 /// an unreadable applets/ directory passed the gate). One filter: a
 /// directory whose manifest parses. An unreadable directory is an error
 /// the caller fails on, never an empty list the gate passes with.
-fn applets(repo: &std::path::Path) -> Option<Vec<(std::path::PathBuf, vrx_protocol::Manifest)>> {
+fn applets(
+    repo: &std::path::Path,
+) -> Option<Vec<(std::path::PathBuf, vrx_protocol::Manifest)>> {
     let entries = match std::fs::read_dir(repo.join("applets")) {
         Ok(e) => e,
         Err(err) => {

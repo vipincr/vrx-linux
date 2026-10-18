@@ -24,7 +24,9 @@ fn raise_system_intent(host: varlink::Host, name: &str, payload: serde_json::Val
     tokio::spawn(async move {
         match Intent::new(&name, payload) {
             Ok(intent) => varlink::raise(&host, intent).await,
-            Err(err) => tracing::warn!(name = %name, error = %err, "cannot raise the system intent"),
+            Err(err) => {
+                tracing::warn!(name = %name, error = %err, "cannot raise the system intent")
+            }
         }
     });
 }
@@ -207,7 +209,11 @@ async fn main() -> ExitCode {
         let raiser = host.clone();
         tokio::spawn(async move {
             let ended = usb::watch(state, move || {
-                raise_system_intent(raiser.clone(), usb::CONNECTED, serde_json::Value::Null);
+                raise_system_intent(
+                    raiser.clone(),
+                    usb::CONNECTED,
+                    serde_json::Value::Null,
+                );
             })
             .await;
             if let Err(err) = ended {
@@ -244,7 +250,11 @@ async fn main() -> ExitCode {
     let (power_tx, power_rx) = mpsc::unbounded_channel();
     tokio::spawn(power::watch(power_rx, move |supply| {
         let _ = battery_tx.send(());
-        raise_system_intent(raiser.clone(), power::CHANGED, serde_json::json!({ "supply": supply }));
+        raise_system_intent(
+            raiser.clone(),
+            power::CHANGED,
+            serde_json::json!({ "supply": supply }),
+        );
     }));
     // devices plugged into the board (plan 0019 D7): the image's
     // declaration, the device list from the same uevents, the drives'
