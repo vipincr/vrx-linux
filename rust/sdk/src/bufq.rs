@@ -37,6 +37,7 @@ pub struct BufferQueue {
     writer: UnixStream,
     reader: BufReader<UnixStream>,
     buffers: Vec<OwnedFd>,
+    count: u32,
     size: u64,
     format: Option<BufferFormat>,
     /// producer: the buffers not with the consumer
@@ -142,8 +143,10 @@ impl BufferQueue {
         )
         .map_err(|e| io(&name)(e.into()))?;
         let reader = BufReader::new(stream.try_clone().map_err(io(&name))?);
+        let count = buffers.len() as u32;
         Ok(Self {
             name,
+            count,
             writer: stream,
             reader,
             free: (0..count).collect(),
@@ -200,8 +203,10 @@ impl BufferQueue {
             )));
         }
         let reader = BufReader::new(stream.try_clone().map_err(io(&name))?);
+        let count = buffers.len() as u32;
         Ok(Self {
             name,
+            count,
             writer: stream,
             reader,
             buffers,
@@ -271,6 +276,15 @@ impl BufferQueue {
         }
         let back: BufferReturned = serde_json::from_str(line.trim())
             .map_err(|e| IpcError::BadAnswer(e.to_string()))?;
+        // CON-03 (review 2026-10-17): the peer's index is checked where
+        // it ARRIVES — a returned index the queue does not have pushed a
+        // slot the producer would hand out twice
+        if back.index as usize >= self.count {
+            return Err(IpcError::BadAnswer(format!(
+                "the consumer returned buffer {}, the queue holds {}",
+                back.index, self.count
+            )));
+        }
         self.free.push_back(back.index);
         Ok(back.index)
     }

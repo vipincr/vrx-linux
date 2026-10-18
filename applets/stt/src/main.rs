@@ -88,7 +88,7 @@ fn main() -> ExitCode {
     notify("READY=1");
     let busy = Arc::new(AtomicBool::new(false));
     // blocked here is idle: the watchdog keeps pinging
-    while let Some(delivery) = listener.next_delivery() {
+    while let vrx::ipc::NextDelivery::Delivery(delivery) = listener.next_delivery() {
         let Delivery::Intent { id, name, .. } = delivery else {
             continue;
         };

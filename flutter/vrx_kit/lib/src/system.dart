@@ -916,16 +916,24 @@ class _Unit {
   /// called Subscribe (vrxhost has; so does this, which is harmless).
   Stream<bool> watchActive() async* {
     await _call(() => _manager.callMethod(_managerIface, 'Subscribe', const []));
+    // CON-07 (review 2026-10-17): the subscription is taken BEFORE the
+    // read — reading first lost a change that landed between the two,
+    // and the Manage and USB switches showed a stale state until the
+    // next unrelated change.
     final unit = await _call(_object);
+    final controller = StreamController<DBusPropertiesChangedSignal>.broadcast();
+    final keep = unit.propertiesChanged.listen(controller.add, onError: (Object _) {});
     var last = await active();
     yield last;
-    await for (final change in unit.propertiesChanged) {
+    await for (final change in controller.stream) {
       if (change.propertiesInterface != _unitIface) continue;
       final state = change.changedProperties['ActiveState'];
       if (state == null) continue;
       final now = _running(state.asString());
       if (now != last) yield last = now;
     }
+    await keep.cancel();
+    await controller.close();
   }
 }
 

@@ -221,6 +221,11 @@ abstract class AppletsService implements IntentTransport, NavDelegate {
 /// it the shell kept the trail depth of a vrxhost that had gone, and
 /// offered no Back in an applet (bench 2026-10-13).
 Stream<T> resubscribed<T>(Stream<T> Function() open, {Duration retry = const Duration(milliseconds: 500)}) async* {
+  // INT-09 (review 2026-10-17): the retry backs off to 5 s, doubled per
+  // failure, and a PERMANENT refusal (VarlinkError the peer chose to
+  // send, e.g. NotPermitted) ends the loop as an error instead of being
+  // swallowed into silence forever.
+  var wait = retry;
   while (true) {
     try {
       // await for, not yield*: an error must end this attempt here, not
@@ -228,10 +233,13 @@ Stream<T> resubscribed<T>(Stream<T> Function() open, {Duration retry = const Dur
       await for (final value in open()) {
         yield value;
       }
+    } on VarlinkError {
+      rethrow; // the peer answered: not a connection problem
     } on Object {
       // gone or refused: the next attempt says whether it is back
     }
-    await Future<void>.delayed(retry); // poll-ok: only while vrxhost is down or restarting, to reconnect
+    await Future<void>.delayed(wait); // poll-ok: only while vrxhost is down or restarting, to reconnect
+    wait = wait * 2 > const Duration(seconds: 5) ? const Duration(seconds: 5) : wait * 2;
   }
 }
 
@@ -255,10 +263,16 @@ class VarlinkClient {
 
   final String socketPath;
 
-  /// Call [method] and return its reply parameters.
+  /// Call [method] and return its reply parameters. The call has a
+  /// deadline (INT-09, review 2026-10-17): a wedged vrxhost answered
+  /// nothing and the caller waited for ever. [timeout] defaults to 10 s;
+  /// a call that outlives it throws [TimeoutException].
   Future<Map<String, dynamic>> call(String method,
-      [Map<String, dynamic>? parameters]) async {
-    return stream(method, parameters: parameters, more: false).first;
+      [Map<String, dynamic>? parameters, Duration timeout = const Duration(seconds: 10)]) {
+    return stream(method, parameters: parameters, more: false).first.timeout(
+      timeout,
+      onTimeout: () => throw TimeoutException('io.vrx.Host.$method', timeout),
+    );
   }
 
   /// Call [method] and stream every reply's parameters.

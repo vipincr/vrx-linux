@@ -20,7 +20,12 @@ final class VrxFile {
   /// rename for a file others read: an applet's unit has UMask=0077.
   static Future<void> writeAtomic(String path, String text, {String? mode}) async {
     final target = File(path);
-    final tmp = File('${target.parent.path}/.${target.uri.pathSegments.last}.new');
+    // a UNIQUE temp per write (CON-07, review 2026-10-17): two racing
+    // writers shared one ".name.new" and a cross-rename could land the
+    // older writer's bytes under the newer writer's rename
+    final tmp = File(
+      '${target.parent.path}/.${target.uri.pathSegments.last}.${DateTime.now().microsecondsSinceEpoch}.${identityHashCode(target)}.new',
+    );
     await target.parent.create(recursive: true);
     await tmp.writeAsString(text, flush: true);
     if (mode != null) {

@@ -129,9 +129,26 @@ class VrxBufferQueue {
       while (true) {
         final end = pending.indexOf(10);
         if (end < 0) break;
-        final line = jsonDecode(utf8.decode(pending.sublist(0, end))) as Map<String, dynamic>;
+        // CON-03 (review 2026-10-17): a malformed offer (bad JSON, wrong
+        // shape) completes the accept with an error — throwing inside the
+        // socket callback killed the listener and offer.future never
+        // completed, so VrxBufferQueue.accept hung for ever
+        Map<String, dynamic> line;
+        try {
+          line = jsonDecode(utf8.decode(pending.sublist(0, end))) as Map<String, dynamic>;
+        } on Object catch (err) {
+          pending.removeRange(0, end + 1);
+          if (!offer.isCompleted) {
+            offer.completeError(StateError('$name: a malformed offer: $err'));
+          }
+          continue;
+        }
         pending.removeRange(0, end + 1);
         if (!offer.isCompleted) {
+          if (line['buffers'] is! num || line['size'] is! num) {
+            offer.completeError(StateError('$name: the offer names no buffer count or size'));
+            continue;
+          }
           offer.complete(((line['buffers'] as num).toInt(), (line['size'] as num).toInt(), List.of(handles)));
         } else {
           frames.add(VrxBufferFilled(

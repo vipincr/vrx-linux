@@ -37,6 +37,10 @@ where
     println!("{}", A::render(store.view()));
     // the boot view is out: the applet is usable (its unit's start budget)
     service::notify("READY=1");
+    // CON-10 (review 2026-10-17): boot effects fire on BOOT, not on the
+    // first stdin action — a resident applet with no first action kept
+    // its announce pending for ever
+    store.flush_boot_effects(&mut sink);
     for line in std::io::stdin().lines() {
         let Ok(line) = line else { break };
         if line.trim().is_empty() {

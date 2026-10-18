@@ -34,7 +34,9 @@ unbind() { [ -s "$G/UDC" ] && echo "" > "$G/UDC" || true; }
 bind() { udc > "$G/UDC"; }
 
 up() {
-    [ -d "$G" ] && return 0
+    # done = the gadget is BOUND (a directory alone says nothing: a
+    # failed bind left one and every later up skipped the bind)
+    [ -d "$G" ] && [ -s "$G/UDC" ] && return 0
     modprobe libcomposite
     mkdir "$G"
     # the Linux Foundation's multifunction composite gadget id, with the
@@ -73,7 +75,16 @@ share_on() {
     echo 1 > "$MS/lun.0/removable"
     echo "$IMG" > "$MS/lun.0/file"
     ln -s "$MS" "$G/configs/c.1/"
-    bind
+    # bind last (CON-09, review 2026-10-17): a bind that fails now
+    # leaves the function dir made and the link placed but the gadget
+    # unbound — the next run finds the dir, skips to bind, and retries
+    # exactly the step that failed
+    if ! bind; then
+        rm -f "$G/configs/c.1/$(basename "$MS")"
+        rmdir "$MS" 2>/dev/null || true
+        echo "vrx-usb-gadget: the mass-storage bind failed; state rolled back" >&2
+        exit 1
+    fi
 }
 
 share_off() {

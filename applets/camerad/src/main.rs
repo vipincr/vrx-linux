@@ -67,7 +67,7 @@ mod service {
         let mut listener = Listener::start().map_err(|e| e.to_string())?;
         let tx = tx.clone();
         std::thread::spawn(move || {
-            while let Some(delivery) = listener.next_delivery() {
+            while let vrx::ipc::NextDelivery::Delivery(delivery) = listener.next_delivery() {
                 match delivery {
                     Delivery::Intent { id, name, payload } => {
                         let ours = name == "sys.camera.capture";

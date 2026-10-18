@@ -83,13 +83,20 @@ impl<A: Applet> Store<A> {
         }
     }
 
+    /// Deliver the boot action's effects (CON-10, review 2026-10-17):
+    /// called at start, not on the first dispatch — a resident applet
+    /// with no first action still announces itself.
+    pub fn flush_boot_effects(&mut self, sink: &mut dyn EffectSink) {
+        for effect in std::mem::take(&mut self.pending_boot_effects) {
+            sink.deliver(&effect);
+        }
+    }
+
     /// Apply one action: reduce, snapshot, effects, publish.
     pub fn dispatch(&mut self, action: A::Action, sink: &mut dyn EffectSink) {
         self.view = self.applet.reduce(&self.state, &action);
         self.state = self.applet.snapshot();
-        for effect in std::mem::take(&mut self.pending_boot_effects) {
-            sink.deliver(&effect);
-        }
+        self.flush_boot_effects(sink);
         for effect in self.applet.effects(&self.state, &action) {
             sink.deliver(&effect);
         }

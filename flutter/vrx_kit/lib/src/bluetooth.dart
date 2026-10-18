@@ -313,10 +313,23 @@ class LinuxBluetoothService implements BluetoothService {
         if (!agent.registered) {
           await _bus.registerObject(agent);
           final manager = _object('/org/bluez');
-          await manager.callMethod('org.bluez.AgentManager1', 'RegisterAgent',
-              [agent.path, const DBusString('DisplayYesNo')], replySignature: DBusSignature(''));
-          await manager.callMethod('org.bluez.AgentManager1', 'RequestDefaultAgent', [agent.path],
-              replySignature: DBusSignature(''));
+          try {
+            await manager.callMethod('org.bluez.AgentManager1', 'RegisterAgent',
+                [agent.path, const DBusString('DisplayYesNo')], replySignature: DBusSignature(''));
+            await manager.callMethod('org.bluez.AgentManager1', 'RequestDefaultAgent', [agent.path],
+                replySignature: DBusSignature(''));
+          } on Object {
+            // CON-07 (review 2026-10-17): a half-registered agent left
+            // the object on the bus answering nothing — roll both back
+            // so the next attempt starts clean
+            try {
+              await manager.callMethod('org.bluez.AgentManager1', 'UnregisterAgent', [agent.path],
+                  replySignature: DBusSignature(''));
+            } on Object {
+              // BlueZ was the failure: there is nothing to unregister
+            }
+            rethrow;
+          }
           agent.registered = true;
         }
         await _host.call('io.vrx.Host.PairingWindow', {'on': true, 'seconds': BluetoothService.window.inSeconds});

@@ -94,11 +94,21 @@ fn varlink_call(
         .map_err(|e| IpcError::BadAnswer(e.to_string()))?;
     let mut reply = Vec::new();
     let mut byte = [0u8; 1];
+    // CON-12 (review 2026-10-17): the read has a deadline — a wedged
+    // vrxhost answered nothing and the applet blocked for ever on a
+    // socket that never closed. 10 s: the host's own watchdog restarts
+    // it well inside that.
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+        .map_err(|e| IpcError::BadAnswer(e.to_string()))?;
     loop {
         match stream.read(&mut byte) {
             Ok(0) => return Err(IpcError::BadAnswer("vrxhost closed mid-reply".into())),
             Ok(_) if byte[0] == 0 => break,
             Ok(_) => reply.push(byte[0]),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+                return Err(IpcError::BadAnswer("vrxhost did not answer within 10 s".into()))
+            }
             Err(e) => return Err(IpcError::BadAnswer(e.to_string())),
         }
     }
@@ -343,10 +353,18 @@ impl Listener {
         })
     }
 
-    /// Block for the next delivery; None when vrxhost hung up.
-    pub fn next_delivery(&mut self) -> Option<Delivery> {
-        let (reply, fd) = self.inner.next()?;
-        let params = reply.get("parameters")?;
+    /// Block for the next delivery. Three answers where the old Option
+    /// folded them into one None (CON-05, review 2026-10-17): the stream
+    /// ended, the record did not parse, or the delivery kind is one this
+    /// SDK does not know (a newer vrxhost). A caller can tell a shutdown
+    /// from a protocol fault.
+    pub fn next_delivery(&mut self) -> NextDelivery {
+        let Some((reply, fd)) = self.inner.next() else {
+            return NextDelivery::Ended;
+        };
+        let Some(params) = reply.get("parameters") else {
+            return NextDelivery::Malformed("the reply names no parameters".into());
+        };
         let text = |k: &str| {
             params
                 .get(k)
@@ -354,23 +372,46 @@ impl Listener {
                 .unwrap_or_default()
                 .to_owned()
         };
-        match params.get("kind").and_then(|v| v.as_str())? {
-            "intent" => Some(Delivery::Intent {
+        let kind = match params.get("kind").and_then(|v| v.as_str()) {
+            Some(k) => k,
+            None => return NextDelivery::Malformed("the delivery names no kind".into()),
+        };
+        match kind {
+            "intent" => NextDelivery::Delivery(Delivery::Intent {
                 id: params.get("id").and_then(|v| v.as_u64()),
                 name: text("name"),
                 payload: params.get("payload").cloned().unwrap_or_default(),
             }),
             "channel" => {
-                let stream = UnixStream::from(fd?);
-                let channel = Channel::from_stream(text("channel"), stream).ok()?;
-                Some(Delivery::Channel {
+                let Some(fd) = fd else {
+                    return NextDelivery::Malformed("a channel delivery with no descriptor".into());
+                };
+                let stream = UnixStream::from(fd);
+                let channel = match Channel::from_stream(text("channel"), stream) {
+                    Ok(c) => c,
+                    Err(e) => return NextDelivery::Malformed(format!("the channel delivery: {e}")),
+                };
+                NextDelivery::Delivery(Delivery::Channel {
                     from: text("from"),
                     channel,
                 })
             }
-            _ => None,
+            other => NextDelivery::Unknown(other.to_owned()),
         }
     }
+}
+
+/// [Listener::next_delivery]'s three answers (CON-05).
+#[derive(Debug)]
+pub enum NextDelivery {
+    /// A delivery.
+    Delivery(Delivery),
+    /// vrxhost hung up: the applet's lifetime's end.
+    Ended,
+    /// A record that does not parse: a protocol fault, named.
+    Malformed(String),
+    /// A delivery kind this SDK does not know (a newer vrxhost).
+    Unknown(String),
 }
 
 /// Answer an intent a Listen asked about.
