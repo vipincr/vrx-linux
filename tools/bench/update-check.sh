@@ -81,14 +81,21 @@ problem_of() { echo "$OFFERS" | field "next((str(o['problem']) for o in d['param
 EOF
 )
 
+WORST=0
 run() {
     # shellcheck disable=SC2029
-    on "PHASE='$PHASE' A1='${1:-}' A2='${2:-}' A3='${3:-}' sh -s" <<EOF
+    if ! on "PHASE='$PHASE' A1='${1:-}' A2='${2:-}' A3='${3:-}' sh -s" <<EOF
 $BOARD
 $(cat)
 exit \$fails
 EOF
+    then
+        # the exit status is the WORST of all runs (review 2026-10-17,
+        # CON-08: the last run's status answered for the whole phase)
+        WORST=1
+    fi
 }
+trap 'exit $WORST' EXIT
 
 case $PHASE in
 layout) run <<'EOF'
@@ -142,6 +149,8 @@ install)
 echo "== install into the other slot, restart on trial (D2)"
 FROM=$(rauc status --output-format=json | field "d['booted']")
 echo "        booted $FROM"
+mkdir -p /data/vrx/update
+printf '%s\n' "$FROM" > /data/vrx/update/bench-from
 OFFERS=$(call settings UpdateOffers)
 check "offered, nothing wrong"   sh -c "[ '$(problem_of "$A1")' = None ]"
 R=$(call settings UpdateInstall "{\"file\": \"$A1\"}")
@@ -184,6 +193,11 @@ fallback)
     put "$1"
     run "$(basename "$1")" <<'EOF'
 echo "== a bundle whose UI never starts (D6): install, then restart"
+# bench-from is written HERE, by every phase that moves the slot (review
+# 2026-10-17, CON-10: only install and power-cut-slot wrote it, so a
+# fall-back judged itself against whatever slot an older phase named)
+mkdir -p /data/vrx/update
+rauc status --output-format=json | field "d['booted']" > /data/vrx/update/bench-from
 R=$(call settings UpdateInstall "{\"file\": \"$A1\"}")
 echo "$R" | grep -q '"version"' && ok "installed" || bad "install: $R"
 call settings UpdateRestart >/dev/null &
@@ -194,7 +208,11 @@ EOF
     run <<'EOF'
 S=$(call settings UpdateStatus)
 echo "$S" | grep -q '"last": *"fell-back"' && ok "Settings says it went back" || bad "status: $S"
-check "booted the slot it came from" sh -c "[ \"$(rauc status --output-format=json | field \"d['booted']\")\" = \"$(cat /data/vrx/update/bench-from)\" ]"
+# a missing record is a failure, never an empty compare that reads true
+[ -s /data/vrx/update/bench-from ] || bad "no bench-from record: nothing to compare the fall-back against"
+FROM=$(cat /data/vrx/update/bench-from 2>/dev/null || echo none)
+NOW=$(rauc status --output-format=json | field "d['booted']")
+[ "$FROM" != none ] && check "booted the slot it came from ($FROM -> $NOW)" sh -c "[ '$NOW' = '$FROM' ]"
 EOF
 ;;
 upload)
