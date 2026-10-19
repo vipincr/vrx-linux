@@ -1,0 +1,30 @@
+{
+  "owner": "vrx-protocol's power_profile module parses the verbs; the parse-time python in meta-vrx's vrx-power-profile.bbclass reads the sleep ladder for bitbake (its copy names this file as its twin)",
+  "model_parts": [
+    "floor",
+    "cpu",
+    "gpu",
+    "display",
+    "display-dim",
+    "wifi-idle",
+    "wifi-active",
+    "bt"
+  ],
+  "sleep_kinds": {
+    "sleep": [
+      "none",
+      "s2idle",
+      "deep"
+    ],
+    "deep": [
+      "none",
+      "halt"
+    ],
+    "off": [
+      "none",
+      "halt",
+      "standby"
+    ]
+  },
+  "carrier_narrows": "a carrier stays at or goes down each ladder; never up (plan 0020 D1)"
+}

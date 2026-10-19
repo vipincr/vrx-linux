@@ -1,10 +1,55 @@
 {
   "_": "The displays vrx boards drive: pixels, and the panel's width in mm (0 when its EDID gives none, and the runtime keeps the pixel ratio at 1.0). The one table: vrx_check (Dart) and vrx::kit (Rust) both read it. turns: vrx may show the panel turned a quarter, so an applet whose manifest declares orientation any is laid out at its turned shape too (plan 0013 D10).",
+  "standard": {
+    "dp_per_inch": 160,
+    "body_pt": 9.9,
+    "about": "the density every vrx display draws at (1dp = 1/160 inch) and the body text's size in points; the Rust console check and vrx_kit's metrics both derive their mmToDp from here, held by a test on each side (KRN-04)"
+  },
   "displays": [
-    { "name": "disp28a", "width": 480, "height": 640, "width_mm": 43, "touch": true, "turns": false, "about": "the bench's 2.8\" panel on the CM4, 43x58mm; fixed in its carrier, and vc4 cannot scan out a quarter turn, so it is never shown turned" },
-    { "name": "dsi7", "width": 800, "height": 480, "width_mm": 154, "touch": true, "turns": true, "about": "the Raspberry Pi 7\" touch display" },
-    { "name": "hdmi7", "width": 1024, "height": 600, "width_mm": 154, "touch": true, "turns": true, "about": "a 7\" HDMI panel" },
-    { "name": "hdmi1080", "width": 1920, "height": 1080, "width_mm": 527, "touch": false, "turns": true, "about": "a 24\" monitor with a mouse and keyboard" },
-    { "name": "hdmi-nosize", "width": 1280, "height": 720, "width_mm": 0, "touch": false, "turns": true, "about": "a monitor whose EDID gives no size" }
+    {
+      "name": "disp28a",
+      "width": 480,
+      "height": 640,
+      "width_mm": 43,
+      "touch": true,
+      "turns": false,
+      "about": "the bench's 2.8\" panel on the CM4, 43x58mm; fixed in its carrier, and vc4 cannot scan out a quarter turn, so it is never shown turned"
+    },
+    {
+      "name": "dsi7",
+      "width": 800,
+      "height": 480,
+      "width_mm": 154,
+      "touch": true,
+      "turns": true,
+      "about": "the Raspberry Pi 7\" touch display"
+    },
+    {
+      "name": "hdmi7",
+      "width": 1024,
+      "height": 600,
+      "width_mm": 154,
+      "touch": true,
+      "turns": true,
+      "about": "a 7\" HDMI panel"
+    },
+    {
+      "name": "hdmi1080",
+      "width": 1920,
+      "height": 1080,
+      "width_mm": 527,
+      "touch": false,
+      "turns": true,
+      "about": "a 24\" monitor with a mouse and keyboard"
+    },
+    {
+      "name": "hdmi-nosize",
+      "width": 1280,
+      "height": 720,
+      "width_mm": 0,
+      "touch": false,
+      "turns": true,
+      "about": "a monitor whose EDID gives no size"
+    }
   ]
 }

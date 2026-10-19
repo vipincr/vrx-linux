@@ -156,7 +156,7 @@ pub async fn carry_out(
 pub fn exposure() -> watch::Receiver<Exposure> {
     let (tx, rx) = watch::channel(Exposure::read());
     std::thread::spawn(move || {
-        let watched = vrx::ipc::File::watch(matter::SETTINGS_FILE);
+        let watched = vrx_wire::File::watch(matter::SETTINGS_FILE);
         if let Err(err) = watched.watch_forever(|text| {
             tx.send_replace(Exposure::parse(text));
         }) {

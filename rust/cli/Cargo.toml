@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 vrx-protocol = { path = "../protocol" }
+vrx-scan = { path = "../scan" }
 # `vrx camera` is a client of camerad: it opens the same channel an applet does
 vrx = { path = "../sdk" }
 serde = { workspace = true }

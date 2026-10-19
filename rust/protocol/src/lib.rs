@@ -18,7 +18,6 @@ pub mod matter;
 pub mod pipe;
 pub mod power_profile;
 pub mod registry;
-pub mod scan;
 pub mod sysext;
 pub mod unit;
 pub mod walk;

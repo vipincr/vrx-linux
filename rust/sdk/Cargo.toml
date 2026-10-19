@@ -6,6 +6,7 @@ description = "The vrx Rust SDK: the applet store, the IPC clients, and the cons
 license = "MIT"
 
 [dependencies]
+vrx-wire = { path = "../wire" }
 vrx-protocol = { path = "../protocol" }
 serde = { workspace = true }
 serde_json = { workspace = true }

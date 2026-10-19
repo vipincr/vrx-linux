@@ -52,7 +52,7 @@ pub fn run(args: &[String]) -> ExitCode {
     // the responsiveness scan: nothing that blocks the event loop or a
     // frame (plan 0008 D19); one implementation with the repo's gate
     let found =
-        vrx_protocol::scan::scan(&vrx_protocol::scan::applet_roots(&manifest_dir));
+        vrx_scan::scan(&vrx_scan::applet_roots(&manifest_dir));
     for v in &found {
         let shown = v
             .path
@@ -75,7 +75,7 @@ pub fn run(args: &[String]) -> ExitCode {
 
     // G022: every intent the code sends by name is in emits (pushes are
     // checked against the whole registry by the repo's gate)
-    let undeclared = vrx_protocol::scan::sent_violations(&manifest_dir, &manifest, None);
+    let undeclared = vrx_scan::sent_violations(&manifest_dir, &manifest, None);
     for f in &undeclared {
         eprintln!("{f}");
     }

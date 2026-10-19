@@ -8,6 +8,12 @@
 //! vrx-protocol stays pure types (KRN-08): the skeleton that needs
 //! tokio and zlink lives here, beside it, not inside it.
 
+pub mod notify;
+pub mod watched;
+
+pub use notify::{notify, watchdog_interval};
+pub use watched::File;
+
 use std::future::Future;
 use std::path::Path;
 

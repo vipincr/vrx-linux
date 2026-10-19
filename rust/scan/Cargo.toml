@@ -1,0 +1,10 @@
+[package]
+name = "vrx-scan"
+version = "0.1.0"
+edition = "2021"
+description = "The responsiveness scan: source forms that block an applet's event loop"
+license = "MIT"
+
+[dependencies]
+[lints]
+workspace = true

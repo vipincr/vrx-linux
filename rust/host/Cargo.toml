@@ -12,8 +12,6 @@ path = "src/main.rs"
 [dependencies]
 vrx-protocol = { path = "../protocol" }
 vrx-wire = { path = "../wire" }
-# the SDK's watched file (inotify): the Matter allow-list
-vrx = { path = "../sdk" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

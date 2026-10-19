@@ -23,6 +23,29 @@ pub struct Display {
     /// then keeps the pixel ratio at 1.0).
     pub width_mm: f64,
     pub touch: bool,
+    /// vrx may show this panel turned a quarter; an orientation-any
+    /// applet is laid out at its turned shape too.
+    #[serde(default)]
+    pub turns: bool,
+}
+
+impl Display {
+    /// The panel's turned shape, when it may turn: width and height
+    /// swapped, the millimetre width scaled to match. None when it
+    /// cannot turn (the Dart table's `turned`).
+    fn turned(&self) -> Option<Display> {
+        if !self.turns {
+            return None;
+        }
+        let mut t = self.clone();
+        t.name = format!("{} turned", self.name);
+        t.width = self.height;
+        t.height = self.width;
+        if self.width_mm > 0.0 {
+            t.width_mm = self.width_mm * self.height / self.width;
+        }
+        Some(t)
+    }
 }
 
 #[derive(Deserialize)]
@@ -30,15 +53,33 @@ struct Table {
     displays: Vec<Display>,
 }
 
-/// Every display vrx drives (flutter/vrx_check/lib/displays.json).
+/// Every display vrx drives (flutter/vrx_check/lib/displays.json), each
+/// turnable one followed by its turned shape (plan 0013 D10): the Rust
+/// check dropped `turns` and never laid an orientation-any applet out at
+/// its turned shape, which the Dart check did — two checks disagreeing
+/// over one table (KRN-07, review 2026-10-17).
 pub fn displays() -> Vec<Display> {
     let text = include_str!("../../../flutter/vrx_check/lib/displays.json");
-    serde_json::from_str::<Table>(text)
+    let base = serde_json::from_str::<Table>(text)
         .map(|t| t.displays)
-        .unwrap_or_default()
+        .unwrap_or_default();
+    let mut all = Vec::with_capacity(base.len() * 2);
+    for d in base {
+        let turned = d.turned();
+        all.push(d);
+        if let Some(t) = turned {
+            all.push(t);
+        }
+    }
+    all
 }
 
-/// vrx_kit's density: logical px per mm.
+/// vrx_kit's density and body size, held to the shared table's
+/// `standard` row by the test below: vrx_kit's metrics.dart derives the
+/// same row, with a test of its own, so the two spellings cannot drift
+/// (KRN-04, review 2026-10-17).
+
+/// Logical px per mm.
 const DP_PER_MM: f64 = 160.0 / 25.4;
 /// Body text, 9.9 pt, in mm.
 const BODY_MM: f64 = 9.9 * 25.4 / 72.0;
@@ -146,6 +187,33 @@ mod tests {
     use crate::kit::{button, screen, text_body, text_row, text_title};
 
     #[test]
+    fn the_density_and_body_are_the_tables() {
+        #[derive(Deserialize)]
+        struct Standard {
+            dp_per_inch: f64,
+            body_pt: f64,
+        }
+        #[derive(Deserialize)]
+        struct Table {
+            standard: Standard,
+        }
+        let t: Table = serde_json::from_str(
+            include_str!("../../../flutter/vrx_check/lib/displays.json"),
+        )
+        .expect("displays.json parses");
+        let dp_per_mm = t.standard.dp_per_inch / 25.4;
+        let body_mm = t.standard.body_pt * 25.4 / 72.0;
+        assert!(
+            (dp_per_mm - DP_PER_MM).abs() < 1e-9,
+            "the table's standard row and the const disagree: {dp_per_mm} vs {DP_PER_MM}"
+        );
+        assert!(
+            (body_mm - BODY_MM).abs() < 1e-9,
+            "the table's body_pt and the const disagree: {body_mm} vs {BODY_MM}"
+        );
+    }
+
+    #[test]
     fn the_table_loads_and_the_panel_holds_about_twenty_columns() {
         let all = displays();
         assert!(all.len() >= 5, "{all:?}");
@@ -154,6 +222,13 @@ mod tests {
         assert_eq!(panel.columns(), 18);
         let monitor = all.iter().find(|d| d.name == "hdmi1080").cloned().unwrap();
         assert!(monitor.columns() > panel.columns());
+        // the turnable panels carry their turned shapes; disp28a cannot
+        // (vc4 cannot scan out a quarter turn, its row says)
+        let dsi7_turned = all.iter().find(|d| d.name == "dsi7 turned");
+        assert!(dsi7_turned.is_some(), "a turnable panel's turned shape is checked");
+        assert!(all.iter().all(|d| d.name != "disp28a turned"));
+        let dsi7_turned = dsi7_turned.unwrap();
+        assert_eq!((dsi7_turned.width as u32, dsi7_turned.height as u32), (480, 800));
     }
 
     #[test]

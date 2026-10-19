@@ -156,7 +156,7 @@ fn rust_applets_gate(repo: &std::path::Path, stamps: &impact::Stamps) -> bool {
 }
 
 /// Every applet's literal intents and pushes against the manifests under
-/// applets/ (vrx_protocol::scan::sent_violations), as `applets/<id>/...`.
+/// applets/ (vrx_scan::sent_violations), as `applets/<id>/...`.
 fn sent_literals_gate(repo: &std::path::Path) -> Vec<String> {
     let manifests = applets(repo).unwrap_or_default();
     let known: Vec<vrx_protocol::Manifest> =
@@ -164,7 +164,7 @@ fn sent_literals_gate(repo: &std::path::Path) -> Vec<String> {
     let mut out = Vec::new();
     for (dir, manifest) in &manifests {
         let shown = dir.strip_prefix(repo).unwrap_or(dir).display().to_string();
-        for f in vrx_protocol::scan::sent_violations(dir, manifest, Some(&known)) {
+        for f in vrx_scan::sent_violations(dir, manifest, Some(&known)) {
             out.push(format!("{shown}/{f}"));
         }
     }
@@ -546,9 +546,9 @@ fn gate(all: bool) -> ExitCode {
     // SDK and every applet
     let mut roots = vec![repo.join("flutter/vrx_kit/lib"), repo.join("rust/sdk/src")];
     for (dir, _) in applets(&repo).unwrap_or_default() {
-        roots.extend(vrx_protocol::scan::applet_roots(dir.as_path()));
+        roots.extend(vrx_scan::applet_roots(dir.as_path()));
     }
-    let found = vrx_protocol::scan::scan(&roots);
+    let found = vrx_scan::scan(&roots);
     for v in &found {
         let shown = v.path.strip_prefix(&repo).unwrap_or(&v.path).display();
         eprintln!(
@@ -566,7 +566,7 @@ fn gate(all: bool) -> ExitCode {
     // G037 (plan 0014 D4): one reader for the per-applet counters; G044
     // (plan 0015 D4): one arbiter for who advertises on Bluetooth
     println!("gate: forms with one home (G037 counters, G044 Bluetooth, G029 sleep and power-off)");
-    let found = vrx_protocol::scan::one_home(&[
+    let found = vrx_scan::one_home(&[
         repo.join("rust/host/src"),
         repo.join("rust/matter/src"),
         repo.join("rust/sdk/src"),

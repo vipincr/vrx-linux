@@ -285,9 +285,136 @@ impl PowerProfile {
     }
 }
 
+/// The sleep ladder (plan 0020 D1), one spelling for Rust and the
+/// parse-time python in meta-vrx's vrx-power-profile.bbclass: how far
+/// each step may go, in narrowing order. A carrier stays or goes down a
+/// ladder, never up. vectors/power-verbs.json carries the same words;
+/// the test below holds this table to it.
+pub const SLEEP_LADDER: [(&str, &[&str]); 3] = [
+    ("sleep", &["none", "s2idle", "deep"]),
+    ("deep", &["none", "halt"]),
+    ("off", &["none", "halt", "standby"]),
+];
+
+/// The effective sleep steps a board's files declare (plan 0020 D1):
+/// what vrxhost offers in Settings, what the flash step provisions.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SleepSteps {
+    pub sleep: String,
+    pub deep: String,
+    pub off: String,
+    pub off_wake: String,
+}
+
+impl SleepSteps {
+    /// The family's file, then the carrier's narrowing, with the line
+    /// that offends named in the error. Absent lines read sleep none,
+    /// deep none, off halt (the same defaults the bbclass reads).
+    pub fn resolve(
+        family: Option<(&str, &str)>,
+        carrier: Option<(&str, &str)>,
+    ) -> Result<Self, ProfileError> {
+        let mut steps = Self {
+            sleep: "none".into(),
+            deep: "none".into(),
+            off: "halt".into(),
+            off_wake: String::new(),
+        };
+        for (name, text) in family.into_iter().chain(carrier) {
+            for (n, raw) in text.lines().enumerate() {
+                let line = raw.split('#').next().unwrap_or("").trim();
+                let mut words = line.split_whitespace();
+                let Some(kind) = words.next() else { continue };
+                let ladder = SLEEP_LADDER.iter().find(|(k, _)| *k == kind);
+                let Some((_, ladder)) = ladder else { continue };
+                let words: Vec<&str> = words.collect();
+                let err = |reason: String| ProfileError {
+                    source_name: name.to_owned(),
+                    line: n + 1,
+                    reason,
+                };
+                let new = words.first().copied().unwrap_or("none");
+                if !ladder.contains(&new) {
+                    return Err(err(format!(
+                        "{kind} {new}: one of {}",
+                        ladder.join(", ")
+                    )));
+                }
+                let old = match kind {
+                    "sleep" => steps.sleep.as_str(),
+                    "deep" => steps.deep.as_str(),
+                    _ => steps.off.as_str(),
+                };
+                // the carrier narrows: same rung or further down the ladder
+                let (rank_new, rank_old) =
+                    (ladder.iter().position(|v| *v == new), ladder.iter().position(|v| *v == old));
+                match (rank_new, rank_old) {
+                    (Some(rn), Some(ro)) if rn >= ro => {}
+                    _ => {
+                        return Err(err(format!(
+                            "{kind} {new} where the family says {old}: a carrier narrows a step, never widens it"
+                        )))
+                    }
+                }
+                let wake = words
+                    .iter()
+                    .find_map(|w| w.strip_prefix("wake="))
+                    .unwrap_or_default()
+                    .to_owned();
+                match kind {
+                    "sleep" => steps.sleep = new.to_owned(),
+                    "deep" => steps.deep = new.to_owned(),
+                    _ => {
+                        steps.off = new.to_owned();
+                        steps.off_wake = wake;
+                    }
+                }
+            }
+        }
+        Ok(steps)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_ladder_is_the_vectors() {
+        let vector: serde_json::Value = serde_json::from_str(
+            include_str!("../../../../vectors/power-verbs.json"),
+        )
+        .expect("vectors/power-verbs.json parses");
+        let kinds = vector["sleep_kinds"].as_object().expect("sleep_kinds");
+        assert_eq!(kinds.len(), SLEEP_LADDER.len(), "the vector and the ladder disagree on how many kinds there are");
+        for (kind, ladder) in SLEEP_LADDER {
+            let words: Vec<&str> =
+                kinds[kind].as_array().expect(kind).iter().map(|v| v.as_str().expect("word")).collect();
+            assert_eq!(words, ladder.to_vec(), "{kind}: the vector and the ladder disagree");
+        }
+    }
+
+    #[test]
+    fn a_carrier_narrows_never_widens() {
+        let family = ("bcm2711.power", "sleep s2idle\ndeep halt\noff standby wake=replug\n");
+        let ok = SleepSteps::resolve(Some(family), Some(("disp28a.power", "sleep none\n")))
+            .expect("staying is narrowing");
+        assert_eq!(ok.sleep, "none");
+        assert_eq!(ok.off, "standby");
+        assert_eq!(ok.off_wake, "replug");
+        let err = SleepSteps::resolve(Some(family), Some(("bad.power", "off halt wake=button\n")))
+            .expect_err("going up the ladder is refused");
+        assert!(err.reason.contains("never widens"), "{err}");
+    }
+
+    #[test]
+    fn an_unknown_sleep_word_is_named_with_its_line() {
+        let err = SleepSteps::resolve(Some(("f.power", "sleep sideways\n")), None)
+            .expect_err("unknown word");
+        assert_eq!(err.line, 1);
+        assert!(err.reason.contains("one of"), "{err}");
+    }
+
 
     const CM4: &str = "\
 # bcm2711

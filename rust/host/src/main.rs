@@ -372,8 +372,8 @@ async fn main() -> ExitCode {
     // OPS-07 (review 2026-10-17): the host's liveness contract. READY
     // once the socket serves; the watchdog pinged from the same task, so
     // a wedged event loop stops the pings and systemd restarts the host.
-    vrx::service::notify("READY=1");
-    let watchdog = vrx::service::watchdog_interval();
+    vrx_wire::notify("READY=1");
+    let watchdog = vrx_wire::watchdog_interval();
     let mut next_ping = std::time::Instant::now();
     let ping_every = watchdog.map(|w| w / 2);
     if let Some(w) = watchdog {
@@ -416,7 +416,7 @@ async fn main() -> ExitCode {
             }
             () = tokio::time::sleep(wait) => {
                 if let Some(every) = ping_every {
-                    vrx::service::notify("WATCHDOG=1");
+                    vrx_wire::notify("WATCHDOG=1");
                     next_ping = std::time::Instant::now() + every;
                 }
             }
