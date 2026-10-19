@@ -367,6 +367,26 @@ Rect? _viewportOf(Element e) {
   return clip;
 }
 
+/// Every clip above `e` (ClipRect/ClipRRect/ClipOval/ClipPath), as
+/// rects on the display, outermost last. One walk: the viewport check
+/// intersects them all.
+List<Rect> _ancestorClipsOf(Element e) {
+  final clips = <Rect>[];
+  e.visitAncestorElements((a) {
+    final ro = a.renderObject;
+    if (ro is RenderClipRect ||
+        ro is RenderClipRRect ||
+        ro is RenderClipOval ||
+        ro is RenderClipPath) {
+      if (ro is RenderBox && ro.attached && ro.hasSize) {
+        clips.add(_rectOf(ro));
+      }
+    }
+    return true;
+  });
+  return clips;
+}
+
 /// The wheel an element turns with, if any: a wheel's rows are one
 /// control, and overlap each other by design.
 Element? _wheelOf(Element e) {
@@ -481,14 +501,17 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
 
   // ── scrollables ─────────────────────────────────────────────────────
   // CON-04 (review 2026-10-17): a scrollable's CONTENT may hold more
-  // than the screen; its viewport may not. Everything inside a scrollable
-  // is exempt from the off-screen rule, so a list whose viewport itself
-  // sat past the edge (a layout bug, not a long list) passed forever.
+  // than the screen; its viewport may not — clipped to what its own
+  // ancestors clip it to first (a list inside a sheet's ClipRect may
+  // legally be laid out taller than the sheet's slot on screen).
   for (final e in find.byType(Scrollable).evaluate()) {
     final box = e.renderObject;
     if (box is! RenderBox || !box.attached || !box.hasSize) continue;
-    if (_offstage(e)) continue;
-    final viewport = _rectOf(box);
+    var viewport = _rectOf(box);
+    for (final clip in _ancestorClipsOf(e)) {
+      viewport = viewport.intersect(clip);
+    }
+    if (viewport.isEmpty || _offstage(e)) continue;
     if (!_within(screen, viewport)) {
       issues.add(LayoutIssue('off screen', 'a scrollable\'s viewport', viewport));
     }

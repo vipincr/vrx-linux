@@ -235,11 +235,15 @@ impl Bridge {
         let mut lock = self.lock();
         match lock.pending.get(&id) {
             Some((asked, _)) if asked != caller => Err(AnswerError::NotAsked),
-            Some(_) => {
-                let (_, tx) = lock.pending.remove(&id).expect("checked above");
-                tx.send(handled).ok();
-                Ok(())
-            }
+            Some(_) => match lock.pending.remove(&id) {
+                // the ask left between the check and the remove (its
+                // deadline): the asker is gone, the answer goes nowhere
+                Some((_, tx)) => {
+                    tx.send(handled).ok();
+                    Ok(())
+                }
+                None => Err(AnswerError::Nobody),
+            },
             None => Err(AnswerError::Nobody),
         }
     }

@@ -63,11 +63,14 @@ fn parse(
     let value = |flag: &str| -> Option<String> {
         crate::flags::value(args, flag).map(ToOwned::to_owned)
     };
-    let src = crate::flags::positionals(args, &["--out", "--arch", "--key", "--cert"],
-                                        &["--unsigned"])?
-        .first()
-        .map(|a| PathBuf::from(*a))
-        .ok_or("an applet directory is required")?;
+    let src = crate::flags::positionals(
+        args,
+        &["--out", "--arch", "--key", "--cert"],
+        &["--unsigned"],
+    )?
+    .first()
+    .map(|a| PathBuf::from(*a))
+    .ok_or("an applet directory is required")?;
     let arch = value("--arch").unwrap_or_else(|| "arm64".to_owned());
     if !ARCHES.contains(&arch.as_str()) {
         return Err(format!("--arch {arch}: one of {}", ARCHES.join(", ")));

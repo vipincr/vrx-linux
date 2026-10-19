@@ -279,7 +279,7 @@ impl BufferQueue {
         // CON-03 (review 2026-10-17): the peer's index is checked where
         // it ARRIVES — a returned index the queue does not have pushed a
         // slot the producer would hand out twice
-        if back.index as usize >= self.count {
+        if back.index as usize >= u64::from(self.count) as usize {
             return Err(IpcError::BadAnswer(format!(
                 "the consumer returned buffer {}, the queue holds {}",
                 back.index, self.count

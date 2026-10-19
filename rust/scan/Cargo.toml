@@ -6,5 +6,7 @@ description = "The responsiveness scan: source forms that block an applet's even
 license = "MIT"
 
 [dependencies]
+vrx-protocol = { path = "../protocol" }
+
 [lints]
 workspace = true

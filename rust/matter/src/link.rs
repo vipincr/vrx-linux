@@ -257,7 +257,7 @@ impl Failure {
 /// socket is group-writable (vrx-matter; the unit's RuntimeDirectory is
 /// 0750, so the group and root reach it).
 pub async fn serve(socket: &Path, shared: Arc<Shared>) -> std::io::Result<()> {
-    vrx_wire::serve(socket, "io.vrx.Matter", Some(0o660), shared, |conn, shared| handle(conn, shared)).await
+    vrx_wire::serve(socket, "io.vrx.Matter", Some(0o660), shared, handle).await
 }
 
 async fn handle(mut conn: zlink::tokio::unix::Connection, shared: Arc<Shared>) {

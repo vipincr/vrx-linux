@@ -314,7 +314,9 @@ async fn main() -> ExitCode {
     tokio::spawn(async move {
         match vrx_host::facts::seed_owned().await {
             Ok(()) => {}
-            Err(err) => tracing::warn!(error = %err, "facts: owned facts unread; they stay unknown"),
+            Err(err) => {
+                tracing::warn!(error = %err, "facts: owned facts unread; they stay unknown")
+            }
         }
     });
 
@@ -350,7 +352,8 @@ async fn main() -> ExitCode {
             let heard = again.load(std::sync::atomic::Ordering::Relaxed);
             match ended {
                 Ok(()) => break,
-                Err(err) if err.raw_os_error() == Some(105) => { // ENOBUFS
+                Err(err) if err.raw_os_error() == Some(105) => {
+                    // ENOBUFS
                     tracing::warn!(error = %err, %heard, "kernel uevents: overrun; re-opening");
                 }
                 Err(err) => {
@@ -386,14 +389,11 @@ async fn main() -> ExitCode {
     // place, and a kill in that window is a torn file
     let mut term =
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .map_err(|e| {
-                tracing::warn!(error = %e, "cannot listen for SIGTERM");
-                ()
-            })
+            .map_err(|e| tracing::warn!(error = %e, "cannot listen for SIGTERM"))
             .ok();
     loop {
         let mut wait = std::time::Duration::from_secs(3600);
-        if let Some(every) = ping_every {
+        if ping_every.is_some() {
             wait = next_ping.saturating_duration_since(std::time::Instant::now());
         }
         tokio::select! {
@@ -422,7 +422,6 @@ async fn main() -> ExitCode {
             }
         }
     }
-    ExitCode::SUCCESS
 }
 
 /// vrx-matter's binary: present when the image opted into Matter

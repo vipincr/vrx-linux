@@ -536,7 +536,6 @@ fn unix_now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
-
 /// "2026-10-14" for a unix day (UTC), from Howard Hinnant's civil_from_days.
 pub fn date_of(day: u64) -> String {
     let z = day as i64 + 719_468;
@@ -697,9 +696,14 @@ impl Energy {
         // minute older than the last is skipped until the clock catches
         // up, and said once.
         if minute < st.minute {
-            static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            static SAID: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
             if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                tracing::warn!(minute, last = st.minute, "wall clock stepped back; minute rows wait for it");
+                tracing::warn!(
+                    minute,
+                    last = st.minute,
+                    "wall clock stepped back; minute rows wait for it"
+                );
             }
             return Vec::new();
         }
@@ -1274,7 +1278,13 @@ budget background 5 10
     fn a_busy_background_applet_is_alerted_once_and_frozen_ten_minutes_later() {
         let dir = tempfile::tempdir().unwrap();
         let (e, actions) = energy(dir.path());
-        let t0 = 1_791_900_000 - 1_791_900_000 % 86_400 + 3600;
+        // an hour ahead of the real clock, minute-aligned: a fixed epoch
+        // falls behind the calendar, and the backward-minute guard refuses
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let t0 = now - now % 60 + 3600;
         // busy: 5 s of CPU per 10 s tick (half a core), far above 5 %
         let (_, due) = busy(&e, t0, 3, 5_000_000);
         let alerts = e.alerts().borrow().clone();
@@ -1302,7 +1312,13 @@ budget background 5 10
     async fn an_answered_alert_is_not_frozen_and_stop_stops() {
         let dir = tempfile::tempdir().unwrap();
         let (e, actions) = energy(dir.path());
-        let t0 = 1_791_900_000;
+        // an hour ahead of the real clock, minute-aligned: a fixed epoch
+        // falls behind the calendar, and the backward-minute guard refuses
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let t0 = now - now % 60 + 3600;
         let _ = busy(&e, t0, 12, 5_000_000);
         e.answer("web", "later").await.unwrap();
         let (_, due) = busy(&e, t0 + 12 * 60, 12, 5_000_000);
@@ -1317,7 +1333,14 @@ budget background 5 10
     fn a_quiet_applet_is_never_alerted_and_the_report_ranks_by_energy() {
         let dir = tempfile::tempdir().unwrap();
         let (e, _) = energy(dir.path());
-        let (t, _) = busy(&e, 1_791_900_000, 15, 20_000);
+        // an hour ahead of the real clock, minute-aligned: a fixed epoch
+        // falls behind the calendar, and the backward-minute guard refuses
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let t0 = now - now % 60 + 3600;
+        let (t, _) = busy(&e, t0, 15, 20_000);
         assert!(e.alerts().borrow().is_empty(), "0.2 % of a core");
         let r = e.report(24, t);
         assert!(r.calibrated);

@@ -10,7 +10,7 @@
 // end of the head and 20 s for the whole connection, two at a time. One
 // exception (plan 0016 D11): a POST of an update bundle to /api/update,
 // which has the time a large body needs (upload.rs, http.rs).
-
+#![allow(clippy::print_stdout, clippy::print_stderr)] // a tool's stdout/stderr is its interface
 #![deny(unsafe_code)]
 
 use std::path::{Path, PathBuf};
@@ -276,10 +276,11 @@ async fn receive_upload(stream: &mut TcpStream, length: u64, rest: Vec<u8>) -> R
     // INT-13 (review 2026-10-17): every upload lands in its OWN part file,
     // created new — two concurrent uploads (a retry racing a stalled
     // first) wrote one shared file and could store a corrupt bundle.
-    let uniq = std::process::id() ^ (std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0));
+    let uniq = std::process::id()
+        ^ (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0));
     let part = dir.join(format!("{}.part-{}", upload::NAME, uniq));
     let received =
         tokio::time::timeout(UPLOAD_DEADLINE, receive(stream, &part, length, rest)).await;
@@ -375,21 +376,24 @@ async fn serve(
                 (Reply::refusal(401), false)
             } else {
                 match http::parse(&head, &hostname()) {
-                Ok(req) if req.method == http::Method::Post => {
-                    (receive_upload(&mut stream, req.length, rest).await, false)
-                }
-                Ok(req) => {
-                    match tokio::time::timeout_at(started + CONN_DEADLINE, answer(&req, root))
+                    Ok(req) if req.method == http::Method::Post => {
+                        (receive_upload(&mut stream, req.length, rest).await, false)
+                    }
+                    Ok(req) => {
+                        match tokio::time::timeout_at(
+                            started + CONN_DEADLINE,
+                            answer(&req, root),
+                        )
                         .await
-                    {
-                        Ok(reply) => (reply, req.method == http::Method::Head),
-                        Err(_) => {
-                            tracing::debug!(%peer, "connection over its 20 s");
-                            return;
+                        {
+                            Ok(reply) => (reply, req.method == http::Method::Head),
+                            Err(_) => {
+                                tracing::debug!(%peer, "connection over its 20 s");
+                                return;
+                            }
                         }
                     }
-                }
-                Err(http::Refusal(status)) => (Reply::refusal(status), false),
+                    Err(http::Refusal(status)) => (Reply::refusal(status), false),
                 }
             }
         }

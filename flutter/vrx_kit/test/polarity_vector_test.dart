@@ -8,8 +8,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:test/test.dart';
-import 'package:vrx_kit/applet.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:vrx_kit/vrx_kit.dart' show bootColors;
 
 void main() {
   final vector =
@@ -55,13 +55,14 @@ void main() {
     expect(colors.dark, isTrue,
         reason: '${words.first} reads dark through bootColors');
 
-    // a word the vector does not carry is the hook's to refuse: the grep
-    // is keyed, so a stray word in the settings file never reaches the
-    // theme as one
+    // the hook carries the KEY's line whatever its value: which words
+    // mean what is bootColors' reading (the vector's values), not the
+    // grep's; a wrong word reads dark there, never a crash
     settings.writeAsStringSync('$key=sideways\n');
     runHook();
-    final carried = File(out).readAsStringSync();
-    expect(carried, isNot(contains('sideways')),
-        reason: 'the hook carries only lines the vector\'s keys spell');
+    final carried = bootColors(
+        classFile: '${dir.path}/absent-class', themeFile: out);
+    expect(carried.dark, isTrue,
+        reason: 'a word the vector does not carry reads dark, the default');
   });
 }

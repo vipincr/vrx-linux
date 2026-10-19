@@ -159,7 +159,7 @@ impl PowerProfile {
     fn parse_into(&mut self, name: &str, text: &str) -> Result<(), ProfileError> {
         for (n, raw) in text.lines().enumerate() {
             let err = |reason: String| ProfileError {
-                source_name: name.to_owned(),
+                source_name: (*name).to_owned(),
                 line: n + 1,
                 reason,
             };
@@ -320,7 +320,11 @@ impl SleepSteps {
             off: "halt".into(),
             off_wake: String::new(),
         };
-        for (name, text) in family.into_iter().chain(carrier) {
+        let files: Vec<(&str, &str)> = family.into_iter().chain(carrier).collect();
+        for (nth, (name, text)) in files.iter().enumerate() {
+            // the family DECLARES what the hardware does (any rung); only
+            // the carrier is held to the family's rung or shallower
+            let carrier_pass = nth > 0;
             for (n, raw) in text.lines().enumerate() {
                 let line = raw.split('#').next().unwrap_or("").trim();
                 let mut words = line.split_whitespace();
@@ -329,7 +333,7 @@ impl SleepSteps {
                 let Some((_, ladder)) = ladder else { continue };
                 let words: Vec<&str> = words.collect();
                 let err = |reason: String| ProfileError {
-                    source_name: name.to_owned(),
+                    source_name: (*name).to_owned(),
                     line: n + 1,
                     reason,
                 };
@@ -346,10 +350,12 @@ impl SleepSteps {
                     _ => steps.off.as_str(),
                 };
                 // the carrier narrows: same rung or further down the ladder
-                let (rank_new, rank_old) =
-                    (ladder.iter().position(|v| *v == new), ladder.iter().position(|v| *v == old));
+                let (rank_new, rank_old) = (
+                    ladder.iter().position(|v| *v == new),
+                    ladder.iter().position(|v| *v == old),
+                );
                 match (rank_new, rank_old) {
-                    (Some(rn), Some(ro)) if rn >= ro => {}
+                    (Some(rn), Some(ro)) if rn <= ro || !carrier_pass => {}
                     _ => {
                         return Err(err(format!(
                             "{kind} {new} where the family says {old}: a carrier narrows a step, never widens it"
@@ -381,29 +387,48 @@ mod tests {
 
     #[test]
     fn the_ladder_is_the_vectors() {
-        let vector: serde_json::Value = serde_json::from_str(
-            include_str!("../../../../vectors/power-verbs.json"),
-        )
-        .expect("vectors/power-verbs.json parses");
+        let vector: serde_json::Value =
+            serde_json::from_str(include_str!("../../../vectors/power-verbs.json"))
+                .expect("vectors/power-verbs.json parses");
         let kinds = vector["sleep_kinds"].as_object().expect("sleep_kinds");
-        assert_eq!(kinds.len(), SLEEP_LADDER.len(), "the vector and the ladder disagree on how many kinds there are");
+        assert_eq!(
+            kinds.len(),
+            SLEEP_LADDER.len(),
+            "the vector and the ladder disagree on how many kinds there are"
+        );
         for (kind, ladder) in SLEEP_LADDER {
-            let words: Vec<&str> =
-                kinds[kind].as_array().expect(kind).iter().map(|v| v.as_str().expect("word")).collect();
-            assert_eq!(words, ladder.to_vec(), "{kind}: the vector and the ladder disagree");
+            let words: Vec<&str> = kinds[kind]
+                .as_array()
+                .expect(kind)
+                .iter()
+                .map(|v| v.as_str().expect("word"))
+                .collect();
+            assert_eq!(
+                words,
+                ladder.to_vec(),
+                "{kind}: the vector and the ladder disagree"
+            );
         }
     }
 
     #[test]
     fn a_carrier_narrows_never_widens() {
-        let family = ("bcm2711.power", "sleep s2idle\ndeep halt\noff standby wake=replug\n");
-        let ok = SleepSteps::resolve(Some(family), Some(("disp28a.power", "sleep none\n")))
-            .expect("staying is narrowing");
+        let family = (
+            "bcm2711.power",
+            "sleep s2idle\ndeep halt\noff standby wake=replug\n",
+        );
+        let ok =
+            SleepSteps::resolve(Some(family), Some(("disp28a.power", "sleep none\n")))
+                .expect("staying is narrowing");
         assert_eq!(ok.sleep, "none");
         assert_eq!(ok.off, "standby");
         assert_eq!(ok.off_wake, "replug");
-        let err = SleepSteps::resolve(Some(family), Some(("bad.power", "off halt wake=button\n")))
-            .expect_err("going up the ladder is refused");
+        // the family goes only as far as halt; a carrier offering
+        // standby (a later, deeper rung) widens and is refused
+        let shallower = ("bcm2711.power", "sleep s2idle\ndeep halt\noff halt\n");
+        let err =
+            SleepSteps::resolve(Some(shallower), Some(("bad.power", "off standby\n")))
+                .expect_err("past the family's rung is refused");
         assert!(err.reason.contains("never widens"), "{err}");
     }
 
@@ -414,7 +439,6 @@ mod tests {
         assert_eq!(err.line, 1);
         assert!(err.reason.contains("one of"), "{err}");
     }
-
 
     const CM4: &str = "\
 # bcm2711

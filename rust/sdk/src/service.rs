@@ -77,6 +77,17 @@ impl Default for Liveness {
     }
 }
 
+/// One line to the journal, the SDK's own log path (KRN-04, review
+/// 2026-10-17): `log!`-style callers stay on tracing, and the binary
+/// installs its subscriber with `tracing_subscriber::fmt().init()` —
+/// one mechanism per process.
+#[macro_export]
+macro_rules! log {
+    ($($arg:tt)*) => {
+        tracing::info!($($arg)*)
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,15 +111,4 @@ mod tests {
     fn notify_without_systemd_is_a_no_op() {
         notify("READY=1");
     }
-}
-
-/// One line to the journal, the SDK's own log path (KRN-04, review
-/// 2026-10-17): `log!`-style callers stay on tracing, and the binary
-/// installs its subscriber with `tracing_subscriber::fmt().init()` —
-/// one mechanism per process.
-#[macro_export]
-macro_rules! log {
-    ($($arg:tt)*) => {
-        tracing::info!($($arg)*)
-    };
 }

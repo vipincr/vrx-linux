@@ -1,5 +1,5 @@
 {
-  "owner": "vrx_protocol::manifest::applet_id_ok is the one predicate; the walk check and `vrx new` call it. Read here by manifest's tests and tests/applet_id_vector.rs",
+  "owner": "vrx_protocol::manifest::applet_id_ok is the one predicate; the walk check and `vrx new` call it. Read here by manifest's tests and tests/applet_id_vector.rs. The id \"vrx\" is reserved: the grammar accepts it and the manifest validator refuses it (its own test), so it is not in either list here",
   "grammar": "[a-z][a-z0-9_]*, at most 32 chars",
   "valid": [
     "a",
@@ -15,7 +15,6 @@
     "_a",
     "a-b",
     "a.b",
-    "vrx",
     "",
     "toolongxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
     "a b"

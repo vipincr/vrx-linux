@@ -77,17 +77,15 @@ pub fn still(raw: &Raw, quality: u8) -> Result<(Vec<u8>, u32, u32), JpegError> {
         // CON-03 (review 2026-10-17): the camera's bytes are checked
         // before they are stored — a sensor that hands back garbage
         // produced a corrupt "photo" and a failed gallery render, and a
-        // zero-length frame produced an empty file with a .jpg name
+        // zero-length frame produced an empty file with a .jpg name.
         if !crate::jpeg::is_jpeg(&raw.data) {
-            return Err(JpegError::Codec(
-            "the MJPEG frame is not a JPEG".to_owned(),
-        ));
+            return Err(JpegError::Codec("the MJPEG frame is not a JPEG".to_owned()));
         }
         let pixels = u64::from(raw.width) * u64::from(raw.height);
         if pixels == 0 || pixels > crate::bounds::MAX_PIXELS {
             return Err(JpegError::Codec(
-            "the MJPEG frame's size is out of bounds".to_owned(),
-        ));
+                "the MJPEG frame's size is out of bounds".to_owned(),
+            ));
         }
         return Ok((raw.data.clone(), raw.width, raw.height));
     }

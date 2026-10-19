@@ -60,7 +60,7 @@ mod vector_tests {
     #[test]
     fn the_sleep_ladder_is_the_vectors() {
         let vector: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../vectors/power-verbs.json"))
+            serde_json::from_str(include_str!("../../../vectors/power-verbs.json"))
                 .expect("vectors/power-verbs.json parses");
         let kinds = vector["sleep_kinds"].as_object().expect("sleep_kinds");
         assert_eq!(kinds.len(), 3, "sleep, deep and off");

@@ -11,10 +11,10 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod bufq;
-pub mod paths;
 pub mod intent;
 pub mod manifest;
 pub mod matter;
+pub mod paths;
 pub mod pipe;
 pub mod power_profile;
 pub mod registry;

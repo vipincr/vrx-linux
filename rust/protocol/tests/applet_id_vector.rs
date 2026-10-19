@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 // The applet id grammar is one predicate (vrx_protocol::manifest::
 // applet_id_ok) and one vector: this test and manifest.rs's own hold the
 // predicate to vectors/applet-id.json, so a rule loosened or tightened on

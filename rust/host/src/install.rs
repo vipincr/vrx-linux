@@ -369,7 +369,10 @@ pub async fn build_of(image: &Path) -> Result<String, Refusal> {
     });
     if let Some(k) = &key {
         if let Ok(cache) = BUILD_CACHE.lock() {
-            if let Some((_, _, _, build)) = cache.iter().find(|e| &e.0 == &k.0 && e.1 == k.1 && e.2 == k.2) {
+            if let Some((_, _, _, build)) = cache
+                .iter()
+                .find(|e| e.0 == k.0 && e.1 == k.1 && e.2 == k.2)
+            {
                 return Ok(build.clone());
             }
         }
@@ -932,7 +935,8 @@ pub async fn helper(
             };
             if let Err(detail) = staged.await {
                 // undo the half that landed: no image, no drop-in
-                let _ = std::fs::remove_file(Path::new(EXTENSIONS).join(format!("{id}.raw")));
+                let _ =
+                    std::fs::remove_file(Path::new(EXTENSIONS).join(format!("{id}.raw")));
                 let _ = std::fs::remove_file(dropin_path(&id));
                 return refused(
                     "InstallFailed",

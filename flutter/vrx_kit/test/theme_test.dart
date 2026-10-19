@@ -22,7 +22,7 @@ void main() {
     final hook = File(
             '../../layer/recipes-core/vrx-theme/files/vrx-theme-snapshot')
         .readAsStringSync();
-    expect(hook, contains('^(scheme|\$key)='),
+    expect(hook, contains('^(scheme|$key)='),
         reason: 'the hook greps the vector\'s key');
   });
   test('type sizes are points: body text is 3.5mm, as evrx-rt draws it', () {

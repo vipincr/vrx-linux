@@ -59,7 +59,7 @@ fn listen_once(started: impl FnOnce()) -> Result<String, Why> {
                 break transcribe(Path::new(SOCKET), &clip).map_err(|e| {
                     log(&format!("whisper-server: {e:?}"));
                     Why::TranscribeFailed
-                })
+                });
             }
         }
     };

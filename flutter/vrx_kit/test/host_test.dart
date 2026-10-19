@@ -47,7 +47,8 @@ Future<(ServerSocket, List<Map<String, dynamic>>, String)> fakeHost(
 void main() {
   test('a nav push is an io.vrx.Host call by name', () async {
     final (server, asked, path) = await fakeHost((c) => [
-          {'parameters': {'top': c['parameters']['applet']}}
+          // the reply carries its verdict, as the IDL says it does
+          {'parameters': {'top': c['parameters']['applet'], 'verdict': 'handled'}}
         ]);
     final host = VarlinkAppletsService(socketPath: path);
     final result = await host.send('sys.alarm.ring', {'id': 7});

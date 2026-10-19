@@ -150,7 +150,7 @@ class UsbHostState {
         !j.containsKey('usb_policy') ||
         !j.containsKey('usb_allow_new') ||
         !j.containsKey('usb_devices')) {
-      throw FormatException(
+      throw const FormatException(
           'io.vrx.Host.Facts: the USB reply is missing a key the kit reads '
           '(usb_ports, usb_vbus, usb_overcurrent, usb_policy, usb_allow_new, '
           'usb_devices); the wire changed under this build');

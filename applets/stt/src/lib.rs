@@ -539,7 +539,7 @@ mod tests {
             serde_json::json!({"error": "nothing-heard"})
         );
         assert_eq!(
-            heard(Err("no-microphone")),
+            heard(Err(Why::NoMicrophone)),
             serde_json::json!({"error": "no-microphone"})
         );
     }

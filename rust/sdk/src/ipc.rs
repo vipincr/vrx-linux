@@ -11,7 +11,7 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use vrx_protocol::{Intent, PipeMessage};
 
@@ -106,8 +106,13 @@ fn varlink_call(
             Ok(0) => return Err(IpcError::BadAnswer("vrxhost closed mid-reply".into())),
             Ok(_) if byte[0] == 0 => break,
             Ok(_) => reply.push(byte[0]),
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
-                return Err(IpcError::BadAnswer("vrxhost did not answer within 10 s".into()))
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                return Err(IpcError::BadAnswer(
+                    "vrxhost did not answer within 10 s".into(),
+                ))
             }
             Err(e) => return Err(IpcError::BadAnswer(e.to_string())),
         }
@@ -384,12 +389,18 @@ impl Listener {
             }),
             "channel" => {
                 let Some(fd) = fd else {
-                    return NextDelivery::Malformed("a channel delivery with no descriptor".into());
+                    return NextDelivery::Malformed(
+                        "a channel delivery with no descriptor".into(),
+                    );
                 };
                 let stream = UnixStream::from(fd);
                 let channel = match Channel::from_stream(text("channel"), stream) {
                     Ok(c) => c,
-                    Err(e) => return NextDelivery::Malformed(format!("the channel delivery: {e}")),
+                    Err(e) => {
+                        return NextDelivery::Malformed(format!(
+                            "the channel delivery: {e}"
+                        ))
+                    }
                 };
                 NextDelivery::Delivery(Delivery::Channel {
                     from: text("from"),
@@ -568,7 +579,7 @@ mod fd {
 
 // The watched-state File moved to vrx-wire (review 2026-10-17, MOD-09:
 // vrxhost linked the whole SDK for this one watcher); applets see it
-# here unchanged.
+// here unchanged.
 pub use vrx_wire::File;
 
 #[cfg(test)]

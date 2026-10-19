@@ -152,7 +152,9 @@ impl Config {
                     toml::from_str("").unwrap_or_default()
                 }
             },
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => toml::from_str("").unwrap_or_default(),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                toml::from_str("").unwrap_or_default()
+            }
             Err(err) => {
                 tracing::error!(path = %path.display(), error = %err, "usb config: unreadable; no host ports");
                 toml::from_str("").unwrap_or_default()

@@ -25,29 +25,27 @@ const AUTHORITY_READS: &[&str] = &[
 const COLLAPSES: [&str; 3] = ["unwrap_or(", "unwrap_or_default(", "map_or(true"];
 
 const BASELINE: &[&str] = &[
-    "rust/host/src/varlink.rs:366",
-    "rust/host/src/varlink.rs:564",
-    "rust/host/src/varlink.rs:720",
-    "rust/host/src/varlink.rs:739",
-    "rust/host/src/varlink.rs:858",
-    "rust/host/src/varlink.rs:868",
-    "rust/host/src/varlink.rs:872",
-    "rust/host/src/varlink.rs:879",
-    "rust/host/src/varlink.rs:901",
-    "rust/host/src/varlink.rs:907",
-    "rust/host/src/varlink.rs:984",
-    "rust/host/src/varlink.rs:1087",
-    "rust/host/src/varlink.rs:1231",
-    "rust/host/src/varlink.rs:1277",
-    "rust/host/src/varlink.rs:1390",
-    "rust/host/src/varlink.rs:1397",
+    "rust/host/src/varlink.rs:368",
+    "rust/host/src/varlink.rs:566",
+    "rust/host/src/varlink.rs:722",
+    "rust/host/src/varlink.rs:741",
+    "rust/host/src/varlink.rs:859",
+    "rust/host/src/varlink.rs:869",
+    "rust/host/src/varlink.rs:873",
+    "rust/host/src/varlink.rs:880",
+    "rust/host/src/varlink.rs:902",
+    "rust/host/src/varlink.rs:908",
+    "rust/host/src/varlink.rs:985",
+    "rust/host/src/varlink.rs:1088",
+    "rust/host/src/varlink.rs:1232",
+    "rust/host/src/varlink.rs:1278",
     "rust/host/src/usb.rs:152",
-    "rust/host/src/usb.rs:155",
-    "rust/host/src/usb.rs:158",
-    "rust/host/src/usb.rs:309",
-    "rust/host/src/usb.rs:324",
-    "rust/host/src/usb.rs:348",
-    "rust/host/src/facts.rs:183",
+    "rust/host/src/usb.rs:156",
+    "rust/host/src/usb.rs:160",
+    "rust/host/src/usb.rs:311",
+    "rust/host/src/usb.rs:326",
+    "rust/host/src/usb.rs:350",
+    "rust/host/src/facts.rs:169",
 ];
 
 /// False when a new collapse appeared (the gate fails).
@@ -59,14 +57,23 @@ pub fn three_valued(repo: &Path) -> bool {
             clean = false;
             continue;
         };
-        for (i, line) in text.lines().enumerate() {
+        // production code only: a test module unwraps its own fixtures,
+        // and the rule is about the answers the daemon gives the world
+        let production = text.split("#[cfg(test)]").next().unwrap_or_default();
+        for (i, line) in production.lines().enumerate() {
             let found = COLLAPSES.iter().find(|c| line.contains(*c));
             let Some(collapse) = found else { continue };
             let row = format!("{rel}:{}", i + 1);
             if BASELINE.contains(&row.as_str()) {
                 continue;
             }
-            if line.contains("three-valued:") || text.lines().nth(i).map(|l| l.contains("three-valued:")).unwrap_or(false) {
+            if line.contains("three-valued:")
+                || text
+                    .lines()
+                    .nth(i)
+                    .map(|l| l.contains("three-valued:"))
+                    .unwrap_or(false)
+            {
                 continue;
             }
             eprintln!(
@@ -101,7 +108,9 @@ pub fn vectors_read_twice(repo: &Path) -> bool {
         repo.join("tools"),
     ];
     while let Some(d) = stack.pop() {
-        let Ok(read) = std::fs::read_dir(&d) else { continue };
+        let Ok(read) = std::fs::read_dir(&d) else {
+            continue;
+        };
         for e in read.flatten() {
             let p = e.path();
             if p.is_dir() {
@@ -115,21 +124,26 @@ pub fn vectors_read_twice(repo: &Path) -> bool {
             if !matches!(ext, "rs" | "dart" | "sh" | "py") {
                 continue;
             }
-            let is_test = p.components().any(|c| {
-                matches!(c.as_os_str().to_str(), Some("test" | "tests"))
-            }) || p
-                .file_stem()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.ends_with("_test") || n.ends_with("-test"));
-            if !is_test {
+            // a test file: under test/tests, named *_test / *-test, or a
+            // Rust source whose own #[cfg(test)] module holds the reader
+            // (Rust unit tests live in src/)
+            let named_test = p
+                .components()
+                .any(|c| matches!(c.as_os_str().to_str(), Some("test" | "tests")))
+                || p.file_stem()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.ends_with("_test") || n.ends_with("-test"));
+            let Ok(text) = std::fs::read_to_string(&p) else {
+                continue;
+            };
+            let in_src_unit_tests = ext == "rs" && text.contains("#[cfg(test)]");
+            if !named_test && !in_src_unit_tests {
                 continue;
             }
-            if let Ok(text) = std::fs::read_to_string(&p) {
-                tests.push((
-                    p.strip_prefix(repo).unwrap_or(&p).display().to_string(),
-                    text,
-                ));
-            }
+            tests.push((
+                p.strip_prefix(repo).unwrap_or(&p).display().to_string(),
+                text,
+            ));
         }
     }
     for e in entries.flatten() {
@@ -151,7 +165,9 @@ pub fn vectors_read_twice(repo: &Path) -> bool {
             &[("downgrade.json", "scripts/tests/downgrade-vector.sh")];
         if let Some((_, outside)) = CROSS_REPO.iter().find(|(v, _)| *v == name) {
             let Some(superproject) = repo.ancestors().nth(4) else {
-                eprintln!("vectors: {name}: the vrx superproject is not where the tree says");
+                eprintln!(
+                    "vectors: {name}: the vrx superproject is not where the tree says"
+                );
                 clean = false;
                 continue;
             };
@@ -200,7 +216,10 @@ mod tests {
         for row in BASELINE {
             let (rel, line) = row.rsplit_once(':').expect("file:line");
             let text = std::fs::read_to_string(repo.join(rel)).expect(rel);
-            let line = text.lines().nth(line.parse::<usize>().expect("number") - 1);
+            let production = text.split("#[cfg(test)]").next().unwrap_or_default();
+            let line = production
+                .lines()
+                .nth(line.parse::<usize>().expect("number") - 1);
             assert!(
                 line.is_some_and(|l| COLLAPSES.iter().any(|c| l.contains(c))),
                 "{row} no longer collapses anything: strike it from the baseline"

@@ -397,7 +397,11 @@ pub async fn restart() -> Result<Value, (String, Value)> {
 
 /// What a pending record and this boot say: still on trial, kept, or
 /// fallen back to the slot it came from.
-pub fn outcome(pending_from: Option<&str>, booted: &str, on_trial: Option<bool>) -> &'static str {
+pub fn outcome(
+    pending_from: Option<&str>,
+    booted: &str,
+    on_trial: Option<bool>,
+) -> &'static str {
     match pending_from {
         None => "none",
         // trial unknown: a slot that is not the primary's and has a
@@ -447,7 +451,8 @@ pub async fn status() -> Result<Value, (String, Value)> {
         .iter()
         .find(|s| Some(&s.name) == primary.as_ref())
         .map(|s| s.bootname.clone());
-    let on_trial = firmware_trial.map(|t| t && primary_bootname.as_deref() != Some(booted.as_str()));
+    let on_trial =
+        firmware_trial.map(|t| t && primary_bootname.as_deref() != Some(booted.as_str()));
     let pending_path = Path::new(STATE).join("pending.json");
     let pending: Option<String> = std::fs::read_to_string(&pending_path)
         .ok()
@@ -484,7 +489,8 @@ mod tests {
     /// and this one cannot drift.
     #[test]
     fn the_downgrade_rule_matches_the_shared_vector() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vectors/downgrade.json");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../vectors/downgrade.json");
         let rows: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         for row in rows.as_array().unwrap() {

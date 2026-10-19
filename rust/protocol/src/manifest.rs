@@ -624,7 +624,9 @@ impl Manifest {
             Some(c) if c.is_ascii_lowercase() => {}
             _ => return false,
         }
-        chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '.' | '-'))
+        chars.all(|c| {
+            c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '.' | '-')
+        })
     }
 
     /// A Text setting's default must be one line: the conf writer writes
@@ -750,7 +752,10 @@ impl Manifest {
                 ));
             }
             if setting.r#type == SettingType::Text
-                && setting.default.as_str().is_some_and(|d| !Self::text_default_ok(d))
+                && setting
+                    .default
+                    .as_str()
+                    .is_some_and(|d| !Self::text_default_ok(d))
             {
                 return invalid(format!(
                     "setting {:?}: a Text default must be one line",

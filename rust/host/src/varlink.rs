@@ -312,6 +312,10 @@ impl Failure {
     }
 }
 
+/// Offer builds hashed this run, keyed by (path, size, mtime).
+pub type OfferBuildCache =
+    std::sync::Arc<tokio::sync::Mutex<Vec<(std::path::PathBuf, u64, u64, String)>>>;
+
 /// Everything a connection needs.
 #[derive(Clone)]
 pub struct Host {
@@ -341,16 +345,14 @@ pub struct Installer {
     /// Offer builds hashed this run, keyed by (path, size, mtime): a
     /// listing that changes nothing hashes nothing (review 2026-10-17,
     /// ALG-02 — 2 GiB of sha256 per listing became 0 on a warm cache).
-    pub build_cache: std::sync::Arc<
-        tokio::sync::Mutex<Vec<(std::path::PathBuf, u64, u64, String)>>,
-    >,
+    pub build_cache: OfferBuildCache,
 }
 
 /// Serve `io.vrx.Host` until the listener fails. The loop is the shared
 /// skeleton (vrx_wire; KRN-04, review 2026-10-17): what this interface
 /// answers is `handle`'s.
 pub async fn serve(socket: &Path, host: Host) -> std::io::Result<()> {
-    vrx_wire::serve(socket, INTERFACE, None, host, |conn, host| handle(conn, host)).await
+    vrx_wire::serve(socket, INTERFACE, None, host, handle).await
 }
 
 async fn handle(mut conn: zlink::tokio::unix::Connection, host: Host) {
@@ -647,10 +649,10 @@ fn holds(host: &Host, caller: Option<&str>, grant: vrx_protocol::SystemGrant) ->
     })
 }
 
-/// The wire adapter's own note: holds()'s None arm means "the system"
-/// (pid 1's realm, vrxhost itself). handle() never produces None for an
-/// unresolved peer anymore (CON-10); the None arm stays for the system
-/// callers that are the host process's own connections.
+// The wire adapter's own note: holds()'s None arm means "the system"
+// (pid 1's realm, vrxhost itself). handle() never produces None for an
+// unresolved peer anymore (CON-10); the None arm stays for the system
+// callers that are the host process's own connections.
 
 /// The caller is the shell (the role), or not an applet at all.
 fn is_shell(host: &Host, caller: Option<&str>) -> bool {
@@ -739,10 +741,9 @@ async fn dispatch(
             let caller = caller.unwrap_or("system").to_owned();
             match host.bridge.answer_as(&caller, id, handled) {
                 Ok(()) => Ok(json!({})),
-                Err(crate::bridge::AnswerError::NotAsked) => Err(Failure::host(
-                    "NotAsked",
-                    json!({ "id": id, "by": caller }),
-                )),
+                Err(crate::bridge::AnswerError::NotAsked) => {
+                    Err(Failure::host("NotAsked", json!({ "id": id, "by": caller })))
+                }
                 Err(crate::bridge::AnswerError::Nobody) => Ok(json!({})),
             }
         }
@@ -1410,12 +1411,16 @@ mod tests {
                 l.starts_with("\"io.vrx.Host.")
                     .then(|| l.split('"').nth(1))
                     .flatten()
-                    .filter(|n| l.contains("\" =>"))
+                    // io.vrx.Host.Push -> Push, the IDL's bare name
+                    .map(|n| n.rsplit('.').next().unwrap_or(n))
+                    .filter(|_| l.contains("\" =>"))
             })
             .collect();
-        // the fd-carrying and holds-more methods dispatch before the match
-        for i in src.match_indices("format!(\"{INTERFACE}.") {
-            let rest = &src[i.0 + "format!(\"{INTERFACE}.".len()..];
+        // the fd-carrying and holds-more methods dispatch before the
+        // match, compared against format!("{INTERFACE}.<name>"); other
+        // format! uses of the same prefix (the call helper) are not arms
+        for i in src.match_indices("== format!(\"{INTERFACE}.") {
+            let rest = &src[i.0 + "== format!(\"{INTERFACE}.".len()..];
             if let Some(end) = rest.find('"') {
                 served.push(&rest[..end]);
             }
@@ -1423,19 +1428,33 @@ mod tests {
         served.sort_unstable();
         served.dedup();
 
-        let missing: Vec<&&str> = idl.iter().filter(|m| !served.contains(m)).collect();
-        assert!(missing.is_empty(), "the IDL declares {} but nothing dispatches them; serve them or strike them", missing.join(", "));
-        let extra: Vec<&&str> = served.iter().filter(|m| !idl.contains(m)).collect();
+        let missing: Vec<&str> = idl
+            .iter()
+            .filter(|m| !served.contains(m))
+            .copied()
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "the IDL declares {} but nothing dispatches them; serve them or strike them",
+            missing.join(", ")
+        );
+        let extra: Vec<&str> = served
+            .iter()
+            .filter(|m| !idl.contains(m))
+            .copied()
+            .collect();
         assert!(extra.is_empty(), "dispatched but not in the IDL: {} (a method with no declaration serves a method GetInterfaceDescription denies)", extra.join(", "));
 
-        let vector: serde_json::Value = serde_json::from_str(include_str!("../../../vectors/host-wire.json"))
-            .expect("vectors/host-wire.json parses");
+        let vector: serde_json::Value =
+            serde_json::from_str(include_str!("../../../vectors/host-wire.json"))
+                .expect("vectors/host-wire.json parses");
         assert_eq!(
             vector["methods"], serde_json::json!(idl),
             "vectors/host-wire.json disagrees with the IDL: regenerate it (see its owner note)"
         );
         assert_eq!(
-            vector["errors"], serde_json::json!(errors),
+            vector["errors"],
+            serde_json::json!(errors),
             "vectors/host-wire.json disagrees with the IDL's errors"
         );
 

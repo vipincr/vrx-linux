@@ -112,30 +112,14 @@ pub fn update(change: impl FnOnce(&mut Facts)) {
     });
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn a_change_is_heard_and_a_non_change_is_not() {
-        let mut rx = subscribe();
-        rx.borrow_and_update();
-        update(|f| f.usb = "configured".into());
-        assert!(rx.has_changed().unwrap());
-        assert_eq!(rx.borrow_and_update().usb, "configured");
-        update(|f| f.usb = "configured".into());
-        assert!(!rx.has_changed().unwrap(), "the same value is not news");
-        update(|f| f.backlight += 1);
-        assert!(rx.has_changed().unwrap());
-    }
-}
-
 /// Read the facts other processes own, once at start (CON-04, review
 /// 2026-10-17): the wake timer systemd is already holding, and
 /// USBGuard's allow-new switch where it runs. Unknown stays unknown —
 /// neither is defaulted to a guess here.
 pub async fn seed_owned() -> Result<(), String> {
-    let conn = zbus::Connection::system().await.map_err(|e| e.to_string())?;
+    let conn = zbus::Connection::system()
+        .await
+        .map_err(|e| e.to_string())?;
     // systemd's timers: the earliest NextElapseUSRtc the bus names
     #[zbus::proxy(
         interface = "org.freedesktop.systemd1.Manager",
@@ -173,10 +157,12 @@ pub async fn seed_owned() -> Result<(), String> {
             else {
                 continue;
             };
-            let next: Result<i64, _> = introspect.get_property("NextElapseUSecMonotonic").await;
+            let next: Result<i64, _> =
+                introspect.get_property("NextElapseUSecMonotonic").await;
             if let Ok(us) = next {
                 if us > 0 {
-                    earliest = Some(earliest.map_or(us as u64, |e: u64| e.min(us as u64)));
+                    earliest =
+                        Some(earliest.map_or(us as u64, |e: u64| e.min(us as u64)));
                 }
             }
         }
@@ -195,4 +181,22 @@ pub async fn seed_owned() -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_change_is_heard_and_a_non_change_is_not() {
+        let mut rx = subscribe();
+        rx.borrow_and_update();
+        update(|f| f.usb = "configured".into());
+        assert!(rx.has_changed().unwrap());
+        assert_eq!(rx.borrow_and_update().usb, "configured");
+        update(|f| f.usb = "configured".into());
+        assert!(!rx.has_changed().unwrap(), "the same value is not news");
+        update(|f| f.backlight += 1);
+        assert!(rx.has_changed().unwrap());
+    }
 }

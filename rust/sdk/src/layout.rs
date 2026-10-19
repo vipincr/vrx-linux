@@ -74,10 +74,10 @@ pub fn displays() -> Vec<Display> {
     all
 }
 
-/// vrx_kit's density and body size, held to the shared table's
-/// `standard` row by the test below: vrx_kit's metrics.dart derives the
-/// same row, with a test of its own, so the two spellings cannot drift
-/// (KRN-04, review 2026-10-17).
+// vrx_kit's density and body size, held to the shared table's
+// `standard` row by the test below: vrx_kit's metrics.dart derives the
+// same row, with a test of its own, so the two spellings cannot drift
+// (KRN-04, review 2026-10-17).
 
 /// Logical px per mm.
 const DP_PER_MM: f64 = 160.0 / 25.4;
@@ -197,9 +197,9 @@ mod tests {
         struct Table {
             standard: Standard,
         }
-        let t: Table = serde_json::from_str(
-            include_str!("../../../flutter/vrx_check/lib/displays.json"),
-        )
+        let t: Table = serde_json::from_str(include_str!(
+            "../../../flutter/vrx_check/lib/displays.json"
+        ))
         .expect("displays.json parses");
         let dp_per_mm = t.standard.dp_per_inch / 25.4;
         let body_mm = t.standard.body_pt * 25.4 / 72.0;
@@ -225,10 +225,16 @@ mod tests {
         // the turnable panels carry their turned shapes; disp28a cannot
         // (vc4 cannot scan out a quarter turn, its row says)
         let dsi7_turned = all.iter().find(|d| d.name == "dsi7 turned");
-        assert!(dsi7_turned.is_some(), "a turnable panel's turned shape is checked");
+        assert!(
+            dsi7_turned.is_some(),
+            "a turnable panel's turned shape is checked"
+        );
         assert!(all.iter().all(|d| d.name != "disp28a turned"));
         let dsi7_turned = dsi7_turned.unwrap();
-        assert_eq!((dsi7_turned.width as u32, dsi7_turned.height as u32), (480, 800));
+        assert_eq!(
+            (dsi7_turned.width as u32, dsi7_turned.height as u32),
+            (480, 800)
+        );
     }
 
     #[test]

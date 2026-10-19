@@ -130,10 +130,19 @@ mod tests {
             apps: tmp.path().join("apps"),
             runtime: "/tmp".into(),
         };
-        let err = scan(&paths).expect_err("duplicate id must refuse");
-        assert!(
-            err.to_string().contains("apps"),
-            "the refusing dir is named: {err}"
+        // the quarantine contract (CON-10, review 2026-10-17): a bad
+        // applet is refused by name, the built-in stays, and one conflict
+        // stops nothing else
+        let registry = scan(&paths).expect("the built-in survives the conflict");
+        assert_eq!(registry.len(), 1);
+        assert!(registry.find("clock").is_some_and(|e| e.builtin));
+        assert_eq!(
+            registry.refusals(),
+            &[(
+                "clock".to_owned(),
+                "applet id \"clock\" is already registered".to_owned()
+            )],
+            "the refusal names the applet and why"
         );
     }
 }

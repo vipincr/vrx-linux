@@ -17,12 +17,12 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 mod crates_inc;
-mod rules;
 mod docs;
 mod fonts;
 mod glyphs;
 mod impact;
 mod manage_page;
+mod rules;
 mod ui_standard;
 
 use std::process::{Command, ExitCode, Stdio};

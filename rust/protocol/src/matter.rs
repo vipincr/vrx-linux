@@ -66,8 +66,7 @@ impl Exposure {
     /// kit's settings format). Unknown keys are other settings'.
     pub fn parse(text: &str) -> Self {
         let mut out = Self::default();
-        out.error = None;
-for line in text.lines() {
+        for line in text.lines() {
             let Some((key, value)) = line.split_once('=') else {
                 continue;
             };
@@ -80,7 +79,9 @@ for line in text.lines() {
                         "false" => false,
                         other => {
                             out.screen = false;
-                            out.error = Some(format!("matter_screen is '{other}', not true or false"));
+                            out.error = Some(format!(
+                                "matter_screen is '{other}', not true or false"
+                            ));
                             false
                         }
                     };
@@ -107,9 +108,7 @@ for line in text.lines() {
         match std::fs::read_to_string(SETTINGS_FILE) {
             Ok(t) => Self::parse(&t),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Self::default(),
-            Err(err) => {
-                Self::broken(format!("{SETTINGS_FILE}: {err}"))
-            }
+            Err(err) => Self::broken(format!("{SETTINGS_FILE}: {err}")),
         }
     }
 
@@ -260,7 +259,7 @@ mod tests {
         }
         for key in ALLOW_KEYS {
             assert!(
-                v["keys"].as_object().expect("keys").contains_key(*key),
+                v["keys"].as_object().expect("keys").contains_key(key),
                 "this reader allows {key}, the vector does not"
             );
         }

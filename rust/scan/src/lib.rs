@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 // The responsiveness scan (plan 0008 D19): source forms that block an
 // applet's event loop or frame, banned by file and line. A line that
 // needs one says so with `vrx-allow: <reason>` on the line or the line
@@ -1515,8 +1517,8 @@ pub fn sent_literals(text: &str) -> Vec<Sent> {
 /// line: `path:line: why`.
 pub fn sent_violations(
     dir: &Path,
-    own: &crate::Manifest,
-    known: Option<&[crate::Manifest]>,
+    own: &vrx_protocol::Manifest,
+    known: Option<&[vrx_protocol::Manifest]>,
 ) -> Vec<String> {
     let mut sources = Vec::new();
     files(&dir.join("lib"), &mut sources);
@@ -2091,7 +2093,7 @@ mod tests {
             "Intent.send('web.done');\nIntent.send('web.other');\nNav.push('docs');\nNav.push('ghost');\nNav.push('setup', route: 'again');\nNav.push('setup', route: 'nope');\n",
         )
         .unwrap();
-        let m = |id: &str, extra: &str| -> crate::Manifest {
+        let m = |id: &str, extra: &str| -> vrx_protocol::Manifest {
             format!("[applet]\nid = \"{id}\"\nname = \"N\"\nversion = \"1\"\nruntime = \"flutter\"\n{extra}")
                 .parse()
                 .unwrap()

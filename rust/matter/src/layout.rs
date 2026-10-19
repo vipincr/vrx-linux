@@ -60,22 +60,11 @@ impl Layout {
     pub fn load(dir: &Path) -> Result<Self, String> {
         let path = dir.join(Self::FILE);
         match std::fs::read_to_string(&path) {
-            Ok(t) => serde_json::from_str(&t)
-                .map_err(|e| format!("{}: {e}", path.display())),
+            Ok(t) => {
+                serde_json::from_str(&t).map_err(|e| format!("{}: {e}", path.display()))
+            }
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(err) => Err(format!("{}: {err}", path.display())),
-        }
-    }
-
-    /// The old signature where the caller wants first-boot semantics for
-    /// an unreadable layout: it must say so itself, never silently.
-    pub fn load_or_default(dir: &Path) -> (Self, Option<String>) {
-        match Self::load(dir) {
-            Ok(l) => (l, None),
-            Err(err) => {
-                tracing::error!(error = %err, "layout: unreadable; starting from none");
-                (Self::default(), Some(err))
-            }
         }
     }
 
@@ -195,17 +184,15 @@ mod tests {
     fn the_layout_survives_a_restart() {
         let dir = tempfile::tempdir().unwrap();
         {
-            let (l, why) = Layout::load_or_default(dir.path());
-            assert_eq!(l, Layout::default());
-            assert!(why.is_none(), "a missing file is a first boot");
+            let l = Layout::load(dir.path()).unwrap();
+            assert_eq!(l, Layout::default(), "a missing file is a first boot");
         }
         let mut l = Layout::default().follow(&host(true, &["clock"]));
         l.bridged[0].on = true;
         l.save(dir.path()).unwrap();
         {
-            let (got, why) = Layout::load_or_default(dir.path());
+            let got = Layout::load(dir.path()).unwrap();
             assert_eq!(got, l);
-            assert!(why.is_none());
         }
     }
 }

@@ -676,8 +676,13 @@ impl Engine {
         raw: &crate::types::Raw,
     ) -> Result<Encoded, Refusal> {
         let quality = self.pending.get(&ticket).map_or(85, |p| p.quality);
-        // a source must not hand over more than the bound allows (G059)
-        if raw.area() > MAX_PIXELS && raw.pixels != Pixels::Mjpeg {
+        // a source must not hand over more than the bound allows (G059).
+        // An MJPEG frame's byte count is the bound it breaks: refused
+        // before its bytes are even looked at (a frame both oversize and
+        // garbage is over the bound first, not a codec fault)
+        if raw.area() > MAX_PIXELS && raw.pixels != Pixels::Mjpeg
+            || raw.pixels == Pixels::Mjpeg && raw.data.len() > MAX_JPEG_BYTES
+        {
             return Err(Refusal::TooLarge);
         }
         let (bytes, width, height) = jpeg::still(raw, quality).map_err(|e| {
