@@ -56,7 +56,7 @@ class DocsApplet extends Applet<DocsState, DocsAction, DocsView> {
             ? CustomScrollView(slivers: [
                 SliverList.list(children: [
                   const VrxHeader(title: 'Licences', onBack: Nav.pop),
-                  if (view.error != null) VrxBanner(text: view.error),
+                  VrxBanner(text: view.error),
                 ]),
                 // hundreds of packages: built as they scroll in
                 SliverList.builder(

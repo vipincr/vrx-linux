@@ -125,10 +125,12 @@ class LinkApplet extends Applet<Object, LinkAction, LinkView> {
       body: SafeArea(
         child: Column(children: [
           Expanded(child: body),
-          if (view.error != null)
-            VrxBanner(text: view.error)
-          else if (view.notice != null && view.screen == LinkScreen.main)
-            VrxBanner(text: view.notice, signal: VrxSignal.info),
+          // VrxBanner owns its exit (DS-01): the error, else the
+          // notice, mounted unguarded so the slide-out runs
+          VrxBanner(
+            text: view.error ?? (view.screen == LinkScreen.main ? view.notice : null),
+            signal: view.error != null ? VrxSignal.error : VrxSignal.info,
+          ),
         ]),
       ),
     );

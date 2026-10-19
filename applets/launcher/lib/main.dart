@@ -138,8 +138,10 @@ class LauncherApplet
                       );
                     }),
             ),
-            if (view.error != null)
-              VrxBanner(text: view.error, onTap: () => _registryActions.add(const LauncherError(Change(null)))),
+            VrxBanner(
+              text: view.error,
+              onTap: () => _registryActions.add(const LauncherError(Change(null))),
+            ),
           ],
         ),
       ),

@@ -303,7 +303,7 @@ void main() {
       await g.up();
       await tester.pumpAndSettle();
       expect(find.text('q'), findsNWidgets(1), reason: 'gone on lift (hidden, kept as a shrunk box)');
-    }, skip: false);
+    });
 
     testWidgets('light and still have no preview', (tester) async {
       for (final tier in [VrxTier.light, VrxTier.still]) {

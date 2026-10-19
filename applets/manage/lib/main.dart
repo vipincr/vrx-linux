@@ -103,7 +103,7 @@ class ManageApplet extends Applet<bool, ManageAction, ManageView> {
             padding: EdgeInsets.symmetric(horizontal: space.inset),
             child: Text('While it hosts a network, the device is on no other.', style: TypeRole.caption(context)),
           ),
-          if (view.error != null) VrxBanner(text: view.error),
+          VrxBanner(text: view.error),
         ]),
       ),
     );

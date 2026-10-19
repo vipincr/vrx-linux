@@ -173,7 +173,7 @@ class _ConversationState extends State<_Conversation> {
         onBack: Nav.pop,
         action: empty ? null : VrxIconButton(glyph: VrxSymbols.delete_sweep, label: 'Clear the conversation', onTap: widget.onClear),
       ),
-      if (view.notice != null) VrxBanner(text: view.notice),
+      VrxBanner(text: view.notice),
       Expanded(
         child: empty
             ? const _Intro()

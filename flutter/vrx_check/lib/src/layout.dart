@@ -5,6 +5,8 @@
 /// to its rect on the display, in logical px (1 = 1/6.299 mm). The rules:
 ///
 /// - overflow: a Flex that overflowed (Flutter's own report);
+/// - framework: any other error Flutter raised during the layout pass,
+///   filed by its kind (CON-08);
 /// - cut: text truncated or dropped past its line limit, or taller than
 ///   the box it was given (a paragraph with no line limit is clipped at
 ///   its box's height: half a line shows, the rest is gone);
@@ -17,7 +19,8 @@
 /// - small: a control under the 9mm touch minimum on a touch display
 ///   (VrxKeyboard's keys are sanctioned narrower, AGENTS.md rule 10);
 /// - off screen: text or a control past the display's edge, outside any
-///   scrolling list (which may hold more than fits).
+///   scrolling list (which may hold more than fits); a scrollable's own
+///   viewport may not leave the screen either (CON-04).
 library;
 
 import 'package:flutter/material.dart';
@@ -86,10 +89,21 @@ Future<List<LayoutIssue>> checkApplet<S, A, V>(
   // check, as the walk driver turns it on to plan
   final semantics = tester.ensureSemantics();
   final previous = FlutterError.onError;
-  // Flutter reports a Flex overflow as an error; it is one of the rules
+  // Flutter reports layout failures as errors; they are rules. Filed by
+  // kind (CON-08, review 2026-10-17): a Flex overflow is the overflow
+  // rule; anything else the framework raised (a paint error, an
+  // assertion) is a framework issue naming its type, not an overflow it
+  // is not.
   FlutterError.onError = (details) {
     final text = details.exceptionAsString();
-    issues.add(LayoutIssue('overflow', text.split('\n').first, Rect.zero));
+    final first = text.split('\n').first;
+    final kind = details.exception.runtimeType.toString();
+    final isOverflow = first.contains('overflowed');
+    issues.add(LayoutIssue(
+      isOverflow ? 'overflow' : 'framework',
+      isOverflow ? first : '[$kind] $first',
+      Rect.zero,
+    ));
   };
   try {
     tester.view.physicalSize = Size(display.width, display.height);
@@ -464,6 +478,21 @@ bool _answersTap(Widget w) => switch (w) {
 List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
   final issues = <LayoutIssue>[];
   final screen = Offset.zero & tester.view.physicalSize / tester.view.devicePixelRatio;
+
+  // ── scrollables ─────────────────────────────────────────────────────
+  // CON-04 (review 2026-10-17): a scrollable's CONTENT may hold more
+  // than the screen; its viewport may not. Everything inside a scrollable
+  // is exempt from the off-screen rule, so a list whose viewport itself
+  // sat past the edge (a layout bug, not a long list) passed forever.
+  for (final e in find.byType(Scrollable).evaluate()) {
+    final box = e.renderObject;
+    if (box is! RenderBox || !box.attached || !box.hasSize) continue;
+    if (_offstage(e)) continue;
+    final viewport = _rectOf(box);
+    if (!_within(screen, viewport)) {
+      issues.add(LayoutIssue('off screen', 'a scrollable\'s viewport', viewport));
+    }
+  }
 
   // ── modals ───────────────────────────────────────────────────────────
   // a modal's message is what a person must read: it may scroll only when

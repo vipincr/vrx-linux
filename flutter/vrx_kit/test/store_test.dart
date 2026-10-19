@@ -7,6 +7,12 @@ import 'package:vrx_kit/vrx_kit.dart';
 class CounterModel extends StoreModel<int, CounterAction, CounterView> {
   int count = 0;
 
+  /// What the boot action seeds the count from (a model loads its
+  /// snapshot here). Observable, so the boot-action test proves the
+  /// dispatch happened rather than passing on the initial value (TST-23,
+  /// review 2026-10-17).
+  int seed = 0;
+
   @override
   int get initial => 0;
 
@@ -17,7 +23,7 @@ class CounterModel extends StoreModel<int, CounterAction, CounterView> {
   CounterView reduce(int state, CounterAction action) {
     switch (action) {
       case CounterAction.init:
-        count = 0;
+        count = seed;
       case CounterAction.tap:
         count += 1;
       case CounterAction.reset:
@@ -49,8 +55,11 @@ void main() {
   });
 
   test('the boot action seeds the initial view', () {
-    final harness = StoreHarness(CounterModel());
-    harness.assertView((v) => v.count == 0);
+    // the seed is not the initial value, so this fails if the boot
+    // action never dispatched (TST-23: it once passed either way)
+    final harness = StoreHarness(CounterModel()..seed = 7);
+    harness.assertView((v) => v.count == 7,
+        because: 'the boot action dispatched and seeded the view');
   });
 
   test('actions apply in order, one writer', () {

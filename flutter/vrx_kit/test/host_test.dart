@@ -34,6 +34,13 @@ Future<(ServerSocket, List<Map<String, dynamic>>, String)> fakeHost(
       }
     }
   });
+  // TST-03 (review 2026-10-17): teardown registers at creation, so a
+  // failing expectation still closes the socket and removes the tempdir;
+  // a test's own close() later is a no-op.
+  addTearDown(() async {
+    await server.close();
+    await dir.delete(recursive: true);
+  });
   return (server, asked, path);
 }
 

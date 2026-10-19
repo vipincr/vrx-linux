@@ -108,7 +108,14 @@ class ClockApplet extends Applet<ClockState, ClockAction, ClockView> {
             onDays: () => _do(ClockDo.cycleDays),
             onSnooze: () => _do(ClockDo.toggleSnooze),
             onSave: () => _do(ClockDo.saveDraft),
-            onDelete: () => _do(ClockDo.deleteDraft),
+            // UI-30 (review 2026-10-17): the editor asks before it
+            // deletes, as the list does; one tap destroys nothing
+            onDelete: () => unawaited(_confirm(
+                context,
+                'Delete this alarm?',
+                'The alarm will be deleted.',
+                'Delete',
+                () => _do(ClockDo.deleteDraft))),
           ),
         ClockScreen.editTime => VrxTimePicker(
             minutes: view.draft.minutes,
@@ -315,7 +322,7 @@ class _Editor extends StatelessWidget {
           if (view.canDelete) VrxRow(glyph: VrxSymbols.delete, label: 'Delete this alarm', onTap: onDelete),
         ]),
       ),
-      if (view.notice.isNotEmpty) VrxBanner(text: view.notice, signal: VrxSignal.info),
+      VrxBanner(text: view.notice.isEmpty ? null : view.notice, signal: VrxSignal.info),
     ]);
   }
 }
