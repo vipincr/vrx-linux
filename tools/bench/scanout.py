@@ -58,12 +58,31 @@ def crtc_fb(fd, crtc_id):
     return struct.unpack_from("=I", crtc, 16)[0]
 
 
+# drm_mode_fb_cmd2: pixel_format is a fourcc; the formats this reader
+# can decode, and the one modifier it can walk
+ARGB8888, XRGB8888 = 0x34325241, 0x34325258  # 'AR24', 'XR24'
+LINEAR = 0
+
+
+def fourcc(v):
+    return "".join(chr((v >> s) & 0xFF) for s in (0, 8, 16, 24))
+
+
 def read_fb(fd, fb_id):
     """(width, height, rows of B G R A, tight)."""
     fb = bytearray(104)
     struct.pack_into("=I", fb, 0, fb_id)
     fcntl.ioctl(fd, GETFB2, fb)
     w, h = struct.unpack_from("=2I", fb, 4)
+    fmt = struct.unpack_from("=I", fb, 12)[0]
+    modifier = struct.unpack_from("=Q", fb, 68)[0]
+    # CON-05 (review 2026-10-17): the fb's own format and modifier are
+    # read and refused when not decodable, instead of reading any buffer
+    # as linear BGRA and handing back a plausible wrong screenshot
+    if fmt not in (ARGB8888, XRGB8888):
+        sys.exit(f"scanout: fb {fb_id} is {fourcc(fmt)!r}, not ARGB8888/XRGB8888; this reader refuses it")
+    if modifier != LINEAR:
+        sys.exit(f"scanout: fb {fb_id} has modifier 0x{modifier:x}, not linear; this reader refuses it")
     handle, pitch = struct.unpack_from("=I", fb, 20)[0], struct.unpack_from("=I", fb, 36)[0]
     prime = bytearray(struct.pack("=IIi", handle, 0x80000 | 2, -1))
     fcntl.ioctl(fd, PRIME_HANDLE_TO_FD, prime)

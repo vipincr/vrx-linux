@@ -9,18 +9,16 @@
 #
 # Read-only: transient units open device nodes and close them.
 set -u
-HOST=$1
+HOST=${1:?usage: device-check.sh <board-host>}
 GRANTS=$(dirname "$0")/../../layer/recipes-applets/vrx-applets/files/grants.conf
 . "$(dirname "$0")/ssh-env.sh"; O="$OPTS"
+. "$(dirname "$0")/lib.sh"
 # shellcheck disable=SC2086
-scp -q $O "$GRANTS" "root@$HOST:/tmp/vrx-grants.conf" || exit 1
-# shellcheck disable=SC2086
-ssh $O "root@$HOST" sh -s <<'EOF2'
+scp -q $O "$GRANTS" "root@$HOST:/tmp/vrx-grants.conf" || { echo "device-check: the grants file did not reach the board"; exit 1; }
+
+run_check <<'EOF2'
 GRANTS_CONF=$(cat /tmp/vrx-grants.conf)
 export GRANTS_CONF
-fails=0
-ok()   { echo "  ok    $*"; }
-bad()  { echo "  FAIL  $*"; fails=$((fails + 1)); }
 # open NODE as an applet user holding GROUP, under DevicePolicy=closed,
 # with the given DeviceAllow (empty: none)
 opens() {
@@ -113,5 +111,8 @@ for b in /sys/class/backlight/*/brightness; do
 done
 [ "$found" -eq 1 ] || echo "  skip  no backlight on this board"
 echo
-[ "$fails" -eq 0 ] && echo "device-check: all passed" || { echo "device-check: $fails failed"; exit 1; }
+summary
+exit $fails
 EOF2
+finish
+

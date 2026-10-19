@@ -89,11 +89,28 @@ say "bootloader: POWER_OFF_ON_HALT=$(echo "$BOOT" | sed -n 's/^POWER_OFF_ON_HALT
 METER=$!
 trap 'kill $METER 2>/dev/null' EXIT INT TERM
 sleep 5
+# CON-10 (review 2026-10-17): the meter is confirmed live before the
+# destructive sequence starts. A frozen or absent meter once burned the
+# run's half hour into an empty log while the board was pushed through
+# every state for nothing; the log has rows within seconds (the FNB58
+# streams a hundred samples a second) or the run refuses to start.
+if [ ! -s "$CSV" ]; then
+    sleep 5
+    [ -s "$CSV" ] || { echo "power-check: the meter is not logging ($CSV empty); refusing to run the states" >&2; exit 1; }
+fi
 
 # the screen's idle timeout drives on and off; the board's own file is
 # restored before the power-off
 CONF=/etc/vrx/display/screen.conf
 board "cp $CONF /root/bench/screen.conf.before 2>/dev/null; touch $CONF"
+# CON-10 (review 2026-10-17): the restore runs on EVERY exit, not only
+# the run's happy end; a check that dies mid-sequence leaves the board's
+# own config in place
+restore_conf() {
+    board "cp /root/bench/screen.conf.before $CONF 2>/dev/null" >/dev/null 2>&1 || true
+    kill $METER 2>/dev/null
+}
+trap restore_conf EXIT INT TERM
 light_off() {
     board "grep -v '^light_off=' $CONF > $CONF.new; echo light_off=$1 >> $CONF.new; mv $CONF.new $CONF"
 }

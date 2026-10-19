@@ -7,24 +7,20 @@
 # unit's cgroup.freeze: the shell, Home, residents and services run; every
 # other hidden applet is frozen. Then opens one frozen applet and checks
 # it is thawed and on screen, and that it is frozen again 30 s after
-# Home comes back.
+# Home comes back. The harness (ok/bad rows, the Varlink caller, the
+# dated record) is bench/lib.sh's, shared with every check (review
+# 2026-10-17, KRN-04); this file is the check's body alone.
 set -u
-HOST=$1
+HOST=${1:?usage: freeze-check.sh <board-host>}
 . "$(dirname "$0")/ssh-env.sh"; O="$OPTS"
-# shellcheck disable=SC2086
-ssh $O "root@$HOST" sh -s <<'EOF'
-fails=0
-ok()  { echo "  ok    $*"; }
-bad() { echo "  FAIL  $*"; fails=$((fails + 1)); }
+. "$(dirname "$0")/lib.sh"
+
+run_check <<'EOF'
 push() {
-    python3 - "$1" <<'P'
-import json, socket, sys
-s = socket.socket(socket.AF_UNIX); s.connect("/run/vrx/io.vrx.Host")
-method = "io.vrx.Host.Home" if sys.argv[1] == "-" else "io.vrx.Host.Push"
-params = {} if sys.argv[1] == "-" else {"applet": sys.argv[1]}
-s.sendall(json.dumps({"method": method, "parameters": params}).encode() + b"\0")
-print(s.recv(4096).decode().rstrip("\0"))
-P
+    varlink "io.vrx.Host.Home" >/dev/null
+}
+push_applet() {
+    varlink "io.vrx.Host.Push" "{\"applet\": \"$1\"}" >/dev/null
 }
 freeze_of() {
     cg=$(systemctl show -p ControlGroup --value "vrx-applet@$1.service")
@@ -35,10 +31,14 @@ exempt() {
     grep -qE '^(home|shell|resident) = true|^kind = "service"|^background = ' "$m" 2>/dev/null
 }
 echo "== Home, then 35 s"
-push - >/dev/null
+push
 sleep 35
 victim=""
-for u in $(systemctl list-units 'vrx-applet@*' --state=active --no-legend --plain | awk '{print $1}'); do
+units=$(systemctl list-units 'vrx-applet@*' --state=active --no-legend --plain | awk '{print $1}')
+# CON-08 (review 2026-10-17): no units listed is a failed probe or a
+# broken image, never a vacuous pass over zero rows
+[ -n "$units" ] || bad "no vrx-applet@ units are active: the probe or the image is wrong"
+for u in $units; do
     a=${u#vrx-applet@}; a=${a%.service}
     f=$(freeze_of "$a")
     if exempt "$a"; then
@@ -50,14 +50,15 @@ for u in $(systemctl list-units 'vrx-applet@*' --state=active --no-legend --plai
 done
 if [ -n "$victim" ]; then
     echo "== open $victim"
-    push "$victim" >/dev/null
+    push_applet "$victim"
     sleep 2
     [ "$(freeze_of "$victim")" = 0 ] && ok "$victim thawed when opened" || bad "$victim still frozen when opened"
     journalctl -u vrxhost --since "-5s" --no-pager | grep -q "thawed" && ok "vrxhost logged the thaw" || bad "no thaw logged"
-    push - >/dev/null
+    push
     sleep 35
     [ "$(freeze_of "$victim")" = 1 ] && ok "$victim frozen again 30 s after leaving" || bad "$victim not frozen again"
 fi
-echo
-[ "$fails" -eq 0 ] && echo "freeze-check: all passed" || { echo "freeze-check: $fails failed"; exit 1; }
+summary
+exit $fails
 EOF
+finish

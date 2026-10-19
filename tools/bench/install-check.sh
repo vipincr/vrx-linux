@@ -95,10 +95,9 @@ scp -q $O "$WORK/out/hello.raw" "$WORK/out/unsig.raw" "$WORK/out/rogue.raw" \
     "$WORK/out/badsu.raw" "$WORK/out/badnet.raw" "root@$HOST:/tmp/" || exit 1
 
 # shellcheck disable=SC2086
-ssh $O "root@$HOST" CERT_CN="'$CERT_CN'" sh -s <<'EOF'
-fails=0
-ok()  { echo "  ok    $*"; }
-bad() { echo "  FAIL  $*"; fails=$((fails + 1)); }
+. "$(dirname "$0")/lib.sh"
+REMOTE_ENV="CERT_CN='$CERT_CN'"
+run_check <<'EOF'
 OFFERS=/var/lib/vrx/offers
 # idempotent: a run cut short (the bench loses power) leaves its applets
 # behind; clear them before starting
@@ -264,5 +263,7 @@ for a in hello unsig rogue badsu badnet; do rm -f $OFFERS/$a.raw /tmp/$a.raw; do
 rm -f /tmp/inst.py
 [ "$had_offers" = no ] && rmdir $OFFERS 2>/dev/null  # tmpfiles makes it on an image with this vrxhost
 echo
-[ "$fails" -eq 0 ] && echo "install-check: all passed" || { echo "install-check: $fails failed"; exit 1; }
+summary
+exit $fails
 EOF
+finish
