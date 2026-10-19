@@ -1,5 +1,5 @@
 {
-  "owner": "rust/host/src/varlink.rs \u2014 the IDL is the one spelling; the dispatch test here and vrx_kit's host_wire test both read this vector",
+  "owner": "rust/host/src/varlink.rs \u2014 the IDL is the one spelling; the dispatch test here and vrx_kit's host_wire test both read this vector; the verdict words live in vectors/answer-verdict.json",
   "interface": "io.vrx.Host",
   "methods": [
     "Answer",
@@ -53,14 +53,5 @@
     "PayloadTooLarge",
     "Reserved",
     "Unavailable"
-  ],
-  "intent_verdicts": [
-    "handled",
-    "opened",
-    "pass"
-  ],
-  "answer_verdicts": [
-    "handled",
-    "pass"
   ]
 }

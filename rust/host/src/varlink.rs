@@ -1438,6 +1438,61 @@ mod tests {
             vector["errors"], serde_json::json!(errors),
             "vectors/host-wire.json disagrees with the IDL's errors"
         );
+
+        // the Facts reply's keys are their own vector's (review step 44):
+        // the reply this file builds and vrx_kit's strict reader are held
+        // to one list, so a renamed key fails both sides' tests
+        let facts_vector: serde_json::Value =
+            serde_json::from_str(include_str!("../../../vectors/facts-keys.json"))
+                .expect("facts-keys.json parses");
+        let idl_facts: Vec<&str> = IDL
+            .lines()
+            .find(|l| l.starts_with("method Facts() -> ("))
+            .and_then(|l| l.strip_prefix("method Facts() -> ("))
+            .and_then(|l| l.strip_suffix(")"))
+            .map(|params| {
+                params
+                    .split(", ")
+                    .filter_map(|p| p.split([':', ' ']).next())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut idl_facts = idl_facts;
+        idl_facts.sort_unstable();
+        let mut vector_facts: Vec<&str> = facts_vector["keys"]
+            .as_array()
+            .expect("keys")
+            .iter()
+            .map(|k| k.as_str().expect("word"))
+            .collect();
+        vector_facts.sort_unstable();
+        assert_eq!(
+            idl_facts, vector_facts,
+            "the IDL's Facts keys and vectors/facts-keys.json disagree"
+        );
+
+        // the verdict words the host writes are the answer vector's
+        let verdicts: serde_json::Value =
+            serde_json::from_str(include_str!("../../../vectors/answer-verdict.json"))
+                .expect("answer-verdict.json parses");
+        let mut written: Vec<&str> = src
+            .lines()
+            .filter_map(|l| l.split_once("\"verdict\": \""))
+            .map(|(_, r)| &r[..r.find('"').unwrap_or(0)])
+            .collect();
+        written.sort_unstable();
+        written.dedup();
+        let mut vector_verdicts: Vec<&str> = verdicts["intent_verdicts"]
+            .as_array()
+            .expect("intent_verdicts")
+            .iter()
+            .map(|v| v.as_str().expect("word"))
+            .collect();
+        vector_verdicts.sort_unstable();
+        assert_eq!(
+            written, vector_verdicts,
+            "the verdict words this file writes and vectors/answer-verdict.json disagree"
+        );
     }
 
     fn registry() -> Registry {

@@ -27,6 +27,10 @@ use crate::Registry;
 /// The system's own settings file (the reserved id's): the allow-list.
 pub const SETTINGS_FILE: &str = "/etc/vrx/settings/vrx.conf";
 
+/// The allow-list's own keys, one spelling (vectors/matter-allowlist.json
+/// holds them; the test holds the two to each other).
+pub const ALLOW_KEYS: [&str; 2] = ["matter_screen", "matter_expose"];
+
 /// vrx-matter's socket (D9): group vrx-matter, the `matter` grant's.
 pub const SOCKET: &str = "/run/vrx-matter/io.vrx.Matter";
 
@@ -237,6 +241,39 @@ pub struct HostState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The allow-list's keys are the vector's (review step 44): the
+    /// reader here and vrx_kit's matter.dart (its test reads the same
+    /// file) hold the two spellings to one list, so a renamed key
+    /// strands a person's choice on a test failure, not on a board.
+    #[test]
+    fn the_allowlist_keys_are_the_vectors() {
+        let v: serde_json::Value =
+            serde_json::from_str(include_str!("../../../vectors/matter-allowlist.json"))
+                .expect("vectors/matter-allowlist.json parses");
+        assert_eq!(v["settings_file"], SETTINGS_FILE);
+        for key in v["keys"].as_object().expect("keys").keys() {
+            assert!(
+                ALLOW_KEYS.contains(&key.as_str()),
+                "vectors/matter-allowlist.json names {key}, this reader does not"
+            );
+        }
+        for key in ALLOW_KEYS {
+            assert!(
+                v["keys"].as_object().expect("keys").contains_key(*key),
+                "this reader allows {key}, the vector does not"
+            );
+        }
+        // the parser below spells each key in a match arm; the source is
+        // read back so a key edited there without its const fails here
+        let src = include_str!("matter.rs");
+        for key in ALLOW_KEYS {
+            assert!(
+                src.contains(&format!("{key}\" =>")),
+                "the parser no longer spells {key}"
+            );
+        }
+    }
     use crate::RegistryEntry;
 
     fn registry() -> Registry {

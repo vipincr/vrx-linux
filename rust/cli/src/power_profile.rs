@@ -50,3 +50,22 @@ pub fn run(args: &[String]) -> ExitCode {
         }
     }
 }
+
+#[cfg(test)]
+mod vector_tests {
+    /// The .power grammar's second reader (review step 44): the bench
+    /// command holds the sleep ladder to vectors/power-verbs.json, as
+    /// vrx-protocol's power_profile tests do; a rung this side refuses
+    /// names the rung.
+    #[test]
+    fn the_sleep_ladder_is_the_vectors() {
+        let vector: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../vectors/power-verbs.json"))
+                .expect("vectors/power-verbs.json parses");
+        let kinds = vector["sleep_kinds"].as_object().expect("sleep_kinds");
+        assert_eq!(kinds.len(), 3, "sleep, deep and off");
+        for kind in ["sleep", "deep", "off"] {
+            assert!(kinds.contains_key(kind), "the vector lost {kind}");
+        }
+    }
+}

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,24 @@ import 'package:vrx_kit/src/ui_standard.g.dart';
 import 'package:vrx_kit/vrx_kit.dart';
 
 void main() {
+
+
+  // The polarity key's second vector reader (review step 44): the
+  // layer's snapshot hook (executed verbatim by polarity_vector_test)
+  // greps exactly the vector's key beside the scheme's, and this test
+  // holds that grep to vectors/polarity.json, so a renamed key fails
+  // two tests, not one board.
+  test('the snapshot hook greps the vector\'s polarity key', () {
+    final vector =
+        jsonDecode(File('../../vectors/polarity.json').readAsStringSync())
+            as Map<String, dynamic>;
+    final key = vector['key'] as String;
+    final hook = File(
+            '../../layer/recipes-core/vrx-theme/files/vrx-theme-snapshot')
+        .readAsStringSync();
+    expect(hook, contains('^(scheme|\$key)='),
+        reason: 'the hook greps the vector\'s key');
+  });
   test('type sizes are points: body text is 3.5mm, as evrx-rt draws it', () {
     // 9.9pt at 160/72 dp per point = 22 dp = 3.49 mm at 160 dp/inch
     expect(VrxTypeRole.body.dp, closeTo(22.0, 0.05));

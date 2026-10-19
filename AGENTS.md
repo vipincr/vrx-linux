@@ -138,6 +138,18 @@ the gate is green.
     kernel's `schedutil`; nothing pins it. *Check: the scan (G027), the
     manifest parser (`background` is validated), vrx's lint R13 (G025),
     `tools/bench/freeze-check.sh` on a board.*
+14. **Unknown is never yes** (review 2026-10-17, R4). A check, a probe or
+    a gate answers pass, fail or unknown, and unknown stops the gate or
+    refuses the request. An authority read (the caller's identity, the
+    USB policy, the Matter allow-list, Facts) returns a result with an
+    explicit unknown arm; on those reads `unwrap_or`, `unwrap_or_default`
+    and `map_or(true` collapse "cannot tell" into a value, and an
+    unreadable identity once read as "not an applet", which holds every
+    grant. Shell checks answer with exit 0, 1 and 2. *Check: the gate's
+    three-valued scan (baseline: the sites that predate the rule, each
+    owed a three-valued read or marked `// three-valued: <why>`), and
+    the vectors rule: a cross-language rule lives in `vectors/` and is
+    read by at least two tests.*
 
 > ## Planning uses the plan skill
 

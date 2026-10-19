@@ -824,6 +824,24 @@ impl Manifest {
 mod tests {
     use super::*;
 
+    /// The grammar's second reader (review step 44): manifest's own tests
+    /// and tests/applet_id_vector.rs both load vectors/applet-id.json;
+    /// a row this side disagrees with names the row.
+    #[test]
+    fn the_id_grammar_reads_the_vector() {
+        let v: serde_json::Value =
+            serde_json::from_str(include_str!("../../../vectors/applet-id.json"))
+                .expect("vectors/applet-id.json parses");
+        for id in v["valid"].as_array().expect("valid") {
+            let id = id.as_str().expect("a string");
+            assert!(applet_id_ok(id), "{id:?}");
+        }
+        for id in v["invalid"].as_array().expect("invalid") {
+            let id = id.as_str().expect("a string");
+            assert!(!applet_id_ok(id), "{id:?}");
+        }
+    }
+
     fn with(extra: &str) -> Result<Manifest, ManifestError> {
         format!("[applet]\nid = \"a\"\nname = \"A\"\nversion = \"1\"\nruntime = \"rust\"\n{extra}").parse()
     }

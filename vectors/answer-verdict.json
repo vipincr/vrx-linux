@@ -1,0 +1,12 @@
+{
+  "owner": "the intent verdict words (io.vrx.Host.Intent's reply) and the Answer call's verdicts; Rust sends, Dart reads, the walk driver judges",
+  "intent_verdicts": [
+    "handled",
+    "opened",
+    "pass"
+  ],
+  "answer_verdicts": [
+    "handled",
+    "pass"
+  ]
+}

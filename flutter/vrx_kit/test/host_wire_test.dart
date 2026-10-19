@@ -16,7 +16,6 @@ void main() {
           as Map<String, dynamic>;
   final methods = (vector['methods'] as List).cast<String>();
   final errors = (vector['errors'] as List).cast<String>();
-  final verdicts = (vector['intent_verdicts'] as List).cast<String>();
 
   test('every io.vrx.Host name the kit spells is the IDL\'s', () {
     final src = Directory('lib/src')
@@ -46,13 +45,4 @@ void main() {
     );
   });
 
-  test('the intent verdict words the kit reads are the vector\'s', () {
-    final text = File('lib/src/host.dart').readAsStringSync();
-    final read = RegExp(r"'(opened|handled|pass)' => Verdict\.\w+")
-        .allMatches(text)
-        .map((m) => m.group(1)!)
-        .toSet();
-    expect(read, equals(verdicts.toSet()),
-        reason: 'the kit reads verdicts by kind; the words are the vector\'s');
-  });
 }

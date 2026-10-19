@@ -1,0 +1,23 @@
+{
+  "owner": "vrx_protocol::manifest::applet_id_ok is the one predicate; the walk check and `vrx new` call it. Read here by manifest's tests and tests/applet_id_vector.rs",
+  "grammar": "[a-z][a-z0-9_]*, at most 32 chars",
+  "valid": [
+    "a",
+    "clock",
+    "camerad",
+    "usbport",
+    "app1",
+    "a_b_2"
+  ],
+  "invalid": [
+    "Clock",
+    "1abc",
+    "_a",
+    "a-b",
+    "a.b",
+    "vrx",
+    "",
+    "toolongxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "a b"
+  ]
+}

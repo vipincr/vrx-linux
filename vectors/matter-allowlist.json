@@ -1,0 +1,8 @@
+{
+  "owner": "/etc/vrx/settings/vrx.conf is the one allow-list; vrx_protocol::matter reads it, vrx_kit's matter.dart writes and shows it. A key renamed on one side strands the other's choice",
+  "settings_file": "/etc/vrx/settings/vrx.conf",
+  "keys": {
+    "matter_screen": "the screen endpoint is exposed (true|false)",
+    "matter_expose": "space-separated applet ids the person allowed"
+  }
+}

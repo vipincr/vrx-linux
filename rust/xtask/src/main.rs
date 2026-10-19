@@ -17,6 +17,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 mod crates_inc;
+mod rules;
 mod docs;
 mod fonts;
 mod glyphs;
@@ -396,6 +397,12 @@ fn repo_root() -> std::path::PathBuf {
 
 fn gate(all: bool) -> ExitCode {
     let repo = repo_root();
+    // the repo-level rules run first, always: no crate to build, and a
+    // rule break is the cheapest failure to read (review 2026-10-17,
+    // steps 43 and 44)
+    if !rules::three_valued(&repo) || !rules::vectors_read_twice(&repo) {
+        return ExitCode::FAILURE;
+    }
     let stamps = impact::Stamps::new(&repo, all);
 
     // the workspace: each crate checked when it, a crate it builds

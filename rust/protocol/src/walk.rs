@@ -311,12 +311,6 @@ pub struct Walk {
 #[error("{0}")]
 pub struct WalkError(pub String);
 
-fn applet_id(id: &str) -> bool {
-    let mut chars = id.chars();
-    chars.next().is_some_and(|c| c.is_ascii_lowercase())
-        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-}
-
 impl Step {
     /// What this step needs and refuses, by action.
     fn check(&self, at: &str, measured: bool) -> Result<(), String> {
@@ -371,7 +365,7 @@ impl Step {
             }
         }
         for id in self.applet.iter().chain(&self.within) {
-            if !applet_id(id) {
+            if !crate::manifest::applet_id_ok(id) {
                 return Err(format!("{at}: {id:?} is not an applet id"));
             }
         }
@@ -503,7 +497,7 @@ impl Walk {
             .iter()
             .chain(self.setup.fixture.iter().map(|f| &f.applet))
         {
-            if !applet_id(id) {
+            if !crate::manifest::applet_id_ok(id) {
                 return Err(format!("setup: {id:?} is not an applet id"));
             }
         }

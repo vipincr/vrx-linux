@@ -1,0 +1,21 @@
+{
+  "owner": "io.vrx.Host.Facts' reply keys, from the IDL; the Rust reply and the Dart strict reader are held to this list",
+  "keys": [
+    "advertising",
+    "backlight",
+    "battery",
+    "battery_zone",
+    "next_wake",
+    "profiling",
+    "screen_on",
+    "brightness",
+    "supply_low",
+    "usb",
+    "usb_allow_new",
+    "usb_devices",
+    "usb_overcurrent",
+    "usb_policy",
+    "usb_ports",
+    "usb_vbus"
+  ]
+}
