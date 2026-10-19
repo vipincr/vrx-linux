@@ -12,14 +12,14 @@ LICENSE = "MIT"
 
 inherit cargo systemd
 
+SRC_URI += "file://vrx-manage.service \
            "
 
 CARGO_SRC_DIR = "rust/manage"
 CARGO_LOCK_PATH = "${S}/Cargo.lock"
 
 # after SRC_URI: the crates manifest appends to it (see vrxhost_git.bb)
-require recipes-core/vrx-linux-source.inc
-SRC_URI += "file://vrx-manage.service"
+require recipes-core/vrx-workspace-crates.inc
 
 require recipes-core/vrx-workspace-crates.inc
 

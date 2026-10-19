@@ -8,7 +8,6 @@
 # SPDX-License-Identifier: MIT
 #
 require recipes-core/vrx-linux-source.inc
-SRC_URI += "file://vrxhost.service"
 
 SUMMARY = "vrxhost: the vrx applet OS daemon (registry, supervisor, intents, trail)"
 SECTION = "core"
@@ -16,6 +15,9 @@ LICENSE = "MIT"
 
 inherit cargo systemd
 
+# AFTER the inherit: the file:// entries append to the shared inc's
+# checkout URI, and the crates manifest (below) appends to this
+SRC_URI += "file://vrxhost.service \
            file://vrxhost-tmpfiles.conf \
            file://vrx-applet@.service \
            file://vrx-install.service \

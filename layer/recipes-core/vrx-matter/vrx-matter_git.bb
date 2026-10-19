@@ -6,7 +6,6 @@
 # SPDX-License-Identifier: MIT
 #
 require recipes-core/vrx-linux-source.inc
-SRC_URI += "file://vrx-matter.service"
 
 SUMMARY = "vrx-matter: the device on a Matter fabric"
 SECTION = "core"
@@ -14,6 +13,7 @@ LICENSE = "MIT"
 
 inherit cargo systemd useradd
 
+SRC_URI += "file://vrx-matter.service \
            file://vrx-matter-bluetooth.conf \
            file://vrx-matter-bluetooth.service.conf \
            "
