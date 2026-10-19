@@ -22,6 +22,7 @@ mod service {
     use std::process::ExitCode;
     use std::sync::mpsc::{channel, Sender};
 
+    use camerad::bounds;
     use camerad::engine::{Engine, Env, Input};
     use camerad::libcamera_source::LibcameraSource;
     use camerad::linux::{announce, inhibit, serve_photos, QueueSink};
@@ -80,9 +81,12 @@ mod service {
                             }
                         }
                         if ours {
+                            // a malformed payload keeps nothing: saving a
+                            // photo the caller cannot have asked for is
+                            // the wrong side to err on
                             let intent = serde_json::from_value::<CaptureIntent>(payload)
                                 .unwrap_or(CaptureIntent {
-                                    keep: intent.keep,
+                                    keep: false,
                                     announce: false,
                                 });
                             if tx.send(Input::Intent(intent)).is_err() {
