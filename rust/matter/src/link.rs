@@ -252,27 +252,12 @@ impl Failure {
     }
 }
 
-/// Serve io.vrx.Matter until the listener fails.
+/// Serve io.vrx.Matter until the listener fails. The loop is the shared
+/// skeleton (vrx_wire; KRN-04, review 2026-10-17); this interface's
+/// socket is group-writable (vrx-matter; the unit's RuntimeDirectory is
+/// 0750, so the group and root reach it).
 pub async fn serve(socket: &Path, shared: Arc<Shared>) -> std::io::Result<()> {
-    let _ = std::fs::remove_file(socket);
-    let mut listener = zlink::tokio::unix::bind(socket).map_err(std::io::Error::other)?;
-    // the directory is the unit's RuntimeDirectory (0750, group
-    // vrx-matter): the group and root may connect
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o660))?;
-    }
-    tracing::info!(socket = %socket.display(), "io.vrx.Matter listening");
-    loop {
-        let conn = match zlink::Listener::accept(&mut listener).await {
-            Ok(Some(conn)) => conn,
-            Ok(None) => continue,
-            Err(err) => return Err(std::io::Error::other(err)),
-        };
-        let shared = shared.clone();
-        tokio::spawn(async move { handle(conn, shared).await });
-    }
+    vrx_wire::serve(socket, "io.vrx.Matter", Some(0o660), shared, |conn, shared| handle(conn, shared)).await
 }
 
 async fn handle(mut conn: zlink::tokio::unix::Connection, shared: Arc<Shared>) {

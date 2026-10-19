@@ -1,0 +1,9 @@
+{
+  "owner": "vrx-theme's recipe writes the key; the snapshot hook greps it, bootColors and Settings read it. The crossing test is vrx_kit/test/polarity_vector_test.dart",
+  "settings_file": "/etc/vrx/settings/vrx.conf",
+  "key": "polarity",
+  "values": [
+    "dark",
+    "light"
+  ]
+}

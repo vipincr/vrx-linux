@@ -19,6 +19,7 @@ members = [
     "rust/manage",
     "rust/walk",
     "rust/matter",
+    "rust/wire",
 ]
 
 # applets/ are standalone: each is built and tested on its own (the

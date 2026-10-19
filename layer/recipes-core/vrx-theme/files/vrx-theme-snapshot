@@ -4,11 +4,20 @@
 # it. A choice made later shows at the next boot and on nothing before, so
 # the screen is never half one scheme. Last key wins (vrx_kit's
 # parseSettings), so the defaults come first.
+#
+# The three paths are overridable for the kit's crossing test (CNX-01,
+# review 2026-10-17), which runs this script verbatim against temp files
+# and reads its output through bootColors: the key and its words are the
+# vector's (vectors/polarity.json), spelled once on each side of the
+# shell/Rust/Dart line.
 set -eu
-mkdir -p /run/vrx
+defaults=${VRX_THEME_DEFAULTS:-/usr/lib/vrx/theme-default.conf}
+settings=${VRX_THEME_SETTINGS:-/etc/vrx/settings/vrx.conf}
+out=${VRX_THEME_OUT:-/run/vrx/theme.conf}
+mkdir -p "$(dirname "$out")"
 {
-    cat /usr/lib/vrx/theme-default.conf
-    grep -E '^(scheme|polarity)=' /etc/vrx/settings/vrx.conf 2>/dev/null || true
-} > /run/vrx/theme.conf.new
-chmod 0644 /run/vrx/theme.conf.new
-mv /run/vrx/theme.conf.new /run/vrx/theme.conf
+    cat "$defaults"
+    grep -E '^(scheme|polarity)=' "$settings" 2>/dev/null || true
+} > "$out.new"
+chmod 0644 "$out.new"
+mv "$out.new" "$out"

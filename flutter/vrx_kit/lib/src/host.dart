@@ -111,17 +111,31 @@ class SystemFacts {
     this.usbHost = const UsbHostState(),
   });
 
-  factory SystemFacts.fromJson(Map<String, dynamic> j) => SystemFacts(
-        usb: '${j['usb'] ?? ''}',
-        supplyLow: j['supply_low'] == true,
-        backlight: (j['backlight'] as num?)?.toInt() ?? 0,
-        battery: (j['battery'] as num?)?.toInt() ?? -1,
-        batteryZone: '${j['battery_zone'] ?? ''}',
-        nextWake: (j['next_wake'] as num?)?.toInt() ?? 0,
-        profiling: j['profiling'] == true,
-        advertising: '${j['advertising'] ?? ''}',
-        usbHost: UsbHostState.fromJson(j),
-      );
+  /// Strict: a key the reply does not carry is an error naming it, never
+  /// a default. A renamed Facts key once read as a confident default and
+  /// the Settings pages showed made-up values (INT-10, review 2026-10-17).
+  factory SystemFacts.fromJson(Map<String, dynamic> j) {
+    T req<T>(String key, T Function(dynamic) cast) {
+      if (!j.containsKey(key)) {
+        throw FormatException(
+            'io.vrx.Host.Facts: the reply carries no "$key"; the wire '
+            'changed under this build (rebuild the applet against vrxhost)');
+      }
+      return cast(j[key]);
+    }
+
+    return SystemFacts(
+      usb: req('usb', (v) => '$v'),
+      supplyLow: req('supply_low', (v) => v == true),
+      backlight: req('backlight', (v) => (v as num?)?.toInt() ?? 0),
+      battery: req('battery', (v) => (v as num?)?.toInt() ?? -1),
+      batteryZone: req('battery_zone', (v) => '$v'),
+      nextWake: req('next_wake', (v) => (v as num?)?.toInt() ?? 0),
+      profiling: req('profiling', (v) => v == true),
+      advertising: req('advertising', (v) => '$v'),
+      usbHost: UsbHostState.fromJson(j),
+    );
+  }
 
   /// The UDC's state ("configured" with a computer on the cable); '' on a
   /// board with no USB device port.
@@ -417,8 +431,21 @@ class VarlinkAppletsService extends AppletsService {
         'name': name,
         if (payload != null) 'payload': payload,
       });
+      // the verdict is read by kind (CON-05, review 2026-10-17): opened
+      // pushed a handler at a route, handled is done, pass dropped; a
+      // word the kit does not know is an error naming it, never a
+      // confident handled
+      final word = '${reply['verdict'] ?? ''}';
+      final Verdict verdict = switch (word) {
+        'opened' => Verdict.opened,
+        'handled' => Verdict.handled,
+        'pass' => Verdict.pass,
+        _ => throw FormatException(
+            'io.vrx.Host.Intent: unknown verdict "$word"; the wire changed '
+            'under this build (rebuild the applet against vrxhost)'),
+      };
       return IntentResult(
-        verdict: reply['verdict'] == 'pass' ? Verdict.pass : Verdict.handled,
+        verdict: verdict,
         handledBy: reply['handled_by'] as String?,
         route: (reply['route'] as num?)?.toInt(),
       );

@@ -115,11 +115,17 @@ enum UsbPolicy {
   /// works.
   failed;
 
+  /// A word the policy never spells is an error, not `none`: an unknown
+  /// word reading as none made Settings claim USB was open when it was
+  /// not (INT-10, review 2026-10-17).
   static UsbPolicy parse(Object? s) => switch (s) {
         'open' => open,
         'allowlist' => allowlist,
         'failed' => failed,
-        _ => none,
+        'none' => none,
+        _ => throw FormatException(
+            'io.vrx.Host.Facts: unknown usb_policy "$s"; the wire changed '
+            'under this build (rebuild the applet against vrxhost)'),
       };
 }
 
@@ -134,16 +140,32 @@ class UsbHostState {
     this.devices = const [],
   });
 
-  factory UsbHostState.fromJson(Map<String, dynamic> j) => UsbHostState(
-        ports: [for (final p in (j['usb_ports'] as List? ?? const [])) '$p'],
-        vbus: '${j['usb_vbus'] ?? ''}',
-        overcurrent: '${j['usb_overcurrent'] ?? ''}',
-        policy: UsbPolicy.parse(j['usb_policy']),
-        allowNew: j['usb_allow_new'] != false,
-        devices: [
-          for (final d in (j['usb_devices'] as List? ?? const []).whereType<Map<String, dynamic>>()) UsbDevice.fromJson(d),
-        ],
-      );
+  /// Strict like SystemFacts: a missing key or an unknown policy word is
+  /// an error naming it, never a default (INT-10; an unknown policy word
+  /// once read as `none` and Settings said USB was open when it was not).
+  factory UsbHostState.fromJson(Map<String, dynamic> j) {
+    if (!j.containsKey('usb_ports') ||
+        !j.containsKey('usb_vbus') ||
+        !j.containsKey('usb_overcurrent') ||
+        !j.containsKey('usb_policy') ||
+        !j.containsKey('usb_allow_new') ||
+        !j.containsKey('usb_devices')) {
+      throw FormatException(
+          'io.vrx.Host.Facts: the USB reply is missing a key the kit reads '
+          '(usb_ports, usb_vbus, usb_overcurrent, usb_policy, usb_allow_new, '
+          'usb_devices); the wire changed under this build');
+    }
+    return UsbHostState(
+      ports: [for (final p in (j['usb_ports'] as List? ?? const [])) '$p'],
+      vbus: '${j['usb_vbus']}',
+      overcurrent: '${j['usb_overcurrent']}',
+      policy: UsbPolicy.parse(j['usb_policy']),
+      allowNew: j['usb_allow_new'] != false,
+      devices: [
+        for (final d in (j['usb_devices'] as List? ?? const []).whereType<Map<String, dynamic>>()) UsbDevice.fromJson(d),
+      ],
+    );
+  }
 
   /// The host ports' labels, as the image declared them; empty: none.
   final List<String> ports;

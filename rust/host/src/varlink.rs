@@ -346,44 +346,11 @@ pub struct Installer {
     >,
 }
 
-/// Serve `io.vrx.Host` until the listener fails.
+/// Serve `io.vrx.Host` until the listener fails. The loop is the shared
+/// skeleton (vrx_wire; KRN-04, review 2026-10-17): what this interface
+/// answers is `handle`'s.
 pub async fn serve(socket: &Path, host: Host) -> std::io::Result<()> {
-    // a stale socket from a previous run would fail the bind
-    let _ = std::fs::remove_file(socket);
-    let mut listener = zlink::tokio::unix::bind(socket).map_err(std::io::Error::other)?;
-    tracing::info!(socket = %socket.display(), "io.vrx.Host listening");
-    // connections are bounded by the fd limit (review 2026-10-17,
-    // MEM-06): a peer that opens sockets to exhaust the host is refused
-    // by the permit, not by the process dying
-    let max_conns = std::fs::read_to_string("/proc/sys/fs/nr_open")
-        .ok()
-        .and_then(|t| t.trim().parse::<usize>().ok())
-        .map(|n| n / 8)
-        .unwrap_or(256)
-        .max(16);
-    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(max_conns));
-    tracing::info!(max_conns, "io.vrx.Host connection bound");
-    loop {
-        let conn = match zlink::Listener::accept(&mut listener).await {
-            Ok(Some(conn)) => conn,
-            Ok(None) => continue,
-            // an accept error is logged and retried (MEM-06): the server
-            // outlives one bad accept
-            Err(err) => {
-                tracing::warn!(error = %err, "io.vrx.Host accept; retrying");
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                continue;
-            }
-        };
-        let Ok(permit) = sem.clone().acquire_owned().await else {
-            continue;
-        };
-        let host = host.clone();
-        tokio::spawn(async move {
-            handle(conn, host).await;
-            drop(permit);
-        });
-    }
+    vrx_wire::serve(socket, INTERFACE, None, host, |conn, host| handle(conn, host)).await
 }
 
 async fn handle(mut conn: zlink::tokio::unix::Connection, host: Host) {
@@ -1408,6 +1375,70 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixStream;
     use vrx_protocol::RegistryEntry;
+
+    /// One spelling of the wire (KRN-04, review 2026-10-17): the IDL is
+    /// it. The dispatch's arms (both spellings: the match arms and the
+    /// fd/more special cases compared with format!) and the committed
+    /// vector are read back against it here; the Dart client reads the
+    /// same vector in vrx_kit's host_wire test, so renaming a method in
+    /// either language fails a test that names the gap.
+    #[test]
+    fn the_dispatch_covers_the_idl() {
+        let mut idl: Vec<&str> = IDL
+            .lines()
+            .filter_map(|l| l.strip_prefix("method "))
+            .map(|r| r.split('(').next().unwrap_or(r))
+            .collect();
+        idl.sort_unstable();
+        let mut errors: Vec<&str> = IDL
+            .lines()
+            .filter_map(|l| l.strip_prefix("error "))
+            .map(|r| {
+                let end = r.find([' ', '(']).unwrap_or(r.len());
+                &r[..end]
+            })
+            .collect();
+        errors.sort_unstable();
+        assert!(!idl.is_empty(), "the IDL parse found no methods");
+        assert!(!errors.is_empty(), "the IDL parse found no errors");
+
+        let src = include_str!("varlink.rs");
+        let mut served: Vec<&str> = src
+            .lines()
+            .filter_map(|l| {
+                let l = l.trim_start();
+                l.starts_with("\"io.vrx.Host.")
+                    .then(|| l.split('"').nth(1))
+                    .flatten()
+                    .filter(|n| l.contains("\" =>"))
+            })
+            .collect();
+        // the fd-carrying and holds-more methods dispatch before the match
+        for i in src.match_indices("format!(\"{INTERFACE}.") {
+            let rest = &src[i.0 + "format!(\"{INTERFACE}.".len()..];
+            if let Some(end) = rest.find('"') {
+                served.push(&rest[..end]);
+            }
+        }
+        served.sort_unstable();
+        served.dedup();
+
+        let missing: Vec<&&str> = idl.iter().filter(|m| !served.contains(m)).collect();
+        assert!(missing.is_empty(), "the IDL declares {} but nothing dispatches them; serve them or strike them", missing.join(", "));
+        let extra: Vec<&&str> = served.iter().filter(|m| !idl.contains(m)).collect();
+        assert!(extra.is_empty(), "dispatched but not in the IDL: {} (a method with no declaration serves a method GetInterfaceDescription denies)", extra.join(", "));
+
+        let vector: serde_json::Value = serde_json::from_str(include_str!("../../../vectors/host-wire.json"))
+            .expect("vectors/host-wire.json parses");
+        assert_eq!(
+            vector["methods"], serde_json::json!(idl),
+            "vectors/host-wire.json disagrees with the IDL: regenerate it (see its owner note)"
+        );
+        assert_eq!(
+            vector["errors"], serde_json::json!(errors),
+            "vectors/host-wire.json disagrees with the IDL's errors"
+        );
+    }
 
     fn registry() -> Registry {
         let mut r = Registry::new();

@@ -9,8 +9,12 @@
 /// degraded standalone never silently drops an intent.
 library;
 
-/// The verdict a handler returned.
+/// The verdict a handler returned. The three wire words (opened, handled,
+/// pass) are the IDL's; error is the kit's own (the call itself failed).
 enum Verdict {
+  /// A handler was pushed at its route (the caller is now on screen).
+  opened,
+
   /// The handler took the intent.
   handled,
 

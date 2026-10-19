@@ -1,0 +1,13 @@
+[package]
+name = "vrx-wire"
+version = "0.1.0"
+edition = "2021"
+description = "The Varlink server skeleton vrxhost and vrx-matter share"
+license = "MIT"
+
+[dependencies]
+tokio = { workspace = true }
+zlink = { version = "0.7.1", default-features = false, features = ["tokio", "server", "tracing"] }
+
+[lints]
+workspace = true
