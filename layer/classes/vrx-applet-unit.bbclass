@@ -28,11 +28,38 @@ VRX_FLUTTER_BUNDLE ?= ""
 VRX_GRANTS_CONF = "${VRX_LINUX_LAYERDIR}/recipes-applets/vrx-applets/files/grants.conf"
 
 python vrx_applet_unit() {
-    import os, subprocess, tomllib
+    import os, re, subprocess, tomllib
     applet = d.getVar('VRX_APPLET')
     manifest_path = d.getVar('D') + os.path.join(d.getVar('VRX_APPLET_DIR'), 'manifest.toml')
     with open(manifest_path, 'rb') as f:
-        runtime = tomllib.load(f).get('applet', {}).get('runtime')
+        manifest = tomllib.load(f).get('applet', {})
+    runtime = manifest.get('runtime')
+    # The recipe's VRX_APPLET and the manifest's id are two spellings of
+    # one fact; disagreed, the unit drop-in lands under one name and the
+    # registry scans another, and the applet is invisible (CON-05, review
+    # 2026-10-17). The version is two spellings too (manifest vs the
+    # project file); vrxhost reports the manifest's, the store compares
+    # the project's (KRN-07).
+    if manifest.get('id') != applet:
+        bb.fatal("%s: VRX_APPLET is '%s' but applets/%s/manifest.toml says id = '%s'"
+                 % (d.getVar('PN'), applet, applet, manifest.get('id')))
+    src = d.getVar('S') + '/applets/' + applet
+    project = None
+    for name, pat in (('pubspec.yaml', r'^version:\s*(\S+)'),
+                      ('Cargo.toml', r'^version\s*=\s*"([^"]+)"')):
+        p = os.path.join(src, name)
+        if os.path.exists(p):
+            m = re.search(pat, open(p).read(), re.M)
+            if m:
+                project = m.group(1)
+    if project is None:
+        bb.fatal("%s: neither pubspec.yaml nor Cargo.toml with a version in %s"
+                 % (applet, src))
+    if project.split('+')[0] != manifest.get('version', '').split('+')[0]:
+        bb.fatal("%s: manifest version '%s' and project version '%s' disagree; "
+                 "one version, two spellings, and the store compares the "
+                 "project's while vrxhost reports the manifest's (KRN-07)"
+                 % (applet, manifest.get('version'), project))
     bundle = d.getVar('VRX_FLUTTER_BUNDLE')
     if runtime == 'flutter':
         if not bundle:

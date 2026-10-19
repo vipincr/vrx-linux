@@ -61,35 +61,20 @@ fn parse(
     env: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Options, String> {
     let value = |flag: &str| -> Option<String> {
-        args.iter()
-            .position(|a| a == flag)
-            .and_then(|i| args.get(i + 1))
-            .cloned()
+        crate::flags::value(args, flag).map(ToOwned::to_owned)
     };
-    let flags_with_value = ["--out", "--arch", "--key", "--cert"];
-    let mut src = None;
-    let mut skip = false;
-    for a in args {
-        if skip {
-            skip = false;
-            continue;
-        }
-        if flags_with_value.contains(&a.as_str()) {
-            skip = true;
-            continue;
-        }
-        if !a.starts_with("--") && src.is_none() {
-            src = Some(PathBuf::from(a));
-        }
-    }
-    let src = src.ok_or("an applet directory is required")?;
+    let src = crate::flags::positionals(args, &["--out", "--arch", "--key", "--cert"],
+                                        &["--unsigned"])?
+        .first()
+        .map(|a| PathBuf::from(*a))
+        .ok_or("an applet directory is required")?;
     let arch = value("--arch").unwrap_or_else(|| "arm64".to_owned());
     if !ARCHES.contains(&arch.as_str()) {
         return Err(format!("--arch {arch}: one of {}", ARCHES.join(", ")));
     }
     let key = value("--key").or_else(|| env("VRX_SIGNING_KEY"));
     let cert = value("--cert").or_else(|| env("VRX_SIGNING_CERT"));
-    let unsigned = args.iter().any(|a| a == "--unsigned");
+    let unsigned = crate::flags::present(args, "--unsigned");
     let signing = match (key, cert, unsigned) {
         (_, _, true) => Signing::Unsigned,
         (Some(key), Some(cert), false) => Signing::Signed {

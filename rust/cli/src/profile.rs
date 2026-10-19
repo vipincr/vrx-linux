@@ -32,11 +32,9 @@ use vrx_protocol::walk::{Summary, CAPTURE_CONFIGS as CONFIGS};
 /// checkout to find it.
 const SPEC: &str = include_str!("../../../tools/profile/summary/vrx.pbtx");
 
-/// The value after `flag`, if given.
+/// The value after `flag`, if given: the one flag reader (crate::flags).
 pub fn flag<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
-    args.windows(2)
-        .find(|w| w[0] == flag)
-        .map(|w| w[1].as_str())
+    crate::flags::value(args, flag)
 }
 
 /// One command on the board, as root; its stdout, or why not.

@@ -19,10 +19,7 @@ use std::process::ExitCode;
 use vrx_protocol::Manifest;
 
 pub fn run(args: &[String]) -> ExitCode {
-    let dir = args
-        .iter()
-        .position(|a| a == "--in")
-        .and_then(|i| args.get(i + 1))
+    let dir = crate::flags::value(args, "--in")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))

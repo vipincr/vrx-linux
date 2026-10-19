@@ -10,7 +10,7 @@ use std::process::ExitCode;
 use vrx_protocol::power_profile::PowerProfile;
 
 pub fn run(args: &[String]) -> ExitCode {
-    let measured = args.iter().any(|a| a == "--measured");
+    let measured = crate::flags::present(args, "--measured");
     let files: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
     if files.is_empty() {
         eprintln!("vrx power-profile: name the profile files");

@@ -9,19 +9,11 @@
 
 use std::process::ExitCode;
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
-    args.iter()
-        .position(|a| a == flag)
-        .and_then(|i| args.get(i + 1))
-        .map(String::as_str)
-}
-
 /// The request line for `vrx camera capture`'s arguments: the JSON the
 /// photos channel reads (id 1, the bytes attached, `keep` when asked).
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn capture_request(args: &[String]) -> Result<serde_json::Value, String> {
-    let width = match value(args, "--width") {
+    let width = match crate::flags::value(args, "--width") {
         Some(w) => Some(
             w.parse::<u32>()
                 .map_err(|_| format!("--width wants a number, not {w:?}"))?,
@@ -31,9 +23,9 @@ pub fn capture_request(args: &[String]) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({
         "op": "capture",
         "id": 1,
-        "camera": value(args, "--camera"),
+        "camera": crate::flags::value(args, "--camera"),
         "width": width,
-        "keep": args.iter().any(|a| a == "--keep"),
+        "keep": crate::flags::present(args, "--keep"),
         "fd": true,
     }))
 }
@@ -100,7 +92,7 @@ pub fn run(args: &[String]) -> ExitCode {
         eprintln!("vrx camera: reading the picture: {e}");
         return ExitCode::FAILURE;
     }
-    let out = value(&args[1..], "-o").unwrap_or("capture.jpg");
+    let out = crate::flags::value(&args[1..], "-o").unwrap_or("capture.jpg");
     if let Err(e) = std::fs::File::create(out).and_then(|mut f| f.write_all(&bytes)) {
         eprintln!("vrx camera: {out}: {e}");
         return ExitCode::FAILURE;

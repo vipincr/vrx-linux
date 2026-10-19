@@ -7,6 +7,7 @@
 
 mod build;
 mod camera;
+mod flags;
 mod new;
 mod pack;
 mod power_profile;
