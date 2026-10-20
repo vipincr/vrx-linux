@@ -1,0 +1,14 @@
+{
+  "board": "10.10.10.4",
+  "date": "2026-10-21",
+  "rows": [
+    {
+      "check": "freeze-check",
+      "verdict": "pass",
+      "ok": 15,
+      "fail": 0,
+      "version": "0.1.0136",
+      "notes": null
+    }
+  ]
+}

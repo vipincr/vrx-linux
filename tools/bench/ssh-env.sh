@@ -4,5 +4,5 @@
 # `bench-known <host>`, and ssh refuses a changed key instead of blindly
 # trusting whatever answers. Until a board's key is known, StrictHostKeyChecking=accept-new
 # takes it the first time (a bench LAN, not the internet).
-OPTS="-o LogLevel=ERROR -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$VRX_BENCH_KNOWN_HOSTS"
+OPTS="-o LogLevel=ERROR -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new${VRX_BENCH_KNOWN_HOSTS:+ -o UserKnownHostsFile=$VRX_BENCH_KNOWN_HOSTS}"
 [ -n "${VRX_BENCH_KNOWN_HOSTS:-}" ] || OPTS="-o LogLevel=ERROR -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new"
