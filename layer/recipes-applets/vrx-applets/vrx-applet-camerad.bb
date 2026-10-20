@@ -21,6 +21,10 @@ inherit cargo pkgconfig
 CARGO_SRC_DIR = "applets/camerad"
 CARGO_LOCK_PATH = "${S}/applets/camerad/Cargo.lock"
 CARGO_BUILD_FLAGS += "--features libcamera"
+# the standalone applets build outside the workspace: the workspace's
+# crates manifest is the bulk, and vrx-applet-crates.inc is the DELTA
+# their own locks add on top of it (its header says so)
+require recipes-core/vrx-workspace-crates.inc
 require recipes-core/vrx-applet-crates.inc
 # the registry crates only camerad's lock has (cargo xtask crates-inc)
 require recipes-core/vrx-applet-crates.inc

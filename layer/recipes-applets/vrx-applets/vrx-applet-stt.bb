@@ -18,6 +18,10 @@ inherit cargo
 # a subset of the workspace's, so the workspace's crates list covers it
 CARGO_SRC_DIR = "applets/stt"
 CARGO_LOCK_PATH = "${S}/applets/stt/Cargo.lock"
+# the standalone applets build outside the workspace: the workspace's
+# crates manifest is the bulk, and vrx-applet-crates.inc is the DELTA
+# their own locks add on top of it (its header says so)
+require recipes-core/vrx-workspace-crates.inc
 require recipes-core/vrx-applet-crates.inc
 
 do_install() {
