@@ -18,7 +18,7 @@ inherit cargo
 # a subset of the workspace's, so the workspace's crates list covers it
 CARGO_SRC_DIR = "applets/stt"
 CARGO_LOCK_PATH = "${S}/applets/stt/Cargo.lock"
-require recipes-core/vrx-workspace-crates.inc
+require recipes-core/vrx-applet-crates.inc
 
 do_install() {
     install -D -m 0755 ${B}/target/${RUST_TARGET_SYS}/release/stt ${D}/system/defaults/stt/app
