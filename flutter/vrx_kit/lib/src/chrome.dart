@@ -132,8 +132,13 @@ class VrxStatusStrip extends StatelessWidget {
       // no padding above and below: the slots are sized to the strip's
       // height (a touch-height strip would squeeze Back under the
       // minimum; without a touchscreen, plan 0013 D7, the clock and the
-      // glyphs were cut by the 1mm a side the padding took)
-      padding: EdgeInsets.symmetric(horizontal: s.inset),
+      // glyphs were cut by the 1mm a side the padding took). No padding
+      // on the LEFT either: Back is the strip's first control and every
+      // applet's way out, and it starts at the screen's edge — an inset
+      // there was a dead strip a finger landed on and read as "Back is
+      // not working" (the owner, 2026-10-21). The clock and the glyphs
+      // keep their inset on the right.
+      padding: EdgeInsets.only(right: s.inset),
       // opaque: on the board it is the shell's, on a plane above the app
       decoration: BoxDecoration(
         color: colors.surface,
