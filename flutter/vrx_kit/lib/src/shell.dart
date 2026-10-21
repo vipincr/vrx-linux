@@ -452,15 +452,32 @@ class _VrxPullState extends State<VrxPull> with TickerProviderStateMixin {
         ),
       );
 
+  // The stack's children come and go while a finger is on the glass (the
+  // engaged layer mounts on the first drag update, `below` on the power
+  // menu). Without keys an inserted child shifts every later element's
+  // index, and Flutter matches positionally: the strip's element is torn
+  // down and rebuilt one slot over, which disposes its drag recognizer
+  // mid-gesture — the drag went silent after its start, and the drawer's
+  // first slow swipe died there (the owner's two-swipe bug; a flick that
+  // finished inside one frame survived, which is why the second swipe
+  // worked). The keys let the elements MOVE instead of being replaced,
+  // so the contact that started on the strip keeps its recognizer to the
+  // release (the start of a contact owns its whole life).
+  final _belowKey = GlobalKey();
+  final _layerKey = GlobalKey();
+  final _stripKey = GlobalKey();
+
   @override
   Widget build(BuildContext context) {
     final colors = VrxTheme.of(context);
     final pull = VrxPullHandle._(_engaged, (child) => _drag(child: child));
     return Stack(children: [
       if (widget.below != null)
-        Positioned(left: 0, right: 0, top: widget.top, bottom: 0, child: widget.below!),
+        Positioned(
+            key: _belowKey, left: 0, right: 0, top: widget.top, bottom: 0, child: widget.below!),
       if (_engaged)
         Positioned(
+          key: _layerKey,
           left: 0,
           right: 0,
           top: widget.top,
@@ -510,7 +527,8 @@ class _VrxPullState extends State<VrxPull> with TickerProviderStateMixin {
             ]),
           ),
         ),
-      Positioned(left: 0, right: 0, top: 0, child: widget.strip(context, pull)),
+      Positioned(
+          key: _stripKey, left: 0, right: 0, top: 0, child: widget.strip(context, pull)),
     ]);
   }
 }
