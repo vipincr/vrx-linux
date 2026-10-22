@@ -123,6 +123,16 @@ mod service {
     }
 
     pub fn run() -> ExitCode {
+        // KRN-04's contract: this binary installs the subscriber. It was
+        // installed nowhere (found 2026-10-22), so every log! in the process
+        // - including the photos-client error behind the reply-path bug -
+        // vanished; INFO default, RUST_LOG narrows it.
+        use tracing_subscriber::EnvFilter;
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(
+                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+            )
+            .init();
         let liveness = Liveness::new();
         liveness.spawn_watchdog();
         let conf = Conf::parse(&std::fs::read_to_string(CONF).unwrap_or_default());
