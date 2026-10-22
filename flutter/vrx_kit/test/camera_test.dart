@@ -19,7 +19,8 @@ const _two = '''{"enabled":true,"cameras":[
 Future<(VrxChannel, Socket)> _pair() async {
   final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
   final far = server.first;
-  final near = await Socket.connect(InternetAddress.loopbackIPv4, server.port);
+  final near =
+      await RawSocket.connect(InternetAddress.loopbackIPv4, server.port);
   final other = await far;
   await server.close();
   return (VrxChannel('camerad.photos', near), other);
@@ -30,7 +31,8 @@ class _FakeTexture implements CameraTexture {
 
   final CameraError? fail;
   final closed = <int>[];
-  final endedController = StreamController<({int textureId, String reason})>.broadcast();
+  final endedController =
+      StreamController<({int textureId, String reason})>.broadcast();
 
   @override
   Stream<({int textureId, String reason})> get ended => endedController.stream;
@@ -46,21 +48,29 @@ class _FakeTexture implements CameraTexture {
 }
 
 void main() {
-  test('the state file is read as documented, and anything else is no camera', () {
+  test('the state file is read as documented, and anything else is no camera',
+      () {
     final s = CameraState.parse(_two);
     expect(s.known && s.enabled && s.active, isTrue);
     expect(s.cameras.map((c) => c.id), ['csi0', 'usb1']);
-    expect((s.cameras[0].width, s.cameras[0].height, s.cameras[0].location), (3280, 2464, 'back'));
+    expect((s.cameras[0].width, s.cameras[0].height, s.cameras[0].location),
+        (3280, 2464, 'back'));
     expect((s.clients, s.reason), (1, 'ok'));
     for (final bad in ['', 'nonsense', '[1,2]', '{"cameras":"no"}x']) {
       expect(CameraState.parse(bad), CameraState.absent, reason: bad);
     }
-    expect(CameraState.parse('{"enabled":false,"cameras":[],"active":false,"clients":0,"reason":"disabled"}').enabled,
+    expect(
+        CameraState.parse(
+                '{"enabled":false,"cameras":[],"active":false,"clients":0,"reason":"disabled"}')
+            .enabled,
         isFalse);
-    expect(CameraState.parse(_two), CameraState.parse(_two), reason: 'a repeat is equal');
+    expect(CameraState.parse(_two), CameraState.parse(_two),
+        reason: 'a repeat is equal');
   });
 
-  test('the service says the state now, again on a change, and survives camerad coming and going', () async {
+  test(
+      'the service says the state now, again on a change, and survives camerad coming and going',
+      () async {
     final root = Directory.systemTemp.createTempSync('vrx-camera');
     final dir = '${root.path}/camera';
     final service = CameraService(dir: dir);
@@ -90,15 +100,28 @@ void main() {
     root.deleteSync(recursive: true);
   });
 
-  test('a photo request goes out with fd false, is matched by id, and an error is thrown by name', () async {
+  test(
+      'a photo request goes out with fd false, is matched by id, and an error is thrown by name',
+      () async {
     final (channel, far) = await _pair();
     final photos = CameraPhotos(open: () async => channel);
-    final lines = utf8.decoder.bind(far).transform(const LineSplitter()).asBroadcastStream();
+    final lines = utf8.decoder
+        .bind(far)
+        .transform(const LineSplitter())
+        .asBroadcastStream();
     final first = lines.first;
     final shot = photos.capture(quality: 70);
-    final request = (jsonDecode(await first) as Map<String, dynamic>)['record'] as Map<String, dynamic>;
-    expect(
-        request, {'op': 'capture', 'camera': null, 'width': null, 'quality': 70, 'keep': true, 'fd': false, 'id': 1});
+    final request = (jsonDecode(await first) as Map<String, dynamic>)['record']
+        as Map<String, dynamic>;
+    expect(request, {
+      'op': 'capture',
+      'camera': null,
+      'width': null,
+      'quality': 70,
+      'keep': true,
+      'fd': false,
+      'id': 1
+    });
     far.write('${jsonEncode({
           'pipe': 'camerad.photos',
           'record': {
@@ -121,23 +144,34 @@ void main() {
           'pipe': 'camerad.photos',
           'record': {'id': 2, 'ok': false, 'error': 'folder-full'}
         })}\n');
-    await expectLater(failing, throwsA(isA<CameraError>().having((e) => e.code, 'code', 'folder-full')));
+    await expectLater(
+        failing,
+        throwsA(
+            isA<CameraError>().having((e) => e.code, 'code', 'folder-full')));
 
     // the channel closing fails what was waiting, by name
     final third = lines.first;
     final lost = photos.list();
     await third;
     await far.close();
-    await expectLater(lost, throwsA(isA<CameraError>().having((e) => e.code, 'code', 'failed')));
+    await expectLater(lost,
+        throwsA(isA<CameraError>().having((e) => e.code, 'code', 'failed')));
     photos.close();
   });
 
   test('a channel that cannot be opened is unavailable', () async {
-    final photos = CameraPhotos(open: () async => throw const VarlinkError('io.vrx.Host.NotListening', {}));
-    await expectLater(photos.capture(), throwsA(isA<CameraError>().having((e) => e.code, 'code', 'unavailable')));
+    final photos = CameraPhotos(
+        open: () async =>
+            throw const VarlinkError('io.vrx.Host.NotListening', {}));
+    await expectLater(
+        photos.capture(),
+        throwsA(
+            isA<CameraError>().having((e) => e.code, 'code', 'unavailable')));
   });
 
-  testWidgets('the view opens the stream when mounted and gives it back when disposed', (tester) async {
+  testWidgets(
+      'the view opens the stream when mounted and gives it back when disposed',
+      (tester) async {
     final texture = _FakeTexture();
     CameraStream? started;
     await tester.pumpWidget(Directionality(
@@ -151,7 +185,8 @@ void main() {
     expect(texture.closed, [7]);
   });
 
-  testWidgets('a refused open and a stream camerad ended are each said once', (tester) async {
+  testWidgets('a refused open and a stream camerad ended are each said once',
+      (tester) async {
     final refused = _FakeTexture(fail: const CameraError('busy'));
     CameraError? error;
     await tester.pumpWidget(Directionality(
@@ -166,7 +201,10 @@ void main() {
     String? ended;
     await tester.pumpWidget(Directionality(
       textDirection: TextDirection.ltr,
-      child: VrxCameraView(key: const ValueKey('b'), texture: texture, onEnded: (r) => ended = r),
+      child: VrxCameraView(
+          key: const ValueKey('b'),
+          texture: texture,
+          onEnded: (r) => ended = r),
     ));
     await tester.pump();
     texture.endedController.add((textureId: 7, reason: 'producer-closed'));

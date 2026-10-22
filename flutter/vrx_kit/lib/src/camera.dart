@@ -380,7 +380,7 @@ class CameraPhotos {
     for (final c in all) {
       c.complete({'ok': false, 'error': 'failed'});
     }
-    unawaited(channel?.socket.close());
+    channel?.close();
   }
 }
 
