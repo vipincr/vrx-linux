@@ -394,7 +394,13 @@ impl Listener {
                     );
                 };
                 let stream = UnixStream::from(fd);
-                let channel = match Channel::from_stream(text("channel"), stream) {
+                // the channel's name is `<from>.<channel>`, as the opener
+                // spells it: a bare `photos` fails the pipe grammar on the
+                // first write, and every reply died as "malformed vrxhost
+                // answer" with the channel closed after it (bench
+                // 2026-10-22, disp28a: the reply-path bug, in one line)
+                let name = format!("{}.{}", text("from"), text("channel"));
+                let channel = match Channel::from_stream(name, stream) {
                     Ok(c) => c,
                     Err(e) => {
                         return NextDelivery::Malformed(format!(
@@ -585,6 +591,24 @@ pub use vrx_wire::File;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_delivery_built_channel_writes_a_valid_pipe_name() {
+        // the reply-path bug (bench 2026-10-22): the listener built the
+        // channel under its bare name ("photos"), whose first write fails
+        // the pipe grammar; the name is <from>.<channel>, as the opener
+        // spells it
+        let (a, b) = std::os::unix::net::UnixStream::pair().unwrap();
+        let mut theirs =
+            Channel::from_stream("system.photos".into(), a).expect("theirs");
+        let mut mine =
+            Channel::from_stream("camerad.photos".into(), b).expect("mine");
+        theirs
+            .write(serde_json::json!({"op": "list", "id": 1}))
+            .expect("a dotted name writes");
+        let record = mine.next_record().expect("the record arrives");
+        assert_eq!(record["op"], "list");
+    }
 
     #[test]
     fn intent_send_without_vrxhost_is_a_named_error() {
