@@ -599,10 +599,8 @@ mod tests {
         // the pipe grammar; the name is <from>.<channel>, as the opener
         // spells it
         let (a, b) = std::os::unix::net::UnixStream::pair().unwrap();
-        let mut theirs =
-            Channel::from_stream("system.photos".into(), a).expect("theirs");
-        let mut mine =
-            Channel::from_stream("camerad.photos".into(), b).expect("mine");
+        let mut theirs = Channel::from_stream("system.photos".into(), a).expect("theirs");
+        let mut mine = Channel::from_stream("camerad.photos".into(), b).expect("mine");
         theirs
             .write(serde_json::json!({"op": "list", "id": 1}))
             .expect("a dotted name writes");
