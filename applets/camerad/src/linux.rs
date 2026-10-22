@@ -25,6 +25,10 @@ pub fn memfd_jpeg(jpeg: &[u8]) -> std::io::Result<OwnedFd> {
     )?;
     let mut file = std::fs::File::from(fd);
     file.write_all(jpeg)?;
+    // the receiver reads from the offset this fd carries: rewind it, or
+    // every photo arrives as 0 bytes past its own end (bench 2026-10-22)
+    use std::io::Seek;
+    file.rewind()?;
     let fd = OwnedFd::from(file);
     fcntl_add_seals(
         &fd,
