@@ -478,10 +478,16 @@ abstract final class VrxCamera {
 /// (plan 0018 D12). A refused open, or a stream camerad ended, is reported
 /// once through [onFailed] and [onEnded]; the owner decides what to show.
 class VrxCameraView extends StatefulWidget {
-  const VrxCameraView({super.key, this.texture, this.onStarted, this.onFailed, this.onEnded});
+  /// [BoxFit.contain] letterboxes the stream (the historic behavior); 
+  /// [BoxFit.cover] fills the box and clips the overflow, the phone-camera 
+  /// shape a full-bleed viewfinder wants.
+  const VrxCameraView({super.key, this.texture, this.fit = BoxFit.contain, this.onStarted, this.onFailed, this.onEnded});
 
   /// The plugin (default [VrxCamera.texture]).
   final CameraTexture? texture;
+
+  /// How the stream sits in the box the parent gives.
+  final BoxFit fit;
   final void Function(CameraStream stream)? onStarted;
   final void Function(CameraError error)? onFailed;
   final void Function(String reason)? onEnded;
@@ -538,7 +544,7 @@ class _VrxCameraViewState extends State<VrxCameraView> {
   Widget build(BuildContext context) {
     final colors = VrxTheme.of(context);
     final s = _stream;
-    return AspectRatio(
+    final picture = AspectRatio(
       aspectRatio: s == null || s.height == 0 ? 4 / 3 : s.width / s.height,
       child: Semantics(
         label: 'Camera viewfinder',
@@ -546,5 +552,25 @@ class _VrxCameraViewState extends State<VrxCameraView> {
         child: ColoredBox(color: colors.surfaceHigh, child: s == null ? null : Texture(textureId: s.textureId)),
       ),
     );
+    if (widget.fit == BoxFit.contain) {
+      return picture;
+    }
+    // cover: the picture keeps its ratio and fills the box, the overflow
+    // clipped. Computed here because FittedBox hands its child unbounded
+    // constraints and AspectRatio needs a bounded one.
+    final ratio = s == null || s.height == 0 ? 4 / 3 : s.width / s.height;
+    return LayoutBuilder(builder: (context, box) {
+      var w = box.maxWidth;
+      var h = w / ratio;
+      if (h < box.maxHeight) {
+        h = box.maxHeight;
+        w = h * ratio;
+      }
+      return ClipRect(
+        child: Center(
+          child: SizedBox(width: w, height: h, child: picture),
+        ),
+      );
+    });
   }
 }
