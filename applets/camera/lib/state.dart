@@ -28,12 +28,23 @@ sealed class CameraAction {
   static const ask = CameraSignal.ask;
   static const retry = CameraSignal.retry;
   static const back = CameraSignal.back;
+  static const dismiss = CameraSignal.dismiss;
 }
 
 /// [enter]: the applet is in front. [leave]: it is not (home, another
 /// applet, the screen off): the camera is let go. [capture] is Take
-/// photo, [ask] Ask the assistant, [retry] Try again.
-enum CameraSignal implements CameraAction { init, enter, leave, capture, ask, retry, back }
+/// photo, [ask] Ask the assistant, [retry] Try again, [dismiss] the
+/// toast's time is up.
+enum CameraSignal implements CameraAction {
+  init,
+  enter,
+  leave,
+  capture,
+  ask,
+  retry,
+  back,
+  dismiss
+}
 
 /// The viewfinder of session [gen] is up: the texture shows [w] by [h].
 final class CameraStarted implements CameraAction {
@@ -212,7 +223,8 @@ class CameraSnapshot {
   final String? saved;
 
   @override
-  bool operator ==(Object other) => other is CameraSnapshot && other.saved == saved;
+  bool operator ==(Object other) =>
+      other is CameraSnapshot && other.saved == saved;
 
   @override
   int get hashCode => saved.hashCode;
@@ -234,6 +246,9 @@ class CameraModel extends StoreModel<CameraSnapshot, CameraAction, CameraView> {
   bool selecting = false;
   CameraNotice notice = CameraNotice.none;
   String? saved;
+
+  /// The saved toast is showing (the photo stays; its toast does not).
+  bool savedShown = false;
   int w = 0, h = 0;
 
   /// camerad's state, once it has been read.
@@ -257,6 +272,7 @@ class CameraModel extends StoreModel<CameraSnapshot, CameraAction, CameraView> {
     phase = CameraPhase.starting;
     gen++;
     notice = CameraNotice.none;
+    savedShown = false;
     selecting = picked != null && picked != applied;
   }
 
@@ -323,9 +339,23 @@ class CameraModel extends StoreModel<CameraSnapshot, CameraAction, CameraView> {
           asking = true;
           notice = CameraNotice.none;
         }
+      case CameraSignal.dismiss:
+        // a toast over a live viewfinder is news, and news goes stale
+        // (owner, 2026-10-22: "it does not auto dismiss, just stays
+        // there"). The words of a failed session stay: with Try again
+        // they are the screen's content, not a toast, and clearing them
+        // would strand a dead camera behind a blank view.
+        if (phase == CameraPhase.live) {
+          notice = CameraNotice.none;
+          savedShown = false;
+        }
       case CameraStarted(:final gen, :final w, :final h):
         // another session's, late, or not a session that is starting
-        if (gen == this.gen && phase == CameraPhase.starting && !selecting && w > 0 && h > 0) {
+        if (gen == this.gen &&
+            phase == CameraPhase.starting &&
+            !selecting &&
+            w > 0 &&
+            h > 0) {
           phase = CameraPhase.live;
           this.w = w;
           this.h = h;
@@ -342,12 +372,14 @@ class CameraModel extends StoreModel<CameraSnapshot, CameraAction, CameraView> {
           notice = startNotice(code);
         }
       case CameraEnded(:final gen):
-        if (gen == this.gen && phase == CameraPhase.live) _lost(CameraNotice.disconnected);
+        if (gen == this.gen && phase == CameraPhase.live)
+          _lost(CameraNotice.disconnected);
       case CameraSaved(:final gen, :final path, :final code):
         if (saving && gen == this.gen) {
           saving = false;
           if (code == null && path != null) {
             saved = path;
+            savedShown = true;
             notice = CameraNotice.none;
           } else {
             notice = saveNotice(code ?? 'failed');
@@ -371,18 +403,22 @@ class CameraModel extends StoreModel<CameraSnapshot, CameraAction, CameraView> {
           picked = null;
           applied = null;
         }
-        if (!hasCamera && (phase == CameraPhase.live || phase == CameraPhase.starting)) {
+        if (!hasCamera &&
+            (phase == CameraPhase.live || phase == CameraPhase.starting)) {
           // the list emptied under a running session
           _lost(!s.enabled ? CameraNotice.off : CameraNotice.disconnected);
         } else if (hasCamera &&
             inFront &&
             !stopAfter &&
-            (phase == CameraPhase.off || (phase == CameraPhase.failed && notice == CameraNotice.disconnected))) {
+            (phase == CameraPhase.off ||
+                (phase == CameraPhase.failed &&
+                    notice == CameraNotice.disconnected))) {
           // a camera appeared (a webcam plugged in) while the screen waits
           _begin();
         }
       case CameraPick(:final id):
-        if (state.cameras.any((c) => c.id == id) && id != (picked ?? state.cameras.first.id)) {
+        if (state.cameras.any((c) => c.id == id) &&
+            id != (picked ?? state.cameras.first.id)) {
           picked = id;
           if (phase == CameraPhase.live || phase == CameraPhase.starting) {
             _end();
@@ -398,9 +434,12 @@ class CameraModel extends StoreModel<CameraSnapshot, CameraAction, CameraView> {
     final text = noticeText(notice);
     String message;
     VrxSignal? signal;
-    if (!hasCamera && (phase == CameraPhase.off || phase == CameraPhase.failed)) {
+    if (!hasCamera &&
+        (phase == CameraPhase.off || phase == CameraPhase.failed)) {
       // nothing to open: camerad's reason, in words
-      message = listed ? VrxWords.cameraReason(state.enabled ? state.reason : 'disabled') : 'Starting the camera.';
+      message = listed
+          ? VrxWords.cameraReason(state.enabled ? state.reason : 'disabled')
+          : 'Starting the camera.';
       signal = listed ? VrxSignal.info : null;
     } else if (phase == CameraPhase.starting) {
       message = 'Starting the camera.';
@@ -408,8 +447,9 @@ class CameraModel extends StoreModel<CameraSnapshot, CameraAction, CameraView> {
       message = 'Saving the photo.';
     } else if (text != null) {
       message = text;
-      signal = notice == CameraNotice.asked ? VrxSignal.success : VrxSignal.error;
-    } else if (saved != null) {
+      signal =
+          notice == CameraNotice.asked ? VrxSignal.success : VrxSignal.error;
+    } else if (saved != null && savedShown) {
       message = savedText(saved!);
       signal = VrxSignal.success;
     } else if (live) {
@@ -431,7 +471,8 @@ class CameraModel extends StoreModel<CameraSnapshot, CameraAction, CameraView> {
       message: message,
       signal: signal,
       cameras: state.cameras,
-      selected: picked ?? (state.cameras.isEmpty ? null : state.cameras.first.id),
+      selected:
+          picked ?? (state.cameras.isEmpty ? null : state.cameras.first.id),
       empty: !hasCamera && !live && phase != CameraPhase.starting,
       saved: saved,
       w: w,
@@ -451,6 +492,22 @@ class CameraModel extends StoreModel<CameraSnapshot, CameraAction, CameraView> {
   CameraAction get backAction => CameraAction.back;
 
   @override
-  Object? get fingerprint =>
-      [phase, gen, inFront, saving, stopAfter, asking, selecting, notice, saved, w, h, state, listed, picked, applied];
+  Object? get fingerprint => [
+        phase,
+        gen,
+        inFront,
+        saving,
+        stopAfter,
+        asking,
+        selecting,
+        notice,
+        saved,
+        savedShown,
+        w,
+        h,
+        state,
+        listed,
+        picked,
+        applied
+      ];
 }

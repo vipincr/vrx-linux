@@ -283,16 +283,9 @@ class _BottomBar extends StatelessWidget {
           // the pill is bounded here: a min-size row with a flexible
           // child hands the text unbounded width, and it stops wrapping
           final pillWidth = box.maxWidth - s.inset;
-          // the pill never eats the viewfinder: a long notice scrolls in
-          // a bounded share of the screen instead of growing past its top
-          // (a bottom-anchored child has NO height bound of its own — the
-          // checker caught the pill rendering from y = -54)
-          // a quarter of the screen: on the smallest panel the pill, the top bar
-          // and the shutter row must all keep their gutters
-          final pillHeight = MediaQuery.sizeOf(context).height * 0.25;
           return Column(mainAxisSize: MainAxisSize.min, children: [
             if (view.message.isNotEmpty)
-              _Message(view: view, maxWidth: pillWidth, maxHeight: pillHeight),
+              _Message(view: view, maxWidth: pillWidth),
             Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
               _LastPhoto(view: view),
               _Shutter(
@@ -319,74 +312,119 @@ class _BottomBar extends StatelessWidget {
 /// What happened, a pill over the image: the words wrap between words,
 /// they are never cut or split; the signal and Try again, when there is
 /// one, sit in a fixed-size row above them.
-class _Message extends StatelessWidget {
-  const _Message(
-      {required this.view, required this.maxWidth, required this.maxHeight});
+///
+/// The pill sizes to what it says — no scroll, no height cap. A toast
+/// that scrolls is a toast nobody can read (the owner's panel photo,
+/// 2026-10-22: the last line cut at the capsule's own edge, and the
+/// checker blind to it, because a scrollable clips legally); the pill
+/// must fit above the shutter row, and the layout matrix proves every
+/// sentence does, on every display.
+///
+/// A toast over a live viewfinder is news, and news goes stale: it
+/// leaves on its own after [_MessageState.noticeLife] (the owner:
+/// "it does not auto dismiss, just stays there"). The words of a failed
+/// session stay — with Try again they are the screen's content — and
+/// the model refuses the dismiss for them anyway.
+class _Message extends StatefulWidget {
+  const _Message({required this.view, required this.maxWidth});
 
   final CameraView view;
   final double maxWidth;
-  final double maxHeight;
+
+  @override
+  State<_Message> createState() => _MessageState();
+}
+
+class _MessageState extends State<_Message> {
+  /// How long a toast over the live viewfinder stays: long enough to
+  /// read two sentences, short enough that it never becomes furniture.
+  static const noticeLife = Duration(seconds: 4);
+
+  Timer? _life;
+
+  @override
+  void initState() {
+    super.initState();
+    _arm();
+  }
+
+  @override
+  void didUpdateWidget(_Message old) {
+    super.didUpdateWidget(old);
+    // new news: its time starts now; the same words rebuild without
+    // restarting the clock
+    if (old.view.message != widget.view.message) _arm();
+  }
+
+  void _arm() {
+    _life?.cancel();
+    _life = widget.view.live
+        ? Timer(noticeLife, () => _events.add(CameraAction.dismiss))
+        : null;
+  }
+
+  @override
+  void dispose() {
+    _life?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final colors = VrxTheme.of(context);
     final s = ScaledSpacing.of(context);
+    final view = widget.view;
     return Align(
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: maxWidth, maxHeight: maxHeight),
-        child: SingleChildScrollView(
-          child: Container(
-            margin: EdgeInsets.only(bottom: s.sm),
-            padding: EdgeInsets.symmetric(horizontal: s.md, vertical: s.xs),
-            decoration: BoxDecoration(
-              color: colors.page.withValues(alpha: 0.8),
-              borderRadius: BorderRadius.circular(999),
-              border:
-                  Border.all(color: colors.outline, width: Strokes.hairline),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                if (view.signal != null || view.retry)
-                  Row(mainAxisSize: MainAxisSize.min, children: [
-                    if (view.signal != null)
-                      Padding(
-                        padding: EdgeInsets.only(right: s.xs),
-                        // never taller than the body line it rides beside,
-                        // on any display's scale
-                        child: Icon(
-                          view.signal!.glyph,
-                          size:
-                              TypeRole.of(context, VrxTypeRole.body).fontSize!,
-                          color: colors.textSecondary,
-                        ),
+        constraints: BoxConstraints(maxWidth: widget.maxWidth),
+        child: Container(
+          margin: EdgeInsets.only(bottom: s.sm),
+          padding: EdgeInsets.symmetric(horizontal: s.md, vertical: s.xs),
+          decoration: BoxDecoration(
+            color: colors.page.withValues(alpha: 0.8),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: colors.outline, width: Strokes.hairline),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              if (view.signal != null || view.retry)
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (view.signal != null)
+                    Padding(
+                      padding: EdgeInsets.only(right: s.xs),
+                      // never taller than the body line it rides beside,
+                      // on any display's scale
+                      child: Icon(
+                        view.signal!.glyph,
+                        size: TypeRole.of(context, VrxTypeRole.body).fontSize!,
+                        color: colors.textSecondary,
                       ),
-                    if (view.retry)
-                      VrxPress(
-                        label: 'Try again',
-                        onTap: () => _events.add(CameraAction.retry),
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                              minHeight: ScaledSpacing.minInteractive(context)),
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(horizontal: s.sm),
-                            child: Center(
-                              child: Text('Try again',
-                                  style:
-                                      TypeRole.of(context, VrxTypeRole.body)),
-                            ),
+                    ),
+                  if (view.retry)
+                    VrxPress(
+                      label: 'Try again',
+                      onTap: () => _events.add(CameraAction.retry),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                            minHeight: ScaledSpacing.minInteractive(context)),
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(horizontal: s.sm),
+                          child: Center(
+                            child: Text('Try again',
+                                style: TypeRole.of(context, VrxTypeRole.body)),
                           ),
                         ),
                       ),
-                  ]),
-                Text(
-                  view.message,
-                  textAlign: TextAlign.center,
-                  style: TypeRole.of(context, VrxTypeRole.body),
-                ),
-              ],
-            ),
+                    ),
+                ]),
+              Text(
+                view.message,
+                textAlign: TextAlign.center,
+                style: TypeRole.of(context, VrxTypeRole.body),
+              ),
+            ],
           ),
         ),
       ),

@@ -3,16 +3,32 @@ import 'package:vrx_kit/vrx_kit.dart';
 
 import 'package:camera_applet/state.dart';
 
-CameraState _state({List<CameraInfo>? cameras, bool enabled = true, String reason = 'ok'}) =>
-    CameraState(known: true, enabled: enabled, cameras: cameras ?? const [_usb], reason: reason);
+CameraState _state(
+        {List<CameraInfo>? cameras,
+        bool enabled = true,
+        String reason = 'ok'}) =>
+    CameraState(
+        known: true,
+        enabled: enabled,
+        cameras: cameras ?? const [_usb],
+        reason: reason);
 
-const _csi = CameraInfo(id: 'csi0', kind: 'csi', name: 'imx219', location: 'back', width: 3280, height: 2464);
-const _usb = CameraInfo(id: 'usb1', kind: 'usb', name: 'Webcam', width: 1280, height: 720);
+const _csi = CameraInfo(
+    id: 'csi0',
+    kind: 'csi',
+    name: 'imx219',
+    location: 'back',
+    width: 3280,
+    height: 2464);
+const _usb = CameraInfo(
+    id: 'usb1', kind: 'usb', name: 'Webcam', width: 1280, height: 720);
 
 /// A live session in front, one camera listed: the starting point of most rows.
-StoreHarness<CameraSnapshot, CameraAction, CameraView> _live({List<CameraInfo> cameras = const [_usb]}) {
+StoreHarness<CameraSnapshot, CameraAction, CameraView> _live(
+    {List<CameraInfo> cameras = const [_usb]}) {
   final h = StoreHarness(CameraModel())
-    ..dispatch(CameraListed(CameraState(known: true, cameras: cameras, reason: 'ok')))
+    ..dispatch(
+        CameraListed(CameraState(known: true, cameras: cameras, reason: 'ok')))
     ..dispatch(CameraAction.enter);
   h.dispatch(CameraStarted(h.view.gen, 640, 480));
   return h;
@@ -30,28 +46,40 @@ void main() {
       () {
     final h = StoreHarness(CameraModel());
     h.dispatch(CameraAction.enter);
-    h.assertView((v) => v.phase == CameraPhase.off && !v.mount && v.message == 'Starting the camera.',
-        because: 'the list has not been read: nothing to open yet, and no empty state flashed');
+    h.assertView(
+        (v) =>
+            v.phase == CameraPhase.off &&
+            !v.mount &&
+            v.message == 'Starting the camera.',
+        because:
+            'the list has not been read: nothing to open yet, and no empty state flashed');
     h.dispatch(CameraListed(_state(cameras: const [_usb])));
     h.assertView((v) => v.phase == CameraPhase.starting && v.mount,
         because: 'a camera is listed and the applet is in front');
     final gen = h.view.gen;
     h.dispatch(CameraStarted(gen + 1, 640, 480));
-    h.assertView((v) => v.phase == CameraPhase.starting, because: 'another session\'s fact is refused');
+    h.assertView((v) => v.phase == CameraPhase.starting,
+        because: 'another session\'s fact is refused');
     h.dispatch(CameraStarted(gen, 0, 480));
-    h.assertView((v) => v.phase == CameraPhase.starting, because: 'a picture of no width is refused');
+    h.assertView((v) => v.phase == CameraPhase.starting,
+        because: 'a picture of no width is refused');
     h.dispatch(CameraStarted(gen, 640, 480));
-    h.assertView((v) => v.live && v.canCapture && v.message == '' && (v.w, v.h) == (640, 480));
+    h.assertView((v) =>
+        v.live && v.canCapture && v.message == '' && (v.w, v.h) == (640, 480));
     h.dispatch(CameraAction.leave);
     h.assertView((v) => v.phase == CameraPhase.off && !v.mount && !v.canCapture,
         because: 'the viewfinder is unmounted: the channel closes');
     h.dispatch(CameraStarted(gen, 640, 480));
-    h.assertView((v) => v.phase == CameraPhase.off, because: 'a late Started from the ended session changes nothing');
+    h.assertView((v) => v.phase == CameraPhase.off,
+        because: 'a late Started from the ended session changes nothing');
     h.dispatch(CameraAction.enter);
-    h.assertView((v) => v.phase == CameraPhase.starting && v.gen > gen, because: 'coming back is a new session');
+    h.assertView((v) => v.phase == CameraPhase.starting && v.gen > gen,
+        because: 'coming back is a new session');
   });
 
-  test('a refused start is said in evrx\'s words, and Try again begins a new session', () {
+  test(
+      'a refused start is said in evrx\'s words, and Try again begins a new session',
+      () {
     final h = StoreHarness(CameraModel())
       ..dispatch(CameraListed(_state()))
       ..dispatch(CameraAction.enter);
@@ -64,22 +92,33 @@ void main() {
     for (final c in cases.entries) {
       h.dispatch(CameraStartFailed(h.view.gen, c.key));
       h.assertView(
-          (v) => v.phase == CameraPhase.failed && v.retry && v.message == c.value && v.signal == VrxSignal.error,
+          (v) =>
+              v.phase == CameraPhase.failed &&
+              v.retry &&
+              v.message == c.value &&
+              v.signal == VrxSignal.error,
           because: c.key);
       h.dispatch(CameraAction.retry);
-      h.assertView((v) => v.phase == CameraPhase.starting && v.message == 'Starting the camera.');
+      h.assertView((v) =>
+          v.phase == CameraPhase.starting &&
+          v.message == 'Starting the camera.');
     }
     h.dispatch(CameraAction.retry);
-    h.assertView((v) => v.phase == CameraPhase.starting, because: 'Try again from anywhere but failed is refused');
+    h.assertView((v) => v.phase == CameraPhase.starting,
+        because: 'Try again from anywhere but failed is refused');
     h.dispatch(CameraAction.leave);
     h.dispatch(CameraStartFailed(h.view.gen, 'busy'));
-    h.assertView((v) => v.phase == CameraPhase.off, because: 'a failure of an ended session is late');
+    h.assertView((v) => v.phase == CameraPhase.off,
+        because: 'a failure of an ended session is late');
   });
 
-  test('a photo: Take photo needs a live picture, one at a time; success names the file, failures say why', () {
+  test(
+      'a photo: Take photo needs a live picture, one at a time; success names the file, failures say why',
+      () {
     final h = StoreHarness(CameraModel());
     h.dispatch(CameraAction.capture);
-    h.assertView((v) => !v.saving, because: 'nothing to capture before the camera runs');
+    h.assertView((v) => !v.saving,
+        because: 'nothing to capture before the camera runs');
     h
       ..dispatch(CameraListed(_state()))
       ..dispatch(CameraAction.enter);
@@ -88,11 +127,17 @@ void main() {
     h.dispatch(CameraStarted(h.view.gen, 640, 480));
     final gen = h.view.gen;
     h.dispatch(CameraAction.capture);
-    h.assertView((v) => v.saving && !v.canCapture && !v.canAsk && v.message == 'Saving the photo.');
+    h.assertView((v) =>
+        v.saving &&
+        !v.canCapture &&
+        !v.canAsk &&
+        v.message == 'Saving the photo.');
     h.dispatch(CameraAction.capture);
-    h.assertView((v) => v.saving, because: 'a second photo while one is saved is refused');
+    h.assertView((v) => v.saving,
+        because: 'a second photo while one is saved is refused');
     h.dispatch(CameraSaved(gen + 7, path: 'IMG_0001.JPG'));
-    h.assertView((v) => v.saving, because: 'another session\'s save is refused');
+    h.assertView((v) => v.saving,
+        because: 'another session\'s save is refused');
     h.dispatch(CameraSaved(gen, path: 'IMG_0042.JPG'));
     h.assertView((v) =>
         !v.saving &&
@@ -110,46 +155,113 @@ void main() {
     for (final f in failures.entries) {
       h.dispatch(CameraAction.capture);
       h.dispatch(CameraSaved(gen, code: f.key));
-      h.assertView((v) => v.message == f.value && v.signal == VrxSignal.error && v.saved == 'IMG_0042.JPG',
+      h.assertView(
+          (v) =>
+              v.message == f.value &&
+              v.signal == VrxSignal.error &&
+              v.saved == 'IMG_0042.JPG',
           because: f.key);
     }
   });
 
-  test('leaving while a photo is saved waits for it; coming back before it lands keeps going', () {
+  test(
+      'a toast over the live viewfinder leaves on its own; a failed session\'s words stay',
+      () {
+    final h = _live();
+    final gen = h.view.gen;
+    // the owner's panel photo (2026-10-22): a save that failed over a
+    // live picture, the toast staying past its news
+    h
+      ..dispatch(CameraAction.capture)
+      ..dispatch(CameraSaved(gen, code: 'failed'));
+    h.assertView((v) =>
+        v.live &&
+        v.message == 'The photo was not saved. Check that the card is in.');
+    h.dispatch(CameraAction.dismiss);
+    h.assertView((v) => v.live && v.message == '' && v.canCapture,
+        because: 'the toast is gone; the camera never was');
+    // the saved toast leaves too, and the photo it announced stays
+    h
+      ..dispatch(CameraAction.capture)
+      ..dispatch(CameraSaved(gen, path: 'IMG_0042.JPG'));
+    h.assertView((v) => v.message == 'Saved as IMG_0042.JPG.');
+    h.dispatch(CameraAction.dismiss);
+    h.assertView(
+        (v) => v.message == '' && v.saved == 'IMG_0042.JPG' && v.canAsk,
+        because: 'the toast goes, the photo and Ask stay');
+    // a new session does not replay the old toast
+    h
+      ..dispatch(CameraAction.leave)
+      ..dispatch(CameraAction.enter);
+    h.dispatch(CameraStarted(h.view.gen, 640, 480));
+    h.assertView((v) => v.live && v.message == '',
+        because: 'a session begins without last session\'s news');
+    // the words of a failed session stay: they carry Try again
+    h
+      ..dispatch(CameraAction.capture)
+      ..dispatch(CameraSaved(h.view.gen, path: 'IMG_0043.JPG'));
+    h.dispatch(CameraEnded(h.view.gen));
+    h.assertView((v) =>
+        v.phase == CameraPhase.failed &&
+        v.message == 'The camera was disconnected.' &&
+        v.retry);
+    h.dispatch(CameraAction.dismiss);
+    h.assertView((v) => v.message == 'The camera was disconnected.',
+        because:
+            'a dead camera\'s words are the screen\'s content, not a toast');
+  });
+
+  test(
+      'leaving while a photo is saved waits for it; coming back before it lands keeps going',
+      () {
     final h = _live();
     final gen = h.view.gen;
     h.dispatch(CameraAction.capture);
     h.dispatch(CameraAction.leave);
-    h.assertView((v) => v.phase == CameraPhase.live && v.saving && v.mount && !v.canCapture,
+    h.assertView(
+        (v) =>
+            v.phase == CameraPhase.live && v.saving && v.mount && !v.canCapture,
         because: 'the stop waits for the photo');
     h.dispatch(CameraAction.enter);
-    h.assertView((v) => v.canCapture == false && v.mount, because: 'back before the photo finished: keep going');
+    h.assertView((v) => v.canCapture == false && v.mount,
+        because: 'back before the photo finished: keep going');
     h.dispatch(CameraSaved(gen, path: 'IMG_0001.JPG'));
-    h.assertView((v) => v.live && v.canCapture && v.mount, because: 'nothing was waiting to stop');
+    h.assertView((v) => v.live && v.canCapture && v.mount,
+        because: 'nothing was waiting to stop');
     h.dispatch(CameraAction.capture);
     h.dispatch(CameraAction.leave);
     h.dispatch(CameraSaved(gen, path: 'IMG_0002.JPG'));
-    h.assertView((v) => v.phase == CameraPhase.off && !v.mount && v.saved == 'IMG_0002.JPG',
+    h.assertView(
+        (v) =>
+            v.phase == CameraPhase.off && !v.mount && v.saved == 'IMG_0002.JPG',
         because: 'the photo landed, then the camera was let go');
   });
 
-  test('Ask the assistant needs a photo; handled, nobody and failed are each said; the send belongs to no session', () {
+  test(
+      'Ask the assistant needs a photo; handled, nobody and failed are each said; the send belongs to no session',
+      () {
     final h = _live();
     h.dispatch(CameraAction.ask);
     h.assertView((v) => !v.canAsk, because: 'no photo yet');
     h.dispatch(CameraAction.capture);
     h.dispatch(CameraSaved(h.view.gen, path: 'IMG_0001.JPG'));
     h.dispatch(const CameraAsked('handled'));
-    h.assertView((v) => v.message != 'Sent to the assistant.', because: 'a verdict nobody asked for is refused');
+    h.assertView((v) => v.message != 'Sent to the assistant.',
+        because: 'a verdict nobody asked for is refused');
     for (final c in {
       'handled': ('Sent to the assistant.', VrxSignal.success),
-      'pass': ('No app on this device can look at photos yet.', VrxSignal.error),
+      'pass': (
+        'No app on this device can look at photos yet.',
+        VrxSignal.error
+      ),
       'failed': ('The photo could not be sent. Try again.', VrxSignal.error),
     }.entries) {
       h.dispatch(CameraAction.ask);
       h.assertView((v) => !v.canAsk, because: 'one send at a time');
       h.dispatch(CameraAsked(c.key));
-      h.assertView((v) => v.message == c.value.$1 && v.signal == c.value.$2 && v.canAsk, because: c.key);
+      h.assertView(
+          (v) => v.message == c.value.$1 && v.signal == c.value.$2 && v.canAsk,
+          because: c.key);
     }
     // a send that lands after the applet left still lands: it is no session's
     h.dispatch(CameraAction.ask);
@@ -166,29 +278,45 @@ void main() {
     h.dispatch(CameraEnded(gen + 3));
     h.assertView((v) => v.live, because: 'another session\'s end is refused');
     h.dispatch(CameraEnded(gen));
-    h.assertView(
-        (v) => v.phase == CameraPhase.failed && !v.mount && v.message == 'The camera was disconnected.' && v.retry);
+    h.assertView((v) =>
+        v.phase == CameraPhase.failed &&
+        !v.mount &&
+        v.message == 'The camera was disconnected.' &&
+        v.retry);
     h.dispatch(CameraListed(_state(cameras: const [], reason: 'none-found')));
-    h.assertView((v) => v.empty && v.message == 'No camera is connected.' && !v.retry && v.cameras.isEmpty,
+    h.assertView(
+        (v) =>
+            v.empty &&
+            v.message == 'No camera is connected.' &&
+            !v.retry &&
+            v.cameras.isEmpty,
         because: 'camerad lists nothing: the empty state, no Try again');
     h.dispatch(CameraListed(_state(cameras: const [_usb])));
     h.assertView((v) => v.phase == CameraPhase.starting && v.mount,
         because: 'a camera back while in front: a new session');
   });
 
-  test('the list emptying under a running session ends it; Settings Off says so', () {
+  test(
+      'the list emptying under a running session ends it; Settings Off says so',
+      () {
     final h = _live();
-    h.dispatch(CameraListed(_state(cameras: const [_usb], enabled: false, reason: 'disabled')));
-    h.assertView(
-        (v) => v.phase == CameraPhase.failed && v.empty && v.message == 'The camera is switched off in Settings.');
+    h.dispatch(CameraListed(
+        _state(cameras: const [_usb], enabled: false, reason: 'disabled')));
+    h.assertView((v) =>
+        v.phase == CameraPhase.failed &&
+        v.empty &&
+        v.message == 'The camera is switched off in Settings.');
     h.dispatch(CameraAction.leave);
     h.dispatch(CameraAction.enter);
-    h.assertView((v) => v.phase == CameraPhase.off && v.empty, because: 'off: nothing starts');
+    h.assertView((v) => v.phase == CameraPhase.off && v.empty,
+        because: 'off: nothing starts');
     h.dispatch(CameraListed(_state(cameras: const [_usb])));
-    h.assertView((v) => v.phase == CameraPhase.starting, because: 'switched back On while in front');
+    h.assertView((v) => v.phase == CameraPhase.starting,
+        because: 'switched back On while in front');
   });
 
-  test('no camera listed: the empty state names camerad\'s reason in words', () {
+  test('no camera listed: the empty state names camerad\'s reason in words',
+      () {
     final h = StoreHarness(CameraModel())..dispatch(CameraAction.enter);
     for (final r in {
       'none-found': 'No camera is connected.',
@@ -196,28 +324,45 @@ void main() {
           'A camera was expected on the camera port and none answered. A camera connects when the device starts.',
       'disabled': 'The camera is switched off in Settings.',
     }.entries) {
-      h.dispatch(CameraListed(_state(cameras: const [], reason: r.key, enabled: r.key != 'disabled')));
-      h.assertView((v) => v.empty && !v.mount && v.message == r.value && v.phase == CameraPhase.off, because: r.key);
+      h.dispatch(CameraListed(_state(
+          cameras: const [], reason: r.key, enabled: r.key != 'disabled')));
+      h.assertView(
+          (v) =>
+              v.empty &&
+              !v.mount &&
+              v.message == r.value &&
+              v.phase == CameraPhase.off,
+          because: r.key);
     }
     h.dispatch(const CameraListed(CameraState.absent));
-    h.assertView((v) => v.empty && v.message == 'No camera is connected.', because: 'camerad not running: no camera');
+    h.assertView((v) => v.empty && v.message == 'No camera is connected.',
+        because: 'camerad not running: no camera');
   });
 
-  test('two cameras: the switch row, picking one restarts the session and waits for camerad to confirm it', () {
+  test(
+      'two cameras: the switch row, picking one restarts the session and waits for camerad to confirm it',
+      () {
     final h = _live(cameras: const [_csi, _usb]);
     h.assertView((v) => v.cameras.length == 2 && v.selected == 'csi0');
     final gen = h.view.gen;
     h.dispatch(const CameraPick('usb1'));
-    h.assertView((v) => v.phase == CameraPhase.starting && v.gen > gen && v.selected == 'usb1' && !v.mount,
+    h.assertView(
+        (v) =>
+            v.phase == CameraPhase.starting &&
+            v.gen > gen &&
+            v.selected == 'usb1' &&
+            !v.mount,
         because: 'camerad is told first: the viewfinder is not opened yet');
     h.dispatch(CameraStarted(h.view.gen, 640, 480));
-    h.assertView((v) => v.phase == CameraPhase.starting, because: 'not before the select is confirmed');
+    h.assertView((v) => v.phase == CameraPhase.starting,
+        because: 'not before the select is confirmed');
     h.dispatch(CameraSelected(h.view.gen));
     h.assertView((v) => v.mount && v.phase == CameraPhase.starting);
     h.dispatch(CameraStarted(h.view.gen, 640, 480));
     h.assertView((v) => v.live);
     h.dispatch(const CameraPick('nope'));
-    h.assertView((v) => v.selected == 'usb1', because: 'a camera camerad does not list is refused');
+    h.assertView((v) => v.selected == 'usb1',
+        because: 'a camera camerad does not list is refused');
     h.dispatch(CameraListed(_state(cameras: const [_csi])));
     h.assertView((v) => v.selected == 'csi0' && v.cameras.length == 1,
         because: 'the picked camera went: back to the one left');
@@ -240,6 +385,7 @@ void main() {
         CameraAction.ask,
         CameraAction.retry,
         CameraAction.back,
+        CameraAction.dismiss,
         const CameraStarted(1, 640, 480),
         const CameraStartFailed(1, 'busy'),
         const CameraEnded(1),
