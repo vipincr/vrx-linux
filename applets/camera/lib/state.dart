@@ -372,8 +372,9 @@ class CameraModel extends StoreModel<CameraSnapshot, CameraAction, CameraView> {
           notice = startNotice(code);
         }
       case CameraEnded(:final gen):
-        if (gen == this.gen && phase == CameraPhase.live)
+        if (gen == this.gen && phase == CameraPhase.live) {
           _lost(CameraNotice.disconnected);
+        }
       case CameraSaved(:final gen, :final path, :final code):
         if (saving && gen == this.gen) {
           saving = false;
@@ -384,7 +385,9 @@ class CameraModel extends StoreModel<CameraSnapshot, CameraAction, CameraView> {
           } else {
             notice = saveNotice(code ?? 'failed');
           }
-          if (stopAfter) _end();
+          if (stopAfter) {
+            _end();
+          }
         }
       case CameraAsked(:final verdict):
         // the send belongs to no session

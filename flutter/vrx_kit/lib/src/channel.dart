@@ -200,8 +200,9 @@ class VrxBufferQueue {
     sub = socket.listen((event) {
       if (event == RawSocketEvent.readClosed ||
           event == RawSocketEvent.closed) {
-        if (!offer.isCompleted)
+        if (!offer.isCompleted) {
           offer.completeError(StateError('$name: closed before its offer'));
+        }
         unawaited(frames.close());
         unawaited(sub.cancel());
         return;
@@ -252,9 +253,10 @@ class VrxBufferQueue {
       }
     });
     final (count, size, got) = await offer.future;
-    if (got.length != count)
+    if (got.length != count) {
       throw StateError(
           '$name: the offer names $count buffers, ${got.length} came with it');
+    }
     return VrxBufferQueue._(name, socket, got, size, frames.stream);
   }
 
@@ -333,8 +335,10 @@ abstract final class VrxBridge {
     final frames = VarlinkFrames();
     final handles = <ResourceHandle>[];
     await for (final event in socket) {
-      if (event == RawSocketEvent.closed || event == RawSocketEvent.readClosed)
+      if (event == RawSocketEvent.closed ||
+          event == RawSocketEvent.readClosed) {
         return;
+      }
       if (event != RawSocketEvent.read) continue;
       final message = socket.readMessage();
       if (message == null) continue;
@@ -368,8 +372,9 @@ abstract final class VrxBridge {
         await _connect('io.vrx.Host.Open', {'to': to, 'channel': channel});
     try {
       final (_, handles) = await _replies(socket).first;
-      if (handles.isEmpty)
+      if (handles.isEmpty) {
         throw const VarlinkError('io.vrx.Host.Unavailable', {});
+      }
       return VrxChannel('$to.$channel', handles.first.toRawSocket());
     } finally {
       await socket.close();

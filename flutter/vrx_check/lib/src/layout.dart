@@ -596,8 +596,9 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
         of: find.byWidget(e.widget), matching: find.byType(Scrollable));
     if (scrollable.evaluate().isEmpty) continue;
     final position = tester.state<ScrollableState>(scrollable.first).position;
-    if (!position.hasContentDimensions || position.maxScrollExtent <= 0.5)
+    if (!position.hasContentDimensions || position.maxScrollExtent <= 0.5) {
       continue;
+    }
     final s = ScaledSpacing.of(e);
     final client =
         screen.height - VrxShell.top.value / tester.view.devicePixelRatio;
@@ -658,8 +659,9 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
     final rect = viewport == null ? whole : whole.intersect(viewport);
     if (rect.width <= 0 || rect.height <= 0) continue;
     texts.add((box, rect, text, scrolls));
-    if (box.didExceedMaxLines && !_under<VrxTruncates>(e))
+    if (box.didExceedMaxLines && !_under<VrxTruncates>(e)) {
       issues.add(LayoutIssue('cut', '"$text"', rect));
+    }
     // a line that ends inside a word: the paragraph's own text laid out
     // again at the width it had, its line ends read back
     final painter = TextPainter(
@@ -695,8 +697,9 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
       pos = end;
     }
     painter.dispose();
-    if (!scrolls && !_within(screen, rect))
+    if (!scrolls && !_within(screen, rect)) {
       issues.add(LayoutIssue('off screen', '"$text"', rect));
+    }
   }
   for (var i = 0; i < texts.length; i++) {
     for (var j = i + 1; j < texts.length; j++) {
@@ -718,8 +721,12 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
     // a text field is one control, whatever detectors it builds inside
     if (_insideTextField(e) || _insideScrim(e)) continue;
     final box = e.renderObject;
-    if (box is! RenderBox || !box.attached || !box.hasSize || box.size.isEmpty)
+    if (box is! RenderBox ||
+        !box.attached ||
+        !box.hasSize ||
+        box.size.isEmpty) {
       continue;
+    }
     final whole = _rectOf(box);
     final viewport = _viewportOf(e);
     final rect = viewport == null ? whole : whole.intersect(viewport);
@@ -756,16 +763,21 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
             'small', '${t.what} is ${_mm(rect.width)}mm wide', rect));
       }
     }
-    if (viewport == null && !_within(screen, rect))
+    if (viewport == null && !_within(screen, rect)) {
       issues.add(LayoutIssue('off screen', t.what, rect));
+    }
   }
   for (var i = 0; i < targets.length; i++) {
     for (var j = i + 1; j < targets.length; j++) {
       final a = targets[i], b = targets[j];
       // a control inside another (a row's switch glyph) is its own part
       if (_isAncestor(a.element, b.element) ||
-          _isAncestor(b.element, a.element)) continue;
-      if (a.wheel != null && identical(a.wheel, b.wheel)) continue;
+          _isAncestor(b.element, a.element)) {
+        continue;
+      }
+      if (a.wheel != null && identical(a.wheel, b.wheel)) {
+        continue;
+      }
       final o = a.rect.intersect(b.rect);
       if (o.width > _eps && o.height > _eps) {
         issues.add(
