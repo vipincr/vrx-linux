@@ -230,10 +230,11 @@ class _Scrims extends StatelessWidget {
   }
 }
 
-/// Back at the left edge of the image, the switch when there is more than
-/// one camera — nothing else. A name title wraps tall on a small panel and
-/// eats the viewfinder (the layout check's verdict on the first cut), and
-/// a phone camera shows none.
+/// The camera switch when there is more than one camera — nothing else.
+/// The shell's strip already owns Back (the owner, first panel run: "the
+/// back button on the viewfinder is huge and useless since the titlebar
+/// also has one"); a name title wraps tall on a small panel; a phone
+/// camera shows neither.
 class _TopBar extends StatelessWidget {
   const _TopBar({required this.view});
 
@@ -251,13 +252,7 @@ class _TopBar extends StatelessWidget {
       bottom: false,
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: s.xs, vertical: s.xs),
-        child: Row(children: [
-          const _RoundGlyph(
-            glyph: VrxSymbols.arrow_back,
-            label: 'Back',
-            onTap: Nav.pop,
-          ),
-          const Spacer(),
+        child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
           if (view.cameras.length > 1)
             _RoundGlyph(
               glyph: VrxSymbols.restart_alt,
