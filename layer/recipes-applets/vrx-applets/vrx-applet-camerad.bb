@@ -40,9 +40,12 @@ do_install() {
     install -D -m 0644 ${UNPACKDIR}/camerad-tmpfiles.conf ${D}${nonarch_libdir}/tmpfiles.d/camerad.conf
     # the runtime directory, as a second drop-in beside the manifest's
     install -D -m 0644 ${UNPACKDIR}/camerad-runtime.conf ${D}${systemd_system_unitdir}/vrx-applet@camerad.service.d/20-runtime.conf
+    # libcamera's IPA proxy forks via raw clone3, which any RestrictNamespaces
+    # value denies with ENOSYS (the file's header carries the bench evidence)
+    install -D -m 0644 ${UNPACKDIR}/camerad-libcamera.conf ${D}${systemd_system_unitdir}/vrx-applet@camerad.service.d/30-libcamera.conf
 }
 
-SRC_URI += "file://camerad-tmpfiles.conf file://camerad-runtime.conf"
+SRC_URI += "file://camerad-tmpfiles.conf file://camerad-runtime.conf file://camerad-libcamera.conf"
 
 VRX_APPLET_DIR = "/system/defaults/camerad"
 inherit vrx-applet-unit
