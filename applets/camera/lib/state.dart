@@ -413,7 +413,9 @@ class CameraModel extends StoreModel<CameraSnapshot, CameraAction, CameraView> {
       message = savedText(saved!);
       signal = VrxSignal.success;
     } else if (live) {
-      message = 'Ready.';
+      // the viewfinder itself says ready; a toast that never ends is
+      // noise (owner, 2026-10-22: "a ready toast that doesn't go away")
+      message = '';
     } else {
       message = '';
     }

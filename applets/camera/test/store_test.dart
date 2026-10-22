@@ -41,7 +41,7 @@ void main() {
     h.dispatch(CameraStarted(gen, 0, 480));
     h.assertView((v) => v.phase == CameraPhase.starting, because: 'a picture of no width is refused');
     h.dispatch(CameraStarted(gen, 640, 480));
-    h.assertView((v) => v.live && v.canCapture && v.message == 'Ready.' && (v.w, v.h) == (640, 480));
+    h.assertView((v) => v.live && v.canCapture && v.message == '' && (v.w, v.h) == (640, 480));
     h.dispatch(CameraAction.leave);
     h.assertView((v) => v.phase == CameraPhase.off && !v.mount && !v.canCapture,
         because: 'the viewfinder is unmounted: the channel closes');

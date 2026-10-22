@@ -51,7 +51,8 @@ const double _touch = Spacing.touch; // 9mm
 const double _eps = 0.5;
 
 class _Target {
-  _Target(this.element, this.rect, this.what, {required this.narrowOk, required this.shortOk, this.wheel});
+  _Target(this.element, this.rect, this.what,
+      {required this.narrowOk, required this.shortOk, this.wheel});
 
   final Element element;
   final Rect rect;
@@ -66,10 +67,12 @@ Future<void> mountApplet<S, A, V>(WidgetTester tester, Applet<S, A, V> applet,
     {Stream<A>? actions, bool touch = true}) async {
   VrxShell.reset();
   addTearDown(VrxShell.reset);
-  await tester.pumpWidget(AppletHost<S, A, V>(applet: applet, actions: actions, input: VrxInputFacts(touch: touch)));
+  await tester.pumpWidget(AppletHost<S, A, V>(
+      applet: applet, actions: actions, input: VrxInputFacts(touch: touch)));
   if (find.byType(VrxShellRegion).evaluate().isNotEmpty) return;
   final inside = find.byType(VrxInputRoot).evaluate().first;
-  VrxShell.top.value = VrxStatusStrip.heightOf(inside) * tester.view.devicePixelRatio;
+  VrxShell.top.value =
+      VrxStatusStrip.heightOf(inside) * tester.view.devicePixelRatio;
   await tester.pump();
 }
 
@@ -129,23 +132,30 @@ Future<List<LayoutIssue>> checkApplet<S, A, V>(
     // and that is not the class's doing
     final input = VrxInputFacts(touch: display.touch);
     final classes = VrxColors.everyClass();
-    await tester.pumpWidget(AppletHost<S, A, V>(applet: applet, colors: classes.first, input: input));
+    await tester.pumpWidget(AppletHost<S, A, V>(
+        applet: applet, colors: classes.first, input: input));
     await settleMotion(tester);
     final base = _geometry(tester);
     for (final colors in classes.skip(1)) {
-      await tester.pumpWidget(AppletHost<S, A, V>(applet: applet, colors: colors, input: input));
+      await tester.pumpWidget(
+          AppletHost<S, A, V>(applet: applet, colors: colors, input: input));
       await settleMotion(tester);
-      issues.addAll(_classIssues(base, _geometry(tester), colors.displayClass.name));
+      issues.addAll(
+          _classIssues(base, _geometry(tester), colors.displayClass.name));
     }
     // plan 0013 D7: a touch panel's board may also have no touchscreen
     // fitted (the compositor says touch=0): the same screen without the
     // touch floor must still fit, though a dense control is no fault there
     if (display.touch) {
-      await tester.pumpWidget(AppletHost<S, A, V>(applet: applet, input: const VrxInputFacts(touch: false)));
+      await tester.pumpWidget(AppletHost<S, A, V>(
+          applet: applet, input: const VrxInputFacts(touch: false)));
       await settleMotion(tester);
-      final dense = Display(display.name, display.width, display.height, display.widthMm, touch: false, turns: display.turns);
+      final dense = Display(
+          display.name, display.width, display.height, display.widthMm,
+          touch: false, turns: display.turns);
       issues.addAll([
-        for (final i in _inspect(tester, dense)) LayoutIssue(i.rule, 'without touch: ${i.what}', i.at),
+        for (final i in _inspect(tester, dense))
+          LayoutIssue(i.rule, 'without touch: ${i.what}', i.at),
       ]);
     }
   } finally {
@@ -173,9 +183,12 @@ Future<void> settleMotion(WidgetTester tester) async {
 /// left) holds no control and is fine. Call it while something moves.
 List<LayoutIssue> motionBlocksInput(WidgetTester tester) {
   final issues = <LayoutIssue>[];
-  bool blocks(Widget w) => (w is IgnorePointer && w.ignoring) || (w is AbsorbPointer && w.absorbing);
+  bool blocks(Widget w) =>
+      (w is IgnorePointer && w.ignoring) || (w is AbsorbPointer && w.absorbing);
   for (final e in find.byWidgetPredicate(blocks).evaluate()) {
-    final controls = find.descendant(of: find.byWidget(e.widget), matching: find.byWidgetPredicate(_answersTap));
+    final controls = find.descendant(
+        of: find.byWidget(e.widget),
+        matching: find.byWidgetPredicate(_answersTap));
     if (controls.evaluate().isEmpty) continue;
     final box = e.renderObject;
     issues.add(LayoutIssue(
@@ -203,14 +216,41 @@ List<LayoutIssue> unlabelledControls(WidgetTester tester) {
   final issues = <LayoutIssue>[];
   final dpr = tester.view.devicePixelRatio;
   void visit(SemanticsNode node, Matrix4 parent) {
-    final transform = node.transform == null ? parent : (parent.clone()..multiply(node.transform!));
+    final transform = node.transform == null
+        ? parent
+        : (parent.clone()..multiply(node.transform!));
     final data = node.getSemanticsData();
-    final words = '${data.label}${data.value}${data.tooltip}${data.hint}'.trim();
+    final words =
+        '${data.label}${data.value}${data.tooltip}${data.hint}'.trim();
     final hidden = data.flagsCollection.isHidden || node.isInvisible;
     if (data.hasAction(SemanticsAction.tap) && words.isEmpty && !hidden) {
       final r = MatrixUtils.transformRect(transform, node.rect);
-      issues.add(LayoutIssue('label', 'a control a person can tap has no label (G038)',
-          Rect.fromLTRB(r.left / dpr, r.top / dpr, r.right / dpr, r.bottom / dpr)));
+      issues.add(LayoutIssue(
+          'label',
+          'a control a person can tap has no label (G038)',
+          Rect.fromLTRB(
+              r.left / dpr, r.top / dpr, r.right / dpr, r.bottom / dpr)));
+    }
+    // a control takes the screen with it (owner, 2026-10-22): no
+    // tappable may cover more than 30% of the screen's area. Rows, wide
+    // action buttons and picker grids are screen-aware idioms and sit far
+    // under it; a control that ignores the screen's dimensions crosses it.
+    if (data.hasAction(SemanticsAction.tap) && !hidden && words.isNotEmpty) {
+      final r = MatrixUtils.transformRect(transform, node.rect);
+      final size = tester.view.physicalSize;
+      // full-width (a row, a wide button, a dismiss scrim) is the
+      // screen-aware idiom itself; the cap binds what is both wide and
+      // tall and centred
+      if (r.width < size.width * 0.75 &&
+          r.width * r.height > size.width * size.height * 0.30) {
+        final what = '"$words"';
+        issues.add(LayoutIssue(
+            'oversize',
+            '$what covers more than 30% of the screen '
+                '(${r.width.toStringAsFixed(0)}x${r.height.toStringAsFixed(0)} of ${size.width.toStringAsFixed(0)}x${size.height.toStringAsFixed(0)})',
+            Rect.fromLTRB(
+                r.left / dpr, r.top / dpr, r.right / dpr, r.bottom / dpr)));
+      }
     }
     node.visitChildren((child) {
       visit(child, transform);
@@ -224,7 +264,8 @@ List<LayoutIssue> unlabelledControls(WidgetTester tester) {
 
 /// Mount [applet] on [display] as runApplet would and leave it mounted,
 /// for a test's own measurements (proportions an applet promises).
-Future<void> shotLayout<S, A, V>(WidgetTester tester, Applet<S, A, V> applet, {Display? display}) async {
+Future<void> shotLayout<S, A, V>(WidgetTester tester, Applet<S, A, V> applet,
+    {Display? display}) async {
   display ??= disp28a;
   await loadVrxFonts();
   tester.view.physicalSize = Size(display.width, display.height);
@@ -242,9 +283,11 @@ Future<void> expectCleanLayout<S, A, V>(
   Future<void> Function(WidgetTester tester)? setUp,
 }) async {
   display ??= disp28a;
-  final issues = await checkApplet(tester, applet, display: display, setUp: setUp);
+  final issues =
+      await checkApplet(tester, applet, display: display, setUp: setUp);
   if (issues.isNotEmpty) {
-    fail('${issues.length} layout issue(s) on ${display.name}:\n  ${issues.join('\n  ')}');
+    fail(
+        '${issues.length} layout issue(s) on ${display.name}:\n  ${issues.join('\n  ')}');
   }
 }
 
@@ -279,7 +322,8 @@ Future<List<LayoutIssue>> checkStable<S, A, V>(
       final same = after.where((t) => t.$1 == what).toList();
       if (n >= same.length) continue; // gone: not a resize
       final now = same[n].$2;
-      if ((now.width - rect.width).abs() > _eps || (now.height - rect.height).abs() > _eps) {
+      if ((now.width - rect.width).abs() > _eps ||
+          (now.height - rect.height).abs() > _eps) {
         issues.add(LayoutIssue(
           'resized',
           '$what was ${_size(rect)} and is ${_size(now)}: a control under a finger changed size',
@@ -302,32 +346,52 @@ Future<void> expectStable<S, A, V>(
   required Future<void> Function(WidgetTester tester) change,
 }) async {
   display ??= disp28a;
-  final issues = await checkStable(tester, applet, display: display, actions: actions, change: change);
+  final issues = await checkStable(tester, applet,
+      display: display, actions: actions, change: change);
   if (issues.isNotEmpty) {
-    fail('${issues.length} control(s) resized on ${display.name}:\n  ${issues.join('\n  ')}');
+    fail(
+        '${issues.length} control(s) resized on ${display.name}:\n  ${issues.join('\n  ')}');
   }
 }
 
-String _size(Rect r) => '${r.width.toStringAsFixed(0)}x${r.height.toStringAsFixed(0)}';
+String _size(Rect r) =>
+    '${r.width.toStringAsFixed(0)}x${r.height.toStringAsFixed(0)}';
 
 /// Every tap target on screen, in order, by what it says.
 List<(String, Rect)> _targets(WidgetTester tester) => [
       for (final e in find.byWidgetPredicate(_answersTap).evaluate())
-        if (e.renderObject case final RenderBox box when box.attached && box.hasSize && !_offstage(e)) (_describe(e), _rectOf(box)),
+        if (e.renderObject case final RenderBox box
+            when box.attached && box.hasSize && !_offstage(e))
+          (_describe(e), _rectOf(box)),
     ];
 
 /// Where every text run and tap target sits, in order: what the class
 /// sweep compares (plan 0013 D11).
 List<(String, Rect)> _geometry(WidgetTester tester) => [
-      for (final e in find.byWidgetPredicate((w) => w is RichText || _answersTap(w)).evaluate())
-        if (e.renderObject case final RenderBox box when box.attached && box.hasSize && !_offstage(e))
-          (e.widget is RichText ? '"${(e.widget as RichText).text.toPlainText()}"' : _describe(e), _rectOf(box)),
+      for (final e in find
+          .byWidgetPredicate((w) => w is RichText || _answersTap(w))
+          .evaluate())
+        if (e.renderObject case final RenderBox box
+            when box.attached && box.hasSize && !_offstage(e))
+          (
+            e.widget is RichText
+                ? '"${(e.widget as RichText).text.toPlainText()}"'
+                : _describe(e),
+            _rectOf(box)
+          ),
     ];
 
-List<LayoutIssue> _classIssues(List<(String, Rect)> base, List<(String, Rect)> other, String cls) {
+List<LayoutIssue> _classIssues(
+    List<(String, Rect)> base, List<(String, Rect)> other, String cls) {
   if (base.length != other.length) {
-    final only = [for (final b in base) if (!other.any((o) => o.$1 == b.$1)) b.$1];
-    final extra = [for (final o in other) if (!base.any((b) => b.$1 == o.$1)) o.$1];
+    final only = [
+      for (final b in base)
+        if (!other.any((o) => o.$1 == b.$1)) b.$1
+    ];
+    final extra = [
+      for (final o in other)
+        if (!base.any((b) => b.$1 == o.$1)) o.$1
+    ];
     return [
       LayoutIssue(
         'class',
@@ -350,7 +414,8 @@ List<LayoutIssue> _classIssues(List<(String, Rect)> base, List<(String, Rect)> o
 
 /// A box's rect on the display, through every transform above it (a
 /// FittedBox's scale, a wheel's perspective).
-Rect _rectOf(RenderBox box) => MatrixUtils.transformRect(box.getTransformTo(null), Offset.zero & box.size);
+Rect _rectOf(RenderBox box) =>
+    MatrixUtils.transformRect(box.getTransformTo(null), Offset.zero & box.size);
 
 /// The part of [rect] a scrolling list shows: clipped to its viewport.
 /// Null when the element is in no scrolling list.
@@ -487,8 +552,10 @@ String _describe(Element e) {
 }
 
 bool _answersTap(Widget w) => switch (w) {
-      VrxPress(:final onTap, :final onLongPress) => onTap != null || onLongPress != null,
-      InkWell(:final onTap, :final onLongPress) => onTap != null || onLongPress != null,
+      VrxPress(:final onTap, :final onLongPress) =>
+        onTap != null || onLongPress != null,
+      InkWell(:final onTap, :final onLongPress) =>
+        onTap != null || onLongPress != null,
       GestureDetector(:final onTap, :final onLongPress, :final onPanStart) =>
         onTap != null || onLongPress != null || onPanStart != null,
       TextField() => true,
@@ -497,7 +564,8 @@ bool _answersTap(Widget w) => switch (w) {
 
 List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
   final issues = <LayoutIssue>[];
-  final screen = Offset.zero & tester.view.physicalSize / tester.view.devicePixelRatio;
+  final screen =
+      Offset.zero & tester.view.physicalSize / tester.view.devicePixelRatio;
 
   // ── scrollables ─────────────────────────────────────────────────────
   // CON-04 (review 2026-10-17): a scrollable's CONTENT may hold more
@@ -513,7 +581,8 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
     }
     if (viewport.isEmpty || _offstage(e)) continue;
     if (!_within(screen, viewport)) {
-      issues.add(LayoutIssue('off screen', 'a scrollable\'s viewport', viewport));
+      issues
+          .add(LayoutIssue('off screen', 'a scrollable\'s viewport', viewport));
     }
   }
 
@@ -523,12 +592,15 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
   // acts under it (the bench, disp28a, 2026-10-14: "Every applet closes"
   // and the rest scrolled out of a dialog with room to spare)
   for (final e in find.byType(VrxModalMessage).evaluate()) {
-    final scrollable = find.descendant(of: find.byWidget(e.widget), matching: find.byType(Scrollable));
+    final scrollable = find.descendant(
+        of: find.byWidget(e.widget), matching: find.byType(Scrollable));
     if (scrollable.evaluate().isEmpty) continue;
     final position = tester.state<ScrollableState>(scrollable.first).position;
-    if (!position.hasContentDimensions || position.maxScrollExtent <= 0.5) continue;
+    if (!position.hasContentDimensions || position.maxScrollExtent <= 0.5)
+      continue;
     final s = ScaledSpacing.of(e);
-    final client = screen.height - VrxShell.top.value / tester.view.devicePixelRatio;
+    final client =
+        screen.height - VrxShell.top.value / tester.view.devicePixelRatio;
     final content = position.viewportDimension + position.maxScrollExtent;
     // the fewest rows of acts the modal rule allows: Cancel and one act
     // share a row; two acts stack under Cancel
@@ -544,7 +616,13 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
     final touch = ScaledSpacing.minInteractive(e);
     // the message, a gap, the acts, the dialog's padding and frame, the
     // inset above and below
-    final needs = content + s.md + rows * touch + (rows - 1) * s.sm + 2 * s.md + 2 * Strokes.border + 2 * s.inset;
+    final needs = content +
+        s.md +
+        rows * touch +
+        (rows - 1) * s.sm +
+        2 * s.md +
+        2 * Strokes.border +
+        2 * s.inset;
     if (needs <= client) {
       final box = e.renderObject;
       issues.add(LayoutIssue(
@@ -566,7 +644,10 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
     // (a Flex child given zero height); text Offstage is not on screen
     if (box.size.isEmpty) {
       if (!_offstage(e) && !_under<VrxTruncates>(e)) {
-        issues.add(LayoutIssue('cut', '"$text" has no room (${box.size.width.toStringAsFixed(0)}x${box.size.height.toStringAsFixed(0)})', _rectOf(box)));
+        issues.add(LayoutIssue(
+            'cut',
+            '"$text" has no room (${box.size.width.toStringAsFixed(0)}x${box.size.height.toStringAsFixed(0)})',
+            _rectOf(box)));
       }
       continue;
     }
@@ -577,7 +658,8 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
     final rect = viewport == null ? whole : whole.intersect(viewport);
     if (rect.width <= 0 || rect.height <= 0) continue;
     texts.add((box, rect, text, scrolls));
-    if (box.didExceedMaxLines && !_under<VrxTruncates>(e)) issues.add(LayoutIssue('cut', '"$text"', rect));
+    if (box.didExceedMaxLines && !_under<VrxTruncates>(e))
+      issues.add(LayoutIssue('cut', '"$text"', rect));
     // a line that ends inside a word: the paragraph's own text laid out
     // again at the width it had, its line ends read back
     final painter = TextPainter(
@@ -587,12 +669,20 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
       maxLines: box.maxLines,
       textWidthBasis: box.textWidthBasis,
       textHeightBehavior: box.textHeightBehavior,
-    )..layout(maxWidth: box.constraints.maxWidth.isFinite ? box.constraints.maxWidth : box.size.width);
+    )..layout(
+        maxWidth: box.constraints.maxWidth.isFinite
+            ? box.constraints.maxWidth
+            : box.size.width);
     // taller than its box: clipped at the box's foot (no line limit
     // to exceed, so didExceedMaxLines never says so; bench, CM4,
     // 2026-10-14, the Assistant's empty state under a notice)
-    if (!box.didExceedMaxLines && painter.height > box.size.height + 0.5 && !_under<VrxTruncates>(e)) {
-      issues.add(LayoutIssue('cut', '"$text" is ${painter.height.toStringAsFixed(0)} tall in a ${box.size.height.toStringAsFixed(0)} box', rect));
+    if (!box.didExceedMaxLines &&
+        painter.height > box.size.height + 0.5 &&
+        !_under<VrxTruncates>(e)) {
+      issues.add(LayoutIssue(
+          'cut',
+          '"$text" is ${painter.height.toStringAsFixed(0)} tall in a ${box.size.height.toStringAsFixed(0)} box',
+          rect));
     }
     var pos = 0;
     while (pos < text.length) {
@@ -605,7 +695,8 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
       pos = end;
     }
     painter.dispose();
-    if (!scrolls && !_within(screen, rect)) issues.add(LayoutIssue('off screen', '"$text"', rect));
+    if (!scrolls && !_within(screen, rect))
+      issues.add(LayoutIssue('off screen', '"$text"', rect));
   }
   for (var i = 0; i < texts.length; i++) {
     for (var j = i + 1; j < texts.length; j++) {
@@ -615,7 +706,8 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
       // the shorter run's height is where the glyphs meet
       final shorter = a.height < b.height ? a.height : b.height;
       if (o.width > 1 && o.height > shorter / 4) {
-        issues.add(LayoutIssue('text over text', '"${texts[i].$3}" and "${texts[j].$3}"', o));
+        issues.add(LayoutIssue(
+            'text over text', '"${texts[i].$3}" and "${texts[j].$3}"', o));
       }
     }
   }
@@ -626,14 +718,17 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
     // a text field is one control, whatever detectors it builds inside
     if (_insideTextField(e) || _insideScrim(e)) continue;
     final box = e.renderObject;
-    if (box is! RenderBox || !box.attached || !box.hasSize || box.size.isEmpty) continue;
+    if (box is! RenderBox || !box.attached || !box.hasSize || box.size.isEmpty)
+      continue;
     final whole = _rectOf(box);
     final viewport = _viewportOf(e);
     final rect = viewport == null ? whole : whole.intersect(viewport);
     if (rect.width <= 0 || rect.height <= 0) continue;
     // a control's own detector (VrxPress builds a GestureDetector, a
     // field its own) is the same control, not a second one
-    if (targets.any((t) => _isAncestor(t.element, e) && (t.rect.deflate(_eps).overlaps(rect) && _same(t.rect, rect)))) {
+    if (targets.any((t) =>
+        _isAncestor(t.element, e) &&
+        (t.rect.deflate(_eps).overlaps(rect) && _same(t.rect, rect)))) {
       continue;
     }
     var keyboard = false;
@@ -647,50 +742,67 @@ List<LayoutIssue> _inspect(WidgetTester tester, Display display) {
       }
       return true;
     });
-    final t = _Target(e, rect, _describe(e), narrowOk: keyboard, shortOk: terminalKeys, wheel: _wheelOf(e));
+    final t = _Target(e, rect, _describe(e),
+        narrowOk: keyboard, shortOk: terminalKeys, wheel: _wheelOf(e));
     targets.add(t);
     // a list shows part of a row at its edge: size is the whole row's
     if (display.touch) {
       final rect = whole;
       if (rect.height + _eps < _touch && !t.shortOk) {
-        issues.add(LayoutIssue('small', '${t.what} is ${_mm(rect.height)}mm tall', rect));
+        issues.add(LayoutIssue(
+            'small', '${t.what} is ${_mm(rect.height)}mm tall', rect));
       } else if (rect.width + _eps < _touch && !t.narrowOk) {
-        issues.add(LayoutIssue('small', '${t.what} is ${_mm(rect.width)}mm wide', rect));
+        issues.add(LayoutIssue(
+            'small', '${t.what} is ${_mm(rect.width)}mm wide', rect));
       }
     }
-    if (viewport == null && !_within(screen, rect)) issues.add(LayoutIssue('off screen', t.what, rect));
+    if (viewport == null && !_within(screen, rect))
+      issues.add(LayoutIssue('off screen', t.what, rect));
   }
   for (var i = 0; i < targets.length; i++) {
     for (var j = i + 1; j < targets.length; j++) {
       final a = targets[i], b = targets[j];
       // a control inside another (a row's switch glyph) is its own part
-      if (_isAncestor(a.element, b.element) || _isAncestor(b.element, a.element)) continue;
+      if (_isAncestor(a.element, b.element) ||
+          _isAncestor(b.element, a.element)) continue;
       if (a.wheel != null && identical(a.wheel, b.wheel)) continue;
       final o = a.rect.intersect(b.rect);
       if (o.width > _eps && o.height > _eps) {
-        issues.add(LayoutIssue('target over target', '${a.what} and ${b.what}', o));
+        issues.add(
+            LayoutIssue('target over target', '${a.what} and ${b.what}', o));
         continue;
       }
       final gap = _gap(a.rect, b.rect);
       if (gap < _gutter - _eps && !_shareEdge(a.rect, b.rect)) {
-        issues.add(LayoutIssue('gutter', '${a.what} and ${b.what} are ${_mm(gap)}mm apart', a.rect.expandToInclude(b.rect)));
+        issues.add(LayoutIssue(
+            'gutter',
+            '${a.what} and ${b.what} are ${_mm(gap)}mm apart',
+            a.rect.expandToInclude(b.rect)));
       }
     }
   }
   return issues;
 }
 
-bool _isWordChar(String c) => RegExp(r'[\p{L}\p{N}]', unicode: true).hasMatch(c);
+bool _isWordChar(String c) =>
+    RegExp(r'[\p{L}\p{N}]', unicode: true).hasMatch(c);
 
-bool _within(Rect screen, Rect r) => screen.inflate(_eps).contains(r.topLeft) && screen.inflate(_eps).contains(r.bottomRight);
+bool _within(Rect screen, Rect r) =>
+    screen.inflate(_eps).contains(r.topLeft) &&
+    screen.inflate(_eps).contains(r.bottomRight);
 
 bool _same(Rect a, Rect b) =>
-    (a.left - b.left).abs() < 1 && (a.top - b.top).abs() < 1 && (a.width - b.width).abs() < 1 && (a.height - b.height).abs() < 1;
+    (a.left - b.left).abs() < 1 &&
+    (a.top - b.top).abs() < 1 &&
+    (a.width - b.width).abs() < 1 &&
+    (a.height - b.height).abs() < 1;
 
 /// The shortest distance between two rects that do not overlap.
 double _gap(Rect a, Rect b) {
-  final dx = [b.left - a.right, a.left - b.right, 0.0].reduce((x, y) => x > y ? x : y);
-  final dy = [b.top - a.bottom, a.top - b.bottom, 0.0].reduce((x, y) => x > y ? x : y);
+  final dx =
+      [b.left - a.right, a.left - b.right, 0.0].reduce((x, y) => x > y ? x : y);
+  final dy =
+      [b.top - a.bottom, a.top - b.bottom, 0.0].reduce((x, y) => x > y ? x : y);
   return dx > dy ? dx : dy;
 }
 
@@ -700,8 +812,10 @@ double _gap(Rect a, Rect b) {
 bool _shareEdge(Rect a, Rect b) {
   bool inside(double a0, double a1, double b0, double b1) =>
       (a0 >= b0 - 1.5 && a1 <= b1 + 1.5) || (b0 >= a0 - 1.5 && b1 <= a1 + 1.5);
-  final stacked = (b.top >= a.bottom - 1.5 || a.top >= b.bottom - 1.5) && inside(a.left, a.right, b.left, b.right);
-  final abreast = (b.left >= a.right - 1.5 || a.left >= b.right - 1.5) && inside(a.top, a.bottom, b.top, b.bottom);
+  final stacked = (b.top >= a.bottom - 1.5 || a.top >= b.bottom - 1.5) &&
+      inside(a.left, a.right, b.left, b.right);
+  final abreast = (b.left >= a.right - 1.5 || a.left >= b.right - 1.5) &&
+      inside(a.top, a.bottom, b.top, b.bottom);
   return stacked || abreast;
 }
 
@@ -711,5 +825,6 @@ String _mm(double logical) => (logical / mmToDp).toStringAsFixed(1);
 @visibleForTesting
 List<String> describeLayout(WidgetTester tester) => [
       for (final e in find.byWidgetPredicate(_answersTap).evaluate())
-        if (e.renderObject is RenderBox) '${_describe(e)} ${_rectOf(e.renderObject! as RenderBox)}',
+        if (e.renderObject is RenderBox)
+          '${_describe(e)} ${_rectOf(e.renderObject! as RenderBox)}',
     ];

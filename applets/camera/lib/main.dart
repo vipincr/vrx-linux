@@ -301,6 +301,7 @@ class _BottomBar extends StatelessWidget {
             Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
               _LastPhoto(view: view),
               _Shutter(
+                hero: true,
                 enabled: view.canCapture,
                 onTap: view.canCapture
                     ? () => unawaited(applet.capture(view.gen))
@@ -401,15 +402,19 @@ class _Message extends StatelessWidget {
 /// The shutter: a ring with a filled core, 1.5x the touch minimum
 /// across, its pressed and disabled states readable at a glance.
 class _Shutter extends StatelessWidget {
-  const _Shutter({required this.enabled, this.onTap});
+  const _Shutter({required this.enabled, this.onTap, this.hero = false});
 
   final bool enabled;
   final VoidCallback? onTap;
 
+  /// The one control allowed 1.2x the minimum (a phone camera's shutter
+  /// is its hero control); everything else is exactly the minimum.
+  final bool hero;
+
   @override
   Widget build(BuildContext context) {
     final colors = VrxTheme.of(context);
-    final d = _controlSize(context);
+    final d = _controlSize(context, factor: hero ? 1.2 : 1.0);
     final ring = Border.fromBorderSide(BorderSide(
       color:
           enabled ? colors.text : colors.textSecondary.withValues(alpha: 0.5),
@@ -516,10 +521,10 @@ class _Ask extends StatelessWidget {
   }
 }
 
-/// A control's size: 1.5x the touch minimum on a touch display (never
-/// under the minimum itself), an icon-and-a-half's worth when there are no
+/// A control's size: the touch minimum on a touch display (never
+/// under the minimum itself), an icon's worth when there are no
 /// fingers to serve (the chrome's own law for its Back).
-double _controlSize(BuildContext context, {double factor = 1.5}) {
+double _controlSize(BuildContext context, {double factor = 1.0}) {
   final touch = factor * ScaledSpacing.minInteractive(context);
   final icon = factor * 20.0 * VrxScale.of(context);
   return math.max(touch, icon);
